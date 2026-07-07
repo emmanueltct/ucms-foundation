@@ -1,0 +1,128 @@
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreateUserDto } from './dto/create-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+
+const BCRYPT_ROUNDS = 12;
+
+@Injectable()
+export class UsersService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async create(tenantId: string, dto: CreateUserDto) {
+    const existing = await this.prisma.user.findUnique({
+      where: { tenantId_email: { tenantId, email: dto.email.toLowerCase() } },
+    });
+    if (existing) {
+      throw new ConflictException({ code: 'EMAIL_TAKEN', message: 'Email already in use for this church.' });
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+
+    return this.prisma.user.create({
+      data: {
+        tenantId,
+        email: dto.email.toLowerCase(),
+        passwordHash,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        userRoles: dto.roleIds ? { create: dto.roleIds.map((roleId) => ({ roleId })) } : undefined,
+      },
+      select: this.publicSelect(),
+    });
+  }
+
+  async findAll(tenantId: string, query: PaginationQueryDto) {
+    const where = {
+      tenantId,
+      deletedAt: null,
+      ...(query.search
+        ? {
+            OR: [
+              { firstName: { contains: query.search, mode: 'insensitive' as const } },
+              { lastName: { contains: query.search, mode: 'insensitive' as const } },
+              { email: { contains: query.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip: query.skip,
+        take: query.take,
+        orderBy: query.sortBy ? { [query.sortBy]: query.sortDir } : { createdAt: 'desc' },
+        select: this.publicSelect(),
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
+  }
+
+  async findOne(tenantId: string, id: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      select: this.publicSelect(),
+    });
+    if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND', message: 'User not found.' });
+    return user;
+  }
+
+  async update(tenantId: string, id: string, dto: UpdateUserDto) {
+    await this.findOne(tenantId, id);
+    const { roleIds, ...rest } = dto;
+
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(roleIds
+          ? { userRoles: { deleteMany: {}, create: roleIds.map((roleId) => ({ roleId })) } }
+          : {}),
+      },
+      select: this.publicSelect(),
+    });
+  }
+
+  async assignRoles(tenantId: string, id: string, roleIds: string[]) {
+    await this.findOne(tenantId, id);
+    await this.prisma.userRole.deleteMany({ where: { userId: id } });
+    await this.prisma.userRole.createMany({ data: roleIds.map((roleId) => ({ userId: id, roleId })) });
+    return this.findOne(tenantId, id);
+  }
+
+  async deactivate(tenantId: string, id: string) {
+    await this.findOne(tenantId, id);
+    return this.prisma.user.update({ where: { id }, data: { isActive: false }, select: this.publicSelect() });
+  }
+
+  async softDelete(tenantId: string, id: string) {
+    await this.findOne(tenantId, id);
+    return this.prisma.user.update({
+      where: { id },
+      data: { deletedAt: new Date(), isActive: false },
+      select: this.publicSelect(),
+    });
+  }
+
+  /** Never leak passwordHash / mfaSecret over the API. */
+  private publicSelect() {
+    return {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      phone: true,
+      isActive: true,
+      mfaEnabled: true,
+      lastLoginAt: true,
+      createdAt: true,
+      userRoles: { select: { role: { select: { id: true, name: true } } } },
+    };
+  }
+}

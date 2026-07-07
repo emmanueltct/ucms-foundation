@@ -1,0 +1,316 @@
+// ============================================================================
+// UCMS - Foundation Module Prisma Schema
+// Multi-tenancy, Auth (RBAC/PBAC), and the Configuration Engine
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ----------------------------------------------------------------------------
+// TENANT
+// ----------------------------------------------------------------------------
+model Tenant {
+  id               String    @id @default(uuid())
+  name             String
+  slug             String    @unique
+  customDomain     String?   @unique @map("custom_domain")
+  logoUrl          String?   @map("logo_url")
+  themeConfig      Json?     @map("theme_config")
+  currency         String    @default("RWF")
+  language         String    @default("en")
+  timezone         String    @default("Africa/Kigali")
+  subscriptionPlan String    @default("free") @map("subscription_plan")
+  isActive         Boolean   @default(true) @map("is_active")
+  onboardedAt      DateTime? @map("onboarded_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  users          User[]
+  roles          Role[]
+  configItems    ConfigItem[]
+  featureToggles FeatureToggle[]
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+  branches       Branch[]
+  members        Member[]
+  families       Family[]
+
+  @@map("tenants")
+}
+
+// ----------------------------------------------------------------------------
+// USERS
+// ----------------------------------------------------------------------------
+model User {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  email        String
+  passwordHash String    @map("password_hash")
+  firstName    String    @map("first_name")
+  lastName     String    @map("last_name")
+  phone        String?
+  isActive     Boolean   @default(true) @map("is_active")
+  mfaEnabled   Boolean   @default(false) @map("mfa_enabled")
+  mfaSecret    String?   @map("mfa_secret")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  userRoles     UserRole[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+// ----------------------------------------------------------------------------
+// ROLES / PERMISSIONS (RBAC + PBAC)
+// ----------------------------------------------------------------------------
+model Role {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+/// Global, platform-versioned catalog of permission codes.
+/// New modules add rows here via migration; tenants only ever attach
+/// existing codes to their own roles.
+model Permission {
+  id          String  @id @default(uuid())
+  code        String  @unique // e.g. "finance.contribution.create"
+  module      String // e.g. "finance"
+  description String?
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String     @map("role_id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String     @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId String @map("role_id")
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_roles")
+}
+
+// ----------------------------------------------------------------------------
+// AUTH SESSIONS
+// ----------------------------------------------------------------------------
+model RefreshToken {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  userId     String    @map("user_id")
+  user       User      @relation(fields: [userId], references: [id])
+  tokenHash  String    @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  replacedBy String?   @map("replaced_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([tenantId])
+  @@map("refresh_tokens")
+}
+
+// ----------------------------------------------------------------------------
+// CONFIGURATION ENGINE (generic — powers ministries, contribution types,
+// ceremony names, membership categories, etc. for every future module)
+// ----------------------------------------------------------------------------
+model ConfigItem {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  namespace String // "ministry" | "contribution_type" | "ceremony" | "membership_category" | ...
+  key       String // stable machine key, e.g. "tithe"
+  label     String // human display label, e.g. "Tithe"
+  value     Json // arbitrary shape, owned by the consuming module
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, namespace, key])
+  @@index([tenantId, namespace])
+  @@map("config_items")
+}
+
+model FeatureToggle {
+  id         String  @id @default(uuid())
+  tenantId   String  @map("tenant_id")
+  tenant     Tenant  @relation(fields: [tenantId], references: [id])
+  featureKey String  @map("feature_key")
+  isEnabled  Boolean @default(false) @map("is_enabled")
+
+  @@unique([tenantId, featureKey])
+  @@map("feature_toggles")
+}
+
+// ----------------------------------------------------------------------------
+// CHURCH & HIERARCHY MANAGEMENT
+// ----------------------------------------------------------------------------
+
+/// A tenant's organizational hierarchy, modeled as a single self-referencing
+/// tree of arbitrary depth so it can represent anything from a Catholic
+/// diocese -> parish -> branch structure to a flat, single-location
+/// independent church. Denomination-specific labels ("Diocese", "Parish",
+/// "District", "Cell") are NOT modeled as an enum here — `branchType` is a
+/// free-form key that a tenant defines via the Configuration Engine
+/// (ConfigItem, namespace "branch_type"), consistent with the Foundation
+/// module's rule that new "types" belong in the config engine, not a schema
+/// change.
+model Branch {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  parentBranchId String?   @map("parent_branch_id")
+  parentBranch   Branch?   @relation("BranchHierarchy", fields: [parentBranchId], references: [id])
+  childBranches  Branch[]  @relation("BranchHierarchy")
+  name           String
+  branchType     String?   @map("branch_type") // e.g. "parish", "district" — a ConfigItem key in namespace "branch_type"
+  code           String?
+  address        String?
+  isHeadquarters Boolean   @default(false) @map("is_headquarters")
+  isActive       Boolean   @default(true) @map("is_active")
+  sortOrder      Int       @default(0) @map("sort_order")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  members Member[]
+
+  @@index([tenantId])
+  @@index([tenantId, parentBranchId])
+  @@map("branches")
+}
+
+// ----------------------------------------------------------------------------
+// MEMBER & FAMILY MANAGEMENT
+// ----------------------------------------------------------------------------
+
+/// A household grouping members together. Flat (no self-reference, unlike
+/// Branch) — a family is a label members point to, not a hierarchy. See
+/// docs/member-management/business-analysis.md for why deactivating a family
+/// intentionally does NOT cascade to its members (contrast with Branch).
+model Family {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  tenant         Tenant    @relation(fields: [tenantId], references: [id])
+  name           String
+  address        String?
+  phone          String?
+  headOfFamilyId String?   @unique @map("head_of_family_id")
+  headOfFamily   Member?   @relation("FamilyHead", fields: [headOfFamilyId], references: [id])
+  notes          String?
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  members Member[] @relation("FamilyMembers")
+
+  @@index([tenantId])
+  @@map("families")
+}
+
+/// A person's membership profile, attached to exactly one Branch (Module 1)
+/// and optionally grouped into a Family. `membershipCategory` is a free-form
+/// ConfigItem key (namespace "membership_category") per the Foundation
+/// module's "new types belong in the Configuration Engine" rule;
+/// `membershipStatus` is a small fixed lifecycle enum instead, since later
+/// modules (Attendance, Finance) reason structurally about it.
+model Member {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  branchId           String    @map("branch_id")
+  branch             Branch    @relation(fields: [branchId], references: [id])
+  familyId           String?   @map("family_id")
+  family             Family?   @relation("FamilyMembers", fields: [familyId], references: [id])
+  familyRole         String?   @map("family_role") // "head" | "spouse" | "child" | "dependent" | "other"
+  membershipNumber   String?   @map("membership_number")
+  firstName          String    @map("first_name")
+  lastName           String    @map("last_name")
+  gender             String?
+  dateOfBirth        DateTime? @map("date_of_birth")
+  phone              String?
+  email              String?
+  address            String?
+  maritalStatus      String?   @map("marital_status")
+  membershipCategory String?   @map("membership_category") // ConfigItem key, namespace "membership_category"
+  membershipStatus   String    @default("active") @map("membership_status") // "active" | "inactive" | "transferred" | "deceased"
+  joinedAt           DateTime? @map("joined_at")
+  baptismDate        DateTime? @map("baptism_date")
+  photoUrl           String?   @map("photo_url")
+  notes              String?
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  headOfFamilyFor Family? @relation("FamilyHead")
+
+  @@unique([tenantId, membershipNumber])
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, familyId])
+  @@map("members")
+}
+
+// ----------------------------------------------------------------------------
+// AUDIT LOG
+// ----------------------------------------------------------------------------
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String // e.g. "auth.login", "role.updated", "config.created"
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}

@@ -1,0 +1,33 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsArray, IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+
+export class CreateUserDto {
+  @ApiProperty({ example: 'member@demo-church.test' })
+  @IsEmail()
+  email: string;
+
+  @ApiProperty({ example: 'ChangeMe123', minLength: 8 })
+  @IsString()
+  @MinLength(8)
+  @Matches(/(?=.*[A-Za-z])(?=.*\d)/, { message: 'Password must contain at least one letter and one number.' })
+  password: string;
+
+  @ApiProperty({ example: 'Jane' })
+  @IsString()
+  firstName: string;
+
+  @ApiProperty({ example: 'Doe' })
+  @IsString()
+  lastName: string;
+
+  @ApiPropertyOptional({ example: '+250788123456' })
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional({ type: [String], description: 'Role IDs to assign on creation' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  roleIds?: string[];
+}

@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Env files (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# Backend build output
+backend/dist/
+
+# Frontend build output
+frontend/.next/
+frontend/out/
+
+# Flutter / mobile build output
+mobile/build/
+mobile/.dart_tool/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
