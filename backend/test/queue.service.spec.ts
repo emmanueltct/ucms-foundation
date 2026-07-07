@@ -20,6 +20,7 @@ describe('QueueService', () => {
     mockQueue.add.mockResolvedValue({ id: 'job-1' });
 
     await service.enqueueNotification({
+      notificationId: 'notif-1',
       tenantId: 'tenant-1',
       channel: 'email',
       recipient: 'member@demo-church.test',

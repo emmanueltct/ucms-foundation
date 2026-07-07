@@ -385,6 +385,41 @@ export const ministryMembershipsApi = {
     apiRequest<MinistryMembership>(`/ministry-memberships/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface Notification {
+  id: string;
+  channel: 'email' | 'sms' | 'push';
+  recipientMemberId: string | null;
+  recipient: string;
+  subject: string | null;
+  body: string;
+  status: 'queued' | 'sent' | 'failed';
+  errorMessage: string | null;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+export interface CreateNotificationInput {
+  channel: 'email' | 'sms' | 'push';
+  memberId?: string;
+  recipient?: string;
+  subject?: string;
+  body: string;
+}
+
+export const notificationsApi = {
+  list: (tenantSlug: string, params: { channel?: string; status?: string; memberId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.channel) qs.set('channel', params.channel);
+    if (params.status) qs.set('status', params.status);
+    if (params.memberId) qs.set('memberId', params.memberId);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<Notification[]>(`/notifications?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, notification: CreateNotificationInput) =>
+    apiRequest<Notification>('/notifications', { method: 'POST', tenantSlug, auth: true, body: notification }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;

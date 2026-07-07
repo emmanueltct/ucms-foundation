@@ -45,6 +45,7 @@ model Tenant {
   attendanceRecords  AttendanceRecord[]
   ministries         Ministry[]
   ministryMemberships MinistryMembership[]
+  notifications      Notification[]
 
   @@map("tenants")
 }
@@ -75,6 +76,7 @@ model User {
   recordedContributions Contribution[]     @relation("ContributionRecordedBy")
   voidedContributions   Contribution[]     @relation("ContributionVoidedBy")
   recordedAttendance    AttendanceRecord[] @relation("AttendanceRecordedBy")
+  createdNotifications  Notification[]     @relation("NotificationCreatedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -300,6 +302,7 @@ model Member {
   contributions       Contribution[]
   attendanceRecords   AttendanceRecord[]
   ministryMemberships MinistryMembership[]
+  notifications       Notification[]
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
@@ -448,6 +451,42 @@ model MinistryMembership {
   @@index([tenantId, ministryId])
   @@index([tenantId, memberId])
   @@map("ministry_memberships")
+}
+
+// ----------------------------------------------------------------------------
+// COMMUNICATION
+// ----------------------------------------------------------------------------
+
+/// A record of a notification sent (or attempted) through one channel — see
+/// docs/communication/business-analysis.md. `recipient` is always a concrete
+/// address (an email, a phone number, a push token): either supplied
+/// directly, or resolved from `recipientMemberId`'s `email`/`phone` at
+/// creation time, so the record stays accurate even if the member's contact
+/// info later changes. Actual delivery goes through the existing
+/// QueueModule/BullMQ pipeline (`backend/src/queue/`); `status` is updated
+/// by `NotificationsProcessor` once the (stubbed) send attempt completes.
+model Notification {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  channel          String // "email" | "sms" | "push"
+  recipientMemberId String?  @map("recipient_member_id")
+  recipientMember  Member?   @relation(fields: [recipientMemberId], references: [id])
+  recipient        String // resolved concrete address/token
+  subject          String?
+  body             String
+  status           String    @default("queued") // "queued" | "sent" | "failed"
+  errorMessage     String?   @map("error_message")
+  sentAt           DateTime? @map("sent_at")
+  createdByUserId  String?   @map("created_by_user_id")
+  createdByUser    User?     @relation("NotificationCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([tenantId, recipientMemberId])
+  @@index([tenantId, status])
+  @@map("notifications")
 }
 
 // ----------------------------------------------------------------------------

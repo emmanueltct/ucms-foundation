@@ -1,12 +1,12 @@
-# UCMS — Foundation, Church Hierarchy, Member Management, Finance, Attendance & Ministry
+# UCMS — Foundation through Communication (Modules 0-6)
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
-Hierarchy Management, Member & Family Management, Finance, Attendance, and Ministry &
-Volunteer Management for the Unified Church Management System. Module 0 (Foundation),
-Module 1 (Church & Hierarchy), Module 2 (Member & Family Management), Module 3
-(Finance), Module 4 (Attendance), and Module 5 (Ministry & Volunteer Management) are
-complete — everything else (Communication, Events, HR, ...) builds on top of what's
-here.
+Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
+Volunteer Management, and Communication for the Unified Church Management System.
+Module 0 (Foundation), Module 1 (Church & Hierarchy), Module 2 (Member & Family
+Management), Module 3 (Finance), Module 4 (Attendance), Module 5 (Ministry &
+Volunteer Management), and Module 6 (Communication) are complete — everything else
+(Events, HR & Payroll, Reports, ...) builds on top of what's here.
 
 ## What's included
 
@@ -20,11 +20,12 @@ docs/
   finance/                     Module 3 docs (business analysis, FRs, API design)
   attendance/                  Module 4 docs (business analysis, FRs, API design)
   ministry/                    Module 5 docs (business analysis, FRs, API design)
+  communication/               Module 6 docs (business analysis, FRs, API design)
 
 prisma/
   schema.prisma                Tenant, User, Role, Permission, ConfigItem, Branch, Member,
                                 Family, Contribution, AttendanceRecord, Ministry,
-                                MinistryMembership, ...
+                                MinistryMembership, Notification, ...
 
 backend/                       NestJS API
   src/
@@ -32,8 +33,9 @@ backend/                       NestJS API
                                 AsyncLocalStorage tenant-context store
     prisma/                    PrismaService + tenant-scoping Client Extension
                                 (auto-scopes/enforces tenantId on every query)
-    queue/                     BullMQ/Redis queue wiring (notifications skeleton
-                                for the future Communication module)
+    queue/                     BullMQ/Redis queue wiring; NotificationsProcessor now
+                                updates Notification.status (sent/failed) on completion —
+                                the first real consumer of this pipeline
     storage/                   S3-compatible object storage (logos, photos,
                                 receipts, asset docs)
     auth/                      register/login/refresh/logout, JWT strategies,
@@ -59,6 +61,10 @@ backend/                       NestJS API
                                 memberships (Member<->Ministry with a role — leadership is
                                 just a role value, not a denormalized field); deleting a
                                 ministry deactivates its memberships
+    communication/             Notification history (email/sms/push) — creates a durable
+                                record, then dispatches async via the queue; recipient
+                                resolves from an explicit address or a member's profile;
+                                real gateway delivery is a documented stub
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -71,7 +77,8 @@ backend/                       NestJS API
                                 headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
-                                tenant profile, finance, attendance, ministries) + e2e auth flow
+                                tenant profile, finance, attendance, ministries,
+                                notifications) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -82,6 +89,7 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/finance/page.tsx     Church Admin UI for recording/voiding contributions
   app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
   app/admin/ministries/page.tsx  Church Admin UI for ministries and volunteer rosters
+  app/admin/notifications/page.tsx Church Admin UI for sending/reviewing notifications
   app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
   components/ui/                shadcn/ui components (button, input, label, card)
   lib/api.ts                     Typed fetch client (standard envelope + tenant header)
@@ -114,10 +122,14 @@ npm run prisma:seed          # creates the permission catalog + demo-church tena
 npm run start:dev            # http://localhost:3000/api/v1 (Swagger: /api/docs)
 ```
 
-Redis and an S3-compatible store (MinIO locally) are required for the queue
-and storage modules to connect on boot — see `.env.example` for the expected
-`REDIS_URL`/`S3_*` variables. The API itself still starts without them; only
-notification jobs and file uploads need them running.
+**Redis must be reachable for the API to start at all** — `QueueModule`
+registers a BullMQ queue at boot, and without Redis the app hangs
+indefinitely rather than failing fast (a rough edge worth hardening later).
+See `.env.example` for `REDIS_URL`. On Windows without Docker, the least-
+friction option is [Memurai](https://www.memurai.com/get-memurai) (installs
+as a native Windows service on port 6379); WSL2 + `redis-server` also works.
+An S3-compatible store (MinIO locally) does *not* block startup — the S3
+client only connects when something actually uploads/downloads a file.
 
 Demo login (from the seed script): tenant `demo-church`,
 `admin@demo-church.test` / `ChangeMe123`.
@@ -134,7 +146,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -231,10 +243,24 @@ npm run test:e2e             # requires a migrated + seeded test database
     head (worth a unique FK + auto-clear logic), but a ministry can
     reasonably have co-leaders, so a plain role value with no uniqueness
     constraint is the better fit. See `docs/ministry/business-analysis.md`.
+15. **A record's status can change after creation from outside any HTTP
+    request — that worker code needs its own tenant-scoping discipline.**
+    `NotificationsProcessor` runs as a BullMQ job handler, not behind
+    `TenantContextMiddleware`, so the `AsyncLocalStorage` context the Prisma
+    tenant-scoping extension reads is simply absent there. It passes
+    `tenantId` explicitly in every `where` clause instead of relying on the
+    extension's auto-injection. Any future queue-driven worker needs the
+    same discipline — the extension only protects code that runs inside a
+    request.
+16. **A stubbed integration should have exactly one seam, clearly marked.**
+    `NotificationsProcessor.process` is the single place a real SMS/Email/
+    Push gateway call would go; everything around it (the `Notification`
+    record, the queue, the status transitions, the API) is fully real and
+    already tested. When wiring a real provider later, only that one method
+    should need to change.
 
 ## Next module
 
-Per the intended build order: **Communication** (SMS, Email, Push
-Notifications) is next — it can finally make real use of the
-`QueueModule`/BullMQ wiring that's been sitting ready since the Foundation
-module's infra pass. **Events** and **HR & Payroll** follow after that.
+Per the intended build order: **Events** is next — event scheduling and
+registration, likely reusing `Notification` to confirm/remind registrants.
+**HR & Payroll** and **Reports & Analytics** follow after that.

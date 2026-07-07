@@ -67,6 +67,9 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'ministry.membership.read', module: 'ministry', description: 'View ministry memberships' },
   { code: 'ministry.membership.update', module: 'ministry', description: "Change a member's role within a ministry" },
   { code: 'ministry.membership.delete', module: 'ministry', description: 'Remove a member from a ministry' },
+
+  { code: 'communication.notification.create', module: 'communication', description: 'Send a notification (email/sms/push)' },
+  { code: 'communication.notification.read', module: 'communication', description: 'View notification history' },
 ];
 
 async function main() {
