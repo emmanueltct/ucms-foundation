@@ -1,11 +1,12 @@
-# UCMS — Foundation, Church Hierarchy, Member Management, Finance & Attendance
+# UCMS — Foundation, Church Hierarchy, Member Management, Finance, Attendance & Ministry
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
-Hierarchy Management, Member & Family Management, Finance, and Attendance for the
-Unified Church Management System. Module 0 (Foundation), Module 1 (Church &
-Hierarchy), Module 2 (Member & Family Management), Module 3 (Finance), and Module 4
-(Attendance) are complete — everything else (Ministry & Volunteer Management,
-Communication, ...) builds on top of what's here.
+Hierarchy Management, Member & Family Management, Finance, Attendance, and Ministry &
+Volunteer Management for the Unified Church Management System. Module 0 (Foundation),
+Module 1 (Church & Hierarchy), Module 2 (Member & Family Management), Module 3
+(Finance), Module 4 (Attendance), and Module 5 (Ministry & Volunteer Management) are
+complete — everything else (Communication, Events, HR, ...) builds on top of what's
+here.
 
 ## What's included
 
@@ -18,10 +19,12 @@ docs/
   member-management/           Module 2 docs (business analysis, FRs, API design)
   finance/                     Module 3 docs (business analysis, FRs, API design)
   attendance/                  Module 4 docs (business analysis, FRs, API design)
+  ministry/                    Module 5 docs (business analysis, FRs, API design)
 
 prisma/
   schema.prisma                Tenant, User, Role, Permission, ConfigItem, Branch, Member,
-                                Family, Contribution, AttendanceRecord, ...
+                                Family, Contribution, AttendanceRecord, Ministry,
+                                MinistryMembership, ...
 
 backend/                       NestJS API
   src/
@@ -52,6 +55,10 @@ backend/                       NestJS API
                                 counts as 1) or an anonymous head-count; corrected in place
                                 or soft-deleted (plain rule, unlike Finance's void-only one);
                                 totals-by-service-type summary endpoint
+    ministries/                Ministries (flat, optionally branch-scoped) + volunteer
+                                memberships (Member<->Ministry with a role — leadership is
+                                just a role value, not a denormalized field); deleting a
+                                ministry deactivates its memberships
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -60,10 +67,11 @@ backend/                       NestJS API
                                 categories, feature toggles — all as data)
   prisma/seed.ts                Seeds the permission catalog, a demo tenant, branch
                                 types, membership categories, contribution types, service
-                                types, attendance methods, and a headquarters branch
+                                types, attendance methods, ministry types, and a
+                                headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
-                                tenant profile, finance, attendance) + e2e auth flow
+                                tenant profile, finance, attendance, ministries) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -73,6 +81,7 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/members/page.tsx     Church Admin UI for members (create, search, transfer)
   app/admin/finance/page.tsx     Church Admin UI for recording/voiding contributions
   app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
+  app/admin/ministries/page.tsx  Church Admin UI for ministries and volunteer rosters
   app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
   components/ui/                shadcn/ui components (button, input, label, card)
   lib/api.ts                     Typed fetch client (standard envelope + tenant header)
@@ -125,7 +134,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -208,11 +217,24 @@ npm run test:e2e             # requires a migrated + seeded test database
     (`headcount` forced to 1 vs. required and caller-supplied) and exempts
     the record from the duplicate-check uniqueness rule (FR-ATT-1.6) that
     applies to named check-ins.
+13. **Ministries stayed flat — the tree pattern isn't reused everywhere just
+    because it exists.** `Ministry` doesn't borrow `Branch`'s self-referencing
+    tree; nothing in the platform's brief calls for sub-ministry nesting the
+    way Church & Hierarchy explicitly does for branches, so it's a flat
+    entity like `Family`. Reuse a pattern because a module's actual
+    requirements call for it, not merely because a similar-looking one
+    exists elsewhere.
+14. **A many-to-many relationship's "special" side is a role value, not a
+    denormalized column.** `MinistryMembership.role = "leader"` marks
+    leadership — there's no `Ministry.leaderId` the way `Family` has
+    `headOfFamilyId`. The difference: a family can only reasonably have one
+    head (worth a unique FK + auto-clear logic), but a ministry can
+    reasonably have co-leaders, so a plain role value with no uniqueness
+    constraint is the better fit. See `docs/ministry/business-analysis.md`.
 
 ## Next module
 
-Per the intended build order: **Ministry & Volunteer Management** is next —
-ministry structure, ministry membership, and volunteer scheduling, following
-the same patterns established here (either reusing Branch's tree pattern or
-the plain Configuration Engine, depending on how much hierarchy ministries
-actually need — a decision deferred to that module).
+Per the intended build order: **Communication** (SMS, Email, Push
+Notifications) is next — it can finally make real use of the
+`QueueModule`/BullMQ wiring that's been sitting ready since the Foundation
+module's infra pass. **Events** and **HR & Payroll** follow after that.

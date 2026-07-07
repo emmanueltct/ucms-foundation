@@ -329,6 +329,62 @@ export const attendanceApi = {
     apiRequest<AttendanceRecord>(`/attendance-records/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface Ministry {
+  id: string;
+  branchId: string | null;
+  name: string;
+  ministryType: string | null;
+  description: string | null;
+  isActive: boolean;
+}
+
+export interface MinistryMembership {
+  id: string;
+  ministryId: string;
+  memberId: string;
+  role: string;
+  joinedAt: string | null;
+  isActive: boolean;
+}
+
+export interface CreateMinistryInput {
+  name: string;
+  branchId?: string;
+  ministryType?: string;
+  description?: string;
+}
+
+export const ministriesApi = {
+  list: (tenantSlug: string, params: { branchId?: string; ministryType?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.ministryType) qs.set('ministryType', params.ministryType);
+    if (params.search) qs.set('search', params.search);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<Ministry[]>(`/ministries?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, ministry: CreateMinistryInput) =>
+    apiRequest<Ministry>('/ministries', { method: 'POST', tenantSlug, auth: true, body: ministry }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<Ministry>(`/ministries/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export const ministryMembershipsApi = {
+  list: (tenantSlug: string, params: { ministryId?: string; memberId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.ministryId) qs.set('ministryId', params.ministryId);
+    if (params.memberId) qs.set('memberId', params.memberId);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<MinistryMembership[]>(`/ministry-memberships?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, membership: { ministryId: string; memberId: string; role?: string }) =>
+    apiRequest<MinistryMembership>('/ministry-memberships', { method: 'POST', tenantSlug, auth: true, body: membership }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<MinistryMembership>(`/ministry-memberships/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;

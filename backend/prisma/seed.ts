@@ -58,6 +58,15 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'attendance.record.read', module: 'attendance', description: 'View attendance records and summaries' },
   { code: 'attendance.record.update', module: 'attendance', description: 'Correct an attendance record' },
   { code: 'attendance.record.delete', module: 'attendance', description: 'Soft-delete an attendance record' },
+
+  { code: 'ministry.create', module: 'ministry', description: 'Create a ministry' },
+  { code: 'ministry.read', module: 'ministry', description: 'View ministries' },
+  { code: 'ministry.update', module: 'ministry', description: 'Edit a ministry' },
+  { code: 'ministry.delete', module: 'ministry', description: 'Soft-delete a ministry' },
+  { code: 'ministry.membership.create', module: 'ministry', description: 'Add a member to a ministry' },
+  { code: 'ministry.membership.read', module: 'ministry', description: 'View ministry memberships' },
+  { code: 'ministry.membership.update', module: 'ministry', description: "Change a member's role within a ministry" },
+  { code: 'ministry.membership.delete', module: 'ministry', description: 'Remove a member from a ministry' },
 ];
 
 async function main() {
@@ -187,6 +196,21 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'attendance_method', key: am.key } },
       create: { tenantId: tenant.id, namespace: 'attendance_method', key: am.key, label: am.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (ministry types)...');
+  const ministryTypes = [
+    { key: 'youth', label: 'Youth Ministry' },
+    { key: 'choir', label: 'Choir / Worship Team' },
+    { key: 'ushering', label: 'Ushering' },
+    { key: 'missions', label: 'Missions & Outreach' },
+  ];
+  for (const [i, mt] of ministryTypes.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'ministry_type', key: mt.key } },
+      create: { tenantId: tenant.id, namespace: 'ministry_type', key: mt.key, label: mt.label, value: {}, sortOrder: i },
       update: {},
     });
   }

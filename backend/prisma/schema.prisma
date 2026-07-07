@@ -38,11 +38,13 @@ model Tenant {
   featureToggles FeatureToggle[]
   refreshTokens  RefreshToken[]
   auditLogs      AuditLog[]
-  branches          Branch[]
-  members           Member[]
-  families          Family[]
-  contributions     Contribution[]
-  attendanceRecords AttendanceRecord[]
+  branches           Branch[]
+  members            Member[]
+  families           Family[]
+  contributions      Contribution[]
+  attendanceRecords  AttendanceRecord[]
+  ministries         Ministry[]
+  ministryMemberships MinistryMembership[]
 
   @@map("tenants")
 }
@@ -223,6 +225,7 @@ model Branch {
   members           Member[]
   contributions     Contribution[]
   attendanceRecords AttendanceRecord[]
+  ministries        Ministry[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -293,9 +296,10 @@ model Member {
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  headOfFamilyFor   Family?            @relation("FamilyHead")
-  contributions     Contribution[]
-  attendanceRecords AttendanceRecord[]
+  headOfFamilyFor     Family?              @relation("FamilyHead")
+  contributions       Contribution[]
+  attendanceRecords   AttendanceRecord[]
+  ministryMemberships MinistryMembership[]
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
@@ -385,6 +389,65 @@ model AttendanceRecord {
   @@index([tenantId, memberId])
   @@index([tenantId, attendedAt])
   @@map("attendance_records")
+}
+
+// ----------------------------------------------------------------------------
+// MINISTRY & VOLUNTEER MANAGEMENT
+// ----------------------------------------------------------------------------
+
+/// A ministry (Youth, Choir, Ushering, ...) — see
+/// docs/ministry/business-analysis.md. Flat, like Family (no self-reference):
+/// nothing in the platform's brief calls for sub-ministry nesting the way
+/// Church & Hierarchy explicitly does for branches, so this doesn't borrow
+/// Branch's tree pattern. `ministryType` is a free-form ConfigItem key
+/// (namespace "ministry_type"), same rule as everywhere else. `branchId` is
+/// optional: a ministry may be church-wide (null) or scoped to one branch.
+model Ministry {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  branchId     String?   @map("branch_id")
+  branch       Branch?   @relation(fields: [branchId], references: [id])
+  name         String
+  ministryType String?   @map("ministry_type") // ConfigItem key, namespace "ministry_type"
+  description  String?
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  memberships MinistryMembership[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@map("ministries")
+}
+
+/// A member's volunteer assignment to a ministry. Unlike Family's
+/// `headOfFamilyId`, leadership is NOT a denormalized field on `Ministry` —
+/// it's just `role: "leader"` here, since (unlike a family's single head) a
+/// ministry can reasonably have co-leaders with no uniqueness constraint
+/// needed.
+model MinistryMembership {
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  ministryId String    @map("ministry_id")
+  ministry   Ministry  @relation(fields: [ministryId], references: [id])
+  memberId   String    @map("member_id")
+  member     Member    @relation(fields: [memberId], references: [id])
+  role       String    @default("member") @map("role") // "leader" | "volunteer" | "member"
+  joinedAt   DateTime? @map("joined_at")
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, ministryId, memberId])
+  @@index([tenantId])
+  @@index([tenantId, ministryId])
+  @@index([tenantId, memberId])
+  @@map("ministry_memberships")
 }
 
 // ----------------------------------------------------------------------------
