@@ -15,6 +15,8 @@ import { ConfigEngineModule } from './config-engine/config.module';
 import { BranchesModule } from './branches/branches.module';
 import { FamiliesModule } from './families/families.module';
 import { MembersModule } from './members/members.module';
+import { FinanceModule } from './finance/finance.module';
+import { AttendanceModule } from './attendance/attendance.module';
 
 import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -38,6 +40,8 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     BranchesModule,
     FamiliesModule,
     MembersModule,
+    FinanceModule,
+    AttendanceModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC.

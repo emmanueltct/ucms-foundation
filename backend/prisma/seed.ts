@@ -48,6 +48,16 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'family.read', module: 'family', description: 'View families and their members' },
   { code: 'family.update', module: 'family', description: 'Edit a family and set/clear its head' },
   { code: 'family.delete', module: 'family', description: 'Soft-delete a family' },
+
+  { code: 'finance.contribution.create', module: 'finance', description: 'Record a contribution' },
+  { code: 'finance.contribution.read', module: 'finance', description: 'View contributions and summaries' },
+  { code: 'finance.contribution.update', module: 'finance', description: 'Edit a contribution\'s notes/receipt number' },
+  { code: 'finance.contribution.void', module: 'finance', description: 'Void a contribution' },
+
+  { code: 'attendance.record.create', module: 'attendance', description: 'Record attendance' },
+  { code: 'attendance.record.read', module: 'attendance', description: 'View attendance records and summaries' },
+  { code: 'attendance.record.update', module: 'attendance', description: 'Correct an attendance record' },
+  { code: 'attendance.record.delete', module: 'attendance', description: 'Soft-delete an attendance record' },
 ];
 
 async function main() {
@@ -148,6 +158,35 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'membership_category', key: mc.key } },
       create: { tenantId: tenant.id, namespace: 'membership_category', key: mc.key, label: mc.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (service types)...');
+  const serviceTypes = [
+    { key: 'sunday_service', label: 'Sunday Service' },
+    { key: 'bible_study', label: 'Bible Study' },
+    { key: 'prayer_meeting', label: 'Prayer Meeting' },
+    { key: 'youth_service', label: 'Youth Service' },
+  ];
+  for (const [i, st] of serviceTypes.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'service_type', key: st.key } },
+      create: { tenantId: tenant.id, namespace: 'service_type', key: st.key, label: st.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (attendance methods)...');
+  const attendanceMethods = [
+    { key: 'manual', label: 'Manual Roll Call' },
+    { key: 'qr_checkin', label: 'QR Check-in' },
+    { key: 'self_checkin', label: 'Self Check-in (Mobile App)' },
+  ];
+  for (const [i, am] of attendanceMethods.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'attendance_method', key: am.key } },
+      create: { tenantId: tenant.id, namespace: 'attendance_method', key: am.key, label: am.label, value: {}, sortOrder: i },
       update: {},
     });
   }

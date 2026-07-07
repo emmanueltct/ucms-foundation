@@ -17,6 +17,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'Branch',
   'Member',
   'Family',
+  'Contribution',
+  'AttendanceRecord',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

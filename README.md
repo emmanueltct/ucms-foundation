@@ -1,10 +1,11 @@
-# UCMS — Foundation, Church Hierarchy & Member Management
+# UCMS — Foundation, Church Hierarchy, Member Management, Finance & Attendance
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
-Hierarchy Management, and Member & Family Management for the Unified Church Management
-System. Module 0 (Foundation), Module 1 (Church & Hierarchy), and Module 2 (Member &
-Family Management) are complete — everything else (Finance, Attendance, Communication,
-...) builds on top of what's here.
+Hierarchy Management, Member & Family Management, Finance, and Attendance for the
+Unified Church Management System. Module 0 (Foundation), Module 1 (Church &
+Hierarchy), Module 2 (Member & Family Management), Module 3 (Finance), and Module 4
+(Attendance) are complete — everything else (Ministry & Volunteer Management,
+Communication, ...) builds on top of what's here.
 
 ## What's included
 
@@ -15,9 +16,12 @@ docs/
   api-design.md                Module 0: full endpoint reference + error codes
   church-hierarchy/            Module 1 docs (business analysis, FRs, API design)
   member-management/           Module 2 docs (business analysis, FRs, API design)
+  finance/                     Module 3 docs (business analysis, FRs, API design)
+  attendance/                  Module 4 docs (business analysis, FRs, API design)
 
 prisma/
-  schema.prisma                Tenant, User, Role, Permission, ConfigItem, Branch, Member, Family, ...
+  schema.prisma                Tenant, User, Role, Permission, ConfigItem, Branch, Member,
+                                Family, Contribution, AttendanceRecord, ...
 
 backend/                       NestJS API
   src/
@@ -41,6 +45,13 @@ backend/                       NestJS API
                                 branches (cycle-free, so it's a plain move+validate)
     families/                  Family/household grouping — flat (no hierarchy), head
                                 of family, non-cascading deactivate/delete
+    finance/                   Contribution recording against a Branch and (optionally) a
+                                Member; corrected by voiding with a reason, never edited
+                                or deleted; totals-by-type summary endpoint
+    attendance/                Attendance recording — a named member's check-in (always
+                                counts as 1) or an anonymous head-count; corrected in place
+                                or soft-deleted (plain rule, unlike Finance's void-only one);
+                                totals-by-service-type summary endpoint
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -48,16 +59,20 @@ backend/                       NestJS API
                                 contribution types, ceremony names, membership
                                 categories, feature toggles — all as data)
   prisma/seed.ts                Seeds the permission catalog, a demo tenant, branch
-                                types, membership categories, and a headquarters branch
+                                types, membership categories, contribution types, service
+                                types, attendance methods, and a headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
-                                tenant profile) + e2e auth flow
+                                tenant profile, finance, attendance) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
+  app/page.tsx                   Public landing page (denominations, live modules, CTAs)
   app/login/page.tsx            Tenant-aware sign-in
   app/admin/config/page.tsx      Church Admin UI for the Configuration Engine
   app/admin/branches/page.tsx    Church Admin UI for the organizational hierarchy tree
   app/admin/members/page.tsx     Church Admin UI for members (create, search, transfer)
+  app/admin/finance/page.tsx     Church Admin UI for recording/voiding contributions
+  app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
   app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
   components/ui/                shadcn/ui components (button, input, label, card)
   lib/api.ts                     Typed fetch client (standard envelope + tenant header)
@@ -110,7 +125,7 @@ curl -X POST http://localhost:3000/api/v1/auth/login \
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -167,10 +182,37 @@ npm run test:e2e             # requires a migrated + seeded test database
    `docs/member-management/business-analysis.md` for the full rationale,
    including why `Family.headOfFamilyId` is auto-cleared whenever the member
    holding it leaves the family or is soft-deleted.
+10. **Financial records are voided, never edited or deleted — a stronger
+    variant of "soft delete, always."** There is no `deletedAt` on
+    `Contribution` and no way to change its amount/type/branch/member after
+    the fact; a mistake is corrected via `PATCH /contributions/:id/void`
+    with a mandatory reason (`isVoided`, `voidedAt`, `voidReason`,
+    `voidedByUserId`), and voided records are excluded from
+    `GET /contributions/summary` totals unless `includeVoided=true` is
+    passed explicitly. Only `notes`/`receiptNumber` are mutable in place, since
+    they carry no financial meaning of their own. See
+    `docs/finance/business-analysis.md` for the full rationale.
+11. **Not every module needs Finance's strict voiding pattern — pick the rule
+    that matches what's actually at stake.** `AttendanceRecord` reuses the
+    Foundation module's plain "soft delete, always" rule (rule #4): a
+    mis-typed head-count can be corrected in place via `PATCH` or removed
+    outright via `DELETE`, unlike a `Contribution`, which can only be voided.
+    Whether a new module needs the stronger pattern depends on whether the
+    record carries an audit-trail obligation the way money does — see
+    `docs/attendance/business-analysis.md` for the comparison.
+12. **A named individual and an anonymous bulk entry share one table via an
+    optional FK, with different rules attached to each side.** Like
+    `Contribution.memberId`, `AttendanceRecord.memberId` is optional — but
+    where an absent `memberId` on a contribution just means "anonymous
+    giving," on an attendance record it flips the validation rules entirely
+    (`headcount` forced to 1 vs. required and caller-supplied) and exempts
+    the record from the duplicate-check uniqueness rule (FR-ATT-1.6) that
+    applies to named check-ins.
 
 ## Next module
 
-Per the intended build order: **Finance** is next — contribution tracking
-(tithes, offerings, building funds) against `Member`s and `Branch`es, with
-contribution types as `ConfigItem`s (namespace `contribution_type`, already
-seeded), following the same patterns established here.
+Per the intended build order: **Ministry & Volunteer Management** is next —
+ministry structure, ministry membership, and volunteer scheduling, following
+the same patterns established here (either reusing Branch's tree pattern or
+the plain Configuration Engine, depending on how much hierarchy ministries
+actually need — a decision deferred to that module).

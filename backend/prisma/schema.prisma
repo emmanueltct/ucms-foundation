@@ -38,9 +38,11 @@ model Tenant {
   featureToggles FeatureToggle[]
   refreshTokens  RefreshToken[]
   auditLogs      AuditLog[]
-  branches       Branch[]
-  members        Member[]
-  families       Family[]
+  branches          Branch[]
+  members           Member[]
+  families          Family[]
+  contributions     Contribution[]
+  attendanceRecords AttendanceRecord[]
 
   @@map("tenants")
 }
@@ -65,9 +67,12 @@ model User {
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
 
-  userRoles     UserRole[]
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
+  userRoles             UserRole[]
+  refreshTokens         RefreshToken[]
+  auditLogs             AuditLog[]
+  recordedContributions Contribution[]     @relation("ContributionRecordedBy")
+  voidedContributions   Contribution[]     @relation("ContributionVoidedBy")
+  recordedAttendance    AttendanceRecord[] @relation("AttendanceRecordedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -215,7 +220,9 @@ model Branch {
   updatedAt      DateTime  @updatedAt @map("updated_at")
   deletedAt      DateTime? @map("deleted_at")
 
-  members Member[]
+  members           Member[]
+  contributions     Contribution[]
+  attendanceRecords AttendanceRecord[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -286,13 +293,98 @@ model Member {
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  headOfFamilyFor Family? @relation("FamilyHead")
+  headOfFamilyFor   Family?            @relation("FamilyHead")
+  contributions     Contribution[]
+  attendanceRecords AttendanceRecord[]
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
   @@index([tenantId, branchId])
   @@index([tenantId, familyId])
   @@map("members")
+}
+
+// ----------------------------------------------------------------------------
+// FINANCE
+// ----------------------------------------------------------------------------
+
+/// A recorded contribution (tithe, offering, building fund, ...) against a
+/// Branch and, optionally, a Member. See docs/finance/business-analysis.md
+/// for why this model has no `deletedAt`/delete endpoint: financial records
+/// are corrected by voiding (isVoided/voidedAt/voidReason/voidedByUserId),
+/// never edited or hard-deleted, to preserve the audit trail.
+model Contribution {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  branchId         String    @map("branch_id")
+  branch           Branch    @relation(fields: [branchId], references: [id])
+  memberId         String?   @map("member_id")
+  member           Member?   @relation(fields: [memberId], references: [id])
+  contributionType String    @map("contribution_type") // ConfigItem key, namespace "contribution_type"
+  amount           Decimal   @db.Decimal(14, 2)
+  currency         String
+  paymentMethod    String    @map("payment_method") // "cash" | "bank_transfer" | "mobile_money" | "cheque" | "other"
+  receiptNumber    String?   @map("receipt_number")
+  contributedAt    DateTime  @map("contributed_at")
+  recordedByUserId String?   @map("recorded_by_user_id")
+  recordedByUser   User?     @relation("ContributionRecordedBy", fields: [recordedByUserId], references: [id])
+  notes            String?
+  isVoided         Boolean   @default(false) @map("is_voided")
+  voidedAt         DateTime? @map("voided_at")
+  voidReason       String?   @map("void_reason")
+  voidedByUserId   String?   @map("voided_by_user_id")
+  voidedByUser     User?     @relation("ContributionVoidedBy", fields: [voidedByUserId], references: [id])
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, receiptNumber])
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, memberId])
+  @@index([tenantId, contributedAt])
+  @@map("contributions")
+}
+
+// ----------------------------------------------------------------------------
+// ATTENDANCE
+// ----------------------------------------------------------------------------
+
+/// A recorded attendance entry against a Branch and, optionally, a Member —
+/// see docs/attendance/business-analysis.md. Unlike Contribution, this model
+/// uses the Foundation module's plain "soft delete, always" rule
+/// (`deletedAt`), not Finance's stricter void-only pattern: correcting a
+/// head-count typo doesn't need the same audit trail a financial record does.
+///
+/// `memberId` null means an anonymous/bulk head-count entry (`headcount` > 1
+/// allowed); `memberId` set means one individual's attendance (`headcount`
+/// is always 1, enforced by the service layer, not the schema).
+model AttendanceRecord {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  branchId          String    @map("branch_id")
+  branch            Branch    @relation(fields: [branchId], references: [id])
+  memberId          String?   @map("member_id")
+  member            Member?   @relation(fields: [memberId], references: [id])
+  serviceType       String    @map("service_type") // ConfigItem key, namespace "service_type"
+  attendanceMethod  String?   @map("attendance_method") // ConfigItem key, namespace "attendance_method"
+  headcount         Int       @default(1)
+  attendedAt        DateTime  @map("attended_at")
+  recordedByUserId  String?   @map("recorded_by_user_id")
+  recordedByUser    User?     @relation("AttendanceRecordedBy", fields: [recordedByUserId], references: [id])
+  notes             String?
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
+
+  @@unique([tenantId, branchId, memberId, serviceType, attendedAt])
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, memberId])
+  @@index([tenantId, attendedAt])
+  @@map("attendance_records")
 }
 
 // ----------------------------------------------------------------------------

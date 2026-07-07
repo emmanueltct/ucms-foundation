@@ -210,6 +210,125 @@ export const membersApi = {
     apiRequest<Member>(`/members/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface Contribution {
+  id: string;
+  branchId: string;
+  memberId: string | null;
+  contributionType: string;
+  amount: string;
+  currency: string;
+  paymentMethod: string;
+  receiptNumber: string | null;
+  contributedAt: string;
+  recordedByUserId: string | null;
+  notes: string | null;
+  isVoided: boolean;
+  voidedAt: string | null;
+  voidReason: string | null;
+}
+
+export interface ContributionSummary {
+  contributionType: string;
+  total: string;
+  count: number;
+}
+
+export interface CreateContributionInput {
+  branchId: string;
+  memberId?: string;
+  contributionType: string;
+  amount: number;
+  currency?: string;
+  paymentMethod: string;
+  receiptNumber?: string;
+  contributedAt: string;
+  notes?: string;
+}
+
+export const contributionsApi = {
+  list: (
+    tenantSlug: string,
+    params: { branchId?: string; memberId?: string; contributionType?: string; dateFrom?: string; dateTo?: string; page?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.memberId) qs.set('memberId', params.memberId);
+    if (params.contributionType) qs.set('contributionType', params.contributionType);
+    if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+    if (params.dateTo) qs.set('dateTo', params.dateTo);
+    qs.set('page', String(params.page ?? 1));
+    qs.set('pageSize', '20');
+    return apiRequest<Contribution[]>(`/contributions?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  summary: (tenantSlug: string, params: { branchId?: string; dateFrom?: string; dateTo?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+    if (params.dateTo) qs.set('dateTo', params.dateTo);
+    return apiRequest<ContributionSummary[]>(`/contributions/summary?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, contribution: CreateContributionInput) =>
+    apiRequest<Contribution>('/contributions', { method: 'POST', tenantSlug, auth: true, body: contribution }),
+  void: (tenantSlug: string, id: string, voidReason: string) =>
+    apiRequest<Contribution>(`/contributions/${id}/void`, { method: 'PATCH', tenantSlug, auth: true, body: { voidReason } }),
+};
+
+export interface AttendanceRecord {
+  id: string;
+  branchId: string;
+  memberId: string | null;
+  serviceType: string;
+  attendanceMethod: string | null;
+  headcount: number;
+  attendedAt: string;
+  recordedByUserId: string | null;
+  notes: string | null;
+}
+
+export interface AttendanceSummary {
+  serviceType: string;
+  totalAttendance: number;
+  recordCount: number;
+}
+
+export interface CreateAttendanceRecordInput {
+  branchId: string;
+  memberId?: string;
+  serviceType: string;
+  attendanceMethod?: string;
+  headcount?: number;
+  attendedAt: string;
+  notes?: string;
+}
+
+export const attendanceApi = {
+  list: (
+    tenantSlug: string,
+    params: { branchId?: string; memberId?: string; serviceType?: string; dateFrom?: string; dateTo?: string; page?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.memberId) qs.set('memberId', params.memberId);
+    if (params.serviceType) qs.set('serviceType', params.serviceType);
+    if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+    if (params.dateTo) qs.set('dateTo', params.dateTo);
+    qs.set('page', String(params.page ?? 1));
+    qs.set('pageSize', '20');
+    return apiRequest<AttendanceRecord[]>(`/attendance-records?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  summary: (tenantSlug: string, params: { branchId?: string; dateFrom?: string; dateTo?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+    if (params.dateTo) qs.set('dateTo', params.dateTo);
+    return apiRequest<AttendanceSummary[]>(`/attendance-records/summary?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, record: CreateAttendanceRecordInput) =>
+    apiRequest<AttendanceRecord>('/attendance-records', { method: 'POST', tenantSlug, auth: true, body: record }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<AttendanceRecord>(`/attendance-records/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;
