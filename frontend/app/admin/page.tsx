@@ -21,6 +21,7 @@ import {
   UserPlus,
   FileText,
   Users2,
+  HelpCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi, visitorsApi, documentsApi, smallGroupsApi } from '../../lib/api';
@@ -49,6 +50,7 @@ const MODULES = [
   { title: 'Assets', href: '/admin/assets', icon: Boxes, description: 'Buildings, vehicles, equipment — one register per category.' },
   { title: 'Documents', href: '/admin/documents', icon: FileText, description: 'Policies, minutes, forms, and other files, categorized.' },
   { title: 'Notifications', href: '/admin/notifications', icon: Bell, description: 'Send and review messages.' },
+  { title: 'Help & Test Guide', href: '/admin/help', icon: HelpCircle, description: 'Feature coverage and step-by-step test scripts.' },
 ];
 
 export default function AdminDashboardPage() {

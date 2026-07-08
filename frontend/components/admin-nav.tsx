@@ -23,6 +23,7 @@ import {
   UserPlus,
   FileText,
   Users2,
+  HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -43,6 +44,7 @@ const NAV_ITEMS = [
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/config', label: 'Configuration', icon: SlidersHorizontal },
   { href: '/admin/settings/custom-fields', label: 'Custom Fields', icon: ListPlus },
+  { href: '/admin/help', label: 'Help & Test Guide', icon: HelpCircle },
 ];
 
 export function AdminNav() {
