@@ -22,6 +22,7 @@ import {
   Boxes,
   UserPlus,
   FileText,
+  Users2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { href: '/admin/finance', label: 'Finance', icon: Wallet },
   { href: '/admin/attendance', label: 'Attendance', icon: CalendarCheck },
   { href: '/admin/ministries', label: 'Ministries', icon: HeartHandshake },
+  { href: '/admin/small-groups', label: 'Small Groups', icon: Users2 },
   { href: '/admin/events', label: 'Events', icon: CalendarDays },
   { href: '/admin/hr', label: 'HR & Payroll', icon: Briefcase },
   { href: '/admin/assets', label: 'Assets', icon: Boxes },

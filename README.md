@@ -1,17 +1,19 @@
-# UCMS — Foundation through Document Management (Modules 0-12) + Custom Fields
+# UCMS — Foundation through Small Groups & Children's Ministry (Modules 0-13) + Custom Fields
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
 Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
 Volunteer Management, Communication, Events, HR & Payroll, Reports & Analytics,
 Asset & Facility Management, Visitor & Follow-up Management, Document
-Management, and a cross-cutting Custom Fields module for the Unified Church
-Management System. Module 0 (Foundation), Module 1 (Church & Hierarchy),
-Module 2 (Member & Family Management), Module 3 (Finance), Module 4
-(Attendance), Module 5 (Ministry & Volunteer Management), Module 6
-(Communication), Module 7 (Events), Module 8 (HR & Payroll), Module 9 (Reports
-& Analytics), Module 10 (Asset & Facility Management), Module 11 (Visitor &
-Follow-up Management), and Module 12 (Document Management) are complete —
-everything else builds on top of what's here.
+Management, Small Groups & Children's Ministry, and a cross-cutting Custom
+Fields module for the Unified Church Management System. Module 0 (Foundation),
+Module 1 (Church & Hierarchy), Module 2 (Member & Family Management), Module 3
+(Finance), Module 4 (Attendance), Module 5 (Ministry & Volunteer Management),
+Module 6 (Communication), Module 7 (Events), Module 8 (HR & Payroll), Module 9
+(Reports & Analytics), Module 10 (Asset & Facility Management), Module 11
+(Visitor & Follow-up Management), Module 12 (Document Management), and
+Module 13 (Small Groups & Children's Ministry) are complete — what's left is
+the optional/AI-assisted feature set explicitly deferred to the end of the
+original roadmap.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
 cross-cutting mechanism, wired into Member & Family Management today, that lets a
@@ -37,6 +39,7 @@ docs/
   asset-management/            Module 10 docs (business analysis, FRs, API design)
   visitor-management/          Module 11 docs (business analysis, FRs, API design)
   document-management/         Module 12 docs (business analysis, FRs, API design)
+  small-groups/                Module 13 docs (business analysis, FRs, API design)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -44,7 +47,8 @@ prisma/
                                 Family, Contribution, AttendanceRecord, Ministry,
                                 MinistryMembership, Notification, CustomFieldDefinition,
                                 CustomFieldValue, Event, EventRegistration, Staff,
-                                PayrollPayment, Asset, Visitor, VisitorFollowUp, Document, ...
+                                PayrollPayment, Asset, Visitor, VisitorFollowUp, Document,
+                                SmallGroup, SmallGroupMembership, ...
 
 backend/                       NestJS API
   src/
@@ -119,6 +123,12 @@ backend/                       NestJS API
                                 the storage key can be namespaced by it without a second
                                 round trip. Shares its MIME allowlist/size cap with Assets via
                                 `common/constants/file-upload.constants.ts`.
+    small-groups/              Home groups, cell groups, Bible studies, and age-graded
+                                Sunday School classes — structurally mirrors Ministry &
+                                Volunteer Management (flat, role-based rosters) but is a
+                                distinct module with scheduling/capacity/age-range fields; a
+                                new membership is rejected once capacity is reached, the same
+                                soft-cap pattern EventRegistration already uses
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -130,14 +140,16 @@ backend/                       NestJS API
                                 types, attendance methods, ministry types, event types,
                                 staff positions, departments, asset categories, asset
                                 conditions, visitor sources, follow-up methods, document
-                                categories, example asset:vehicle/asset:building custom
-                                fields (including two file-upload fields), two example
-                                member custom fields, and a headquarters branch
+                                categories, small group types, example asset:vehicle/
+                                asset:building custom fields (including two file-upload
+                                fields), two example member custom fields, and a
+                                headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
                                 tenant profile, finance, attendance, ministries,
                                 notifications, custom fields, events, staff, payroll,
-                                reports, assets, visitors, documents) + e2e auth flow
+                                reports, assets, visitors, documents, small groups) + e2e
+                                auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -168,6 +180,10 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/documents/page.tsx    Church Admin UI for documents — upload (title/category/
                                   branch + file in one form), category/search filtering,
                                   download, and in-place file replacement
+  app/admin/small-groups/page.tsx Church Admin UI for small groups and Sunday School
+                                  classes — schedule/location/capacity/age-range in the
+                                  create form, master-detail roster management with a
+                                  live "X / capacity" count
   app/admin/notifications/page.tsx Church Admin UI for sending/reviewing notifications
   app/admin/settings/custom-fields/page.tsx  Define custom fields per entity type — asset
                                   categories appear here automatically as `asset:{category}`
@@ -252,7 +268,7 @@ same browser tab/session rather than opening admin pages directly by URL in a fr
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports, assets, visitors, documents)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports, assets, visitors, documents, small groups)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -491,6 +507,24 @@ npm run test:e2e             # requires a migrated + seeded test database
     cap themselves *are* shared (`common/constants/file-upload.constants.ts`)
     since that concern — "what's an acceptable uploaded file" — is genuinely
     the same question in both modules.
+29. **A proven pattern gets reused when the requirements genuinely match it —
+    not avoided just because it looks similar to something that already
+    exists, and not copied wholesale when the requirements actually
+    differ.** Small Groups & Children's Ministry (Module 13) mirrors
+    Ministry & Volunteer Management's shape closely (`SmallGroup`/
+    `SmallGroupMembership` next to `Ministry`/`MinistryMembership`: flat,
+    optionally branch-scoped, unique name per tenant, role-based membership
+    with no denormalized leader field) because a discipleship group and a
+    volunteer team really do have the same roster structure. But it's a
+    separate module, not an extension of `Ministry`, because the two model
+    different concerns — serving vs. fellowship/children's classes — and
+    because small groups carry fields (`meetingDay`/`meetingTime`/
+    `location`/`capacity`/`minAge`/`maxAge`) a volunteer team has no use
+    for. Capacity enforcement itself reuses a third pattern verbatim —
+    `EventRegistration`'s soft-cap-checked-at-creation-time check (rule
+    from the Events business analysis) — because a small group filling up
+    is exactly the same shape as an event filling up. Three separate
+    "reuse or don't" calls in one module, each made on its own merits.
 
 ## Recent hardening (this pass)
 
@@ -506,16 +540,17 @@ npm run test:e2e             # requires a migrated + seeded test database
 
 ## Next module
 
-Modules 0-12 (Foundation through Document Management) plus the cross-cutting
-Custom Fields mechanism are complete. What's left from the platform's full
-36-module brief — small groups (Sunday School / children's ministry, Small
-Groups) and the optional/AI-assisted features explicitly deferred to the end
-in the original roadmap — builds on the same established patterns (tenant
-scoping, `ConfigItem` for types, permission-guarded controllers, soft delete
-or the stricter void/status pattern where money or an audit trail is
-involved, Custom Fields' `entityType` composition trick where a module needs
-per-category or per-type fields the way Assets did, the "dedicated conversion
-endpoint reusing an existing module's validation" pattern Visitors
-established for turning into a Member, and the shared file-upload constants
-Document Management factored out — Small Groups' own "graduate to
-membership"-style flows, if any, can reuse the same shapes).
+Modules 0-13 (Foundation through Small Groups & Children's Ministry) plus the
+cross-cutting Custom Fields mechanism are complete. What's left is the
+optional/AI-assisted feature set explicitly deferred to the end of the
+original roadmap (things like AI-assisted sermon/content tools, predictive
+analytics, or other non-core enhancements named there) — whichever of those
+is picked up first should still follow the same established patterns: tenant
+scoping structural not optional, `ConfigItem` for tenant-specific "types,"
+permission-guarded controllers, soft delete or the stricter void/status
+pattern where money or an audit trail is involved, Custom Fields'
+`entityType` composition trick where a feature needs per-category fields,
+dedicated conversion/action endpoints for anything with real side effects
+rather than a plain field edit, and the shared constants/helpers pattern
+(file-upload limits, the multipart request helper) for any cross-cutting
+technical concern two features both need.

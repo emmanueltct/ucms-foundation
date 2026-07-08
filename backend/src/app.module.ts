@@ -26,6 +26,7 @@ import { ReportsModule } from './reports/reports.module';
 import { AssetsModule } from './assets/assets.module';
 import { VisitorsModule } from './visitors/visitors.module';
 import { DocumentsModule } from './documents/documents.module';
+import { SmallGroupsModule } from './small-groups/small-groups.module';
 
 import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -60,6 +61,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     AssetsModule,
     VisitorsModule,
     DocumentsModule,
+    SmallGroupsModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC.

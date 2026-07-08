@@ -20,9 +20,10 @@ import {
   Boxes,
   UserPlus,
   FileText,
+  Users2,
   type LucideIcon,
 } from 'lucide-react';
-import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi, visitorsApi, documentsApi } from '../../lib/api';
+import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi, visitorsApi, documentsApi, smallGroupsApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 
 const TENANT_SLUG = 'demo-church';
@@ -42,6 +43,7 @@ const MODULES = [
   { title: 'Finance', href: '/admin/finance', icon: Wallet, description: 'Record and review contributions.' },
   { title: 'Attendance', href: '/admin/attendance', icon: CalendarCheck, description: 'Check-ins and head-counts.' },
   { title: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, description: 'Ministries and volunteer rosters.' },
+  { title: 'Small Groups', href: '/admin/small-groups', icon: Users2, description: 'Home groups, Bible studies, and Sunday School classes.' },
   { title: 'Events', href: '/admin/events', icon: CalendarDays, description: 'Schedule events and manage registrations.' },
   { title: 'HR & Payroll', href: '/admin/hr', icon: Briefcase, description: 'Staff records and payroll payments.' },
   { title: 'Assets', href: '/admin/assets', icon: Boxes, description: 'Buildings, vehicles, equipment — one register per category.' },
@@ -56,6 +58,7 @@ export default function AdminDashboardPage() {
     { label: 'Contributions', href: '/admin/finance', icon: Wallet, value: null },
     { label: 'Attendance records', href: '/admin/attendance', icon: CalendarCheck, value: null },
     { label: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, value: null },
+    { label: 'Small Groups', href: '/admin/small-groups', icon: Users2, value: null },
     { label: 'Events', href: '/admin/events', icon: CalendarDays, value: null },
     { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: null },
     { label: 'Assets', href: '/admin/assets', icon: Boxes, value: null },
@@ -68,12 +71,13 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [branches, members, contributions, attendance, ministries, events, staff, assets, visitors, documents, notifications] = await Promise.all([
+        const [branches, members, contributions, attendance, ministries, smallGroups, events, staff, assets, visitors, documents, notifications] = await Promise.all([
           branchesApi.list(TENANT_SLUG),
           membersApi.list(TENANT_SLUG, {}),
           contributionsApi.list(TENANT_SLUG),
           attendanceApi.list(TENANT_SLUG),
           ministriesApi.list(TENANT_SLUG),
+          smallGroupsApi.list(TENANT_SLUG),
           eventsApi.list(TENANT_SLUG),
           staffApi.list(TENANT_SLUG),
           assetsApi.list(TENANT_SLUG),
@@ -87,6 +91,7 @@ export default function AdminDashboardPage() {
           { label: 'Contributions', href: '/admin/finance', icon: Wallet, value: contributions.data?.length ?? 0 },
           { label: 'Attendance records', href: '/admin/attendance', icon: CalendarCheck, value: attendance.data?.length ?? 0 },
           { label: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, value: ministries.data?.length ?? 0 },
+          { label: 'Small Groups', href: '/admin/small-groups', icon: Users2, value: smallGroups.data?.length ?? 0 },
           { label: 'Events', href: '/admin/events', icon: CalendarDays, value: events.data?.length ?? 0 },
           { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: staff.data?.length ?? 0 },
           { label: 'Assets', href: '/admin/assets', icon: Boxes, value: assets.data?.length ?? 0 },

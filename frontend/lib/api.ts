@@ -876,6 +876,76 @@ export const documentsApi = {
     apiRequest<{ url: string; filename: string }>(`/documents/${id}/download`, { tenantSlug, auth: true }),
 };
 
+export interface SmallGroup {
+  id: string;
+  branchId: string | null;
+  name: string;
+  groupType: string | null;
+  description: string | null;
+  meetingDay: string | null;
+  meetingTime: string | null;
+  location: string | null;
+  capacity: number | null;
+  minAge: number | null;
+  maxAge: number | null;
+  isActive: boolean;
+}
+
+export interface SmallGroupMembership {
+  id: string;
+  smallGroupId: string;
+  memberId: string;
+  role: string;
+  joinedAt: string | null;
+  isActive: boolean;
+}
+
+export interface CreateSmallGroupInput {
+  name: string;
+  branchId?: string;
+  groupType?: string;
+  description?: string;
+  meetingDay?: string;
+  meetingTime?: string;
+  location?: string;
+  capacity?: number;
+  minAge?: number;
+  maxAge?: number;
+}
+
+export const smallGroupsApi = {
+  list: (tenantSlug: string, params: { branchId?: string; groupType?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.groupType) qs.set('groupType', params.groupType);
+    if (params.search) qs.set('search', params.search);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<SmallGroup[]>(`/small-groups?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, group: CreateSmallGroupInput) =>
+    apiRequest<SmallGroup>('/small-groups', { method: 'POST', tenantSlug, auth: true, body: group }),
+  update: (tenantSlug: string, id: string, body: Partial<CreateSmallGroupInput>) =>
+    apiRequest<SmallGroup>(`/small-groups/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<SmallGroup>(`/small-groups/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export const smallGroupMembershipsApi = {
+  list: (tenantSlug: string, params: { smallGroupId?: string; memberId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.smallGroupId) qs.set('smallGroupId', params.smallGroupId);
+    if (params.memberId) qs.set('memberId', params.memberId);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<SmallGroupMembership[]>(`/small-group-memberships?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, membership: { smallGroupId: string; memberId: string; role?: string }) =>
+    apiRequest<SmallGroupMembership>('/small-group-memberships', { method: 'POST', tenantSlug, auth: true, body: membership }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<SmallGroupMembership>(`/small-group-memberships/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;

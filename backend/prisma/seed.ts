@@ -115,6 +115,15 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'document.read', module: 'document', description: 'View and download documents' },
   { code: 'document.update', module: 'document', description: "Edit a document's metadata or replace its file" },
   { code: 'document.delete', module: 'document', description: 'Soft-delete a document' },
+
+  { code: 'small_group.create', module: 'small_group', description: 'Create a small group or children\'s ministry class' },
+  { code: 'small_group.read', module: 'small_group', description: 'View small groups' },
+  { code: 'small_group.update', module: 'small_group', description: 'Edit a small group' },
+  { code: 'small_group.delete', module: 'small_group', description: 'Soft-delete a small group' },
+  { code: 'small_group.membership.create', module: 'small_group', description: 'Add a member to a small group' },
+  { code: 'small_group.membership.read', module: 'small_group', description: 'View small group rosters' },
+  { code: 'small_group.membership.update', module: 'small_group', description: "Change a member's role within a small group" },
+  { code: 'small_group.membership.delete', module: 'small_group', description: 'Remove a member from a small group' },
 ];
 
 async function main() {
@@ -389,6 +398,23 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'document_category', key: c.key } },
       create: { tenantId: tenant.id, namespace: 'document_category', key: c.key, label: c.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (small group types)...');
+  const smallGroupTypes = [
+    { key: 'home_group', label: 'Home Group' },
+    { key: 'cell_group', label: 'Cell Group' },
+    { key: 'sunday_school', label: 'Sunday School' },
+    { key: 'youth_group', label: 'Youth Group' },
+    { key: 'bible_study', label: 'Bible Study' },
+    { key: 'other', label: 'Other' },
+  ];
+  for (const [i, g] of smallGroupTypes.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'small_group_type', key: g.key } },
+      create: { tenantId: tenant.id, namespace: 'small_group_type', key: g.key, label: g.label, value: {}, sortOrder: i },
       update: {},
     });
   }

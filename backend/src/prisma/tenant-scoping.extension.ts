@@ -32,6 +32,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'Visitor',
   'VisitorFollowUp',
   'Document',
+  'SmallGroup',
+  'SmallGroupMembership',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([
