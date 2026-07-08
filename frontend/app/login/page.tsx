@@ -6,16 +6,17 @@
 // self-contained for any church during local development.
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { authApi, setSession } from '../../lib/api';
 import { Button } from '@/components/ui/button';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [tenantSlug, setTenantSlug] = useState('demo-church');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,7 +29,7 @@ export default function LoginPage() {
         return;
       }
       setSession(res.data.tokens.accessToken, res.data.tokens.refreshToken);
-      setSuccess(true);
+      router.push('/admin');
     } catch {
       setError('Could not reach the server. Check the API is running.');
     } finally {
@@ -47,12 +48,7 @@ export default function LoginPage() {
           <p className="text-sm text-slate-500 mt-1">Enter your church&apos;s workspace and your account details.</p>
         </div>
 
-        {success ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Signed in. A real deployment would redirect to the dashboard here.
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Church workspace</label>
               <input
@@ -94,7 +90,6 @@ export default function LoginPage() {
               {loading ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
-        )}
 
         <p className="mt-6 text-center text-xs text-slate-400">
           Demo credentials: admin@demo-church.test / ChangeMe123 (workspace: demo-church)

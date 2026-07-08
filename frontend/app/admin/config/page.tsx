@@ -9,10 +9,21 @@ import { useEffect, useState } from 'react';
 import { configApi } from '../../../lib/api';
 
 const NAMESPACES = [
-  { value: 'ministry', label: 'Ministries' },
-  { value: 'contribution_type', label: 'Contribution Types' },
-  { value: 'ceremony', label: 'Ceremony Names' },
+  { value: 'branch_type', label: 'Branch Types' },
   { value: 'membership_category', label: 'Membership Categories' },
+  { value: 'contribution_type', label: 'Contribution Types' },
+  { value: 'service_type', label: 'Service Types' },
+  { value: 'attendance_method', label: 'Attendance Methods' },
+  { value: 'ministry_type', label: 'Ministry Types' },
+  { value: 'small_group_type', label: 'Small Group Types' },
+  { value: 'event_type', label: 'Event Types' },
+  { value: 'staff_position', label: 'Staff Positions' },
+  { value: 'department', label: 'Departments' },
+  { value: 'asset_category', label: 'Asset Categories' },
+  { value: 'asset_condition', label: 'Asset Conditions' },
+  { value: 'visitor_source', label: 'Visitor Sources' },
+  { value: 'follow_up_method', label: 'Follow-up Methods' },
+  { value: 'document_category', label: 'Document Categories' },
 ];
 
 interface ConfigItem {
