@@ -16,6 +16,7 @@ import {
   Bell,
   CalendarDays,
   Briefcase,
+  BarChart3,
   type LucideIcon,
 } from 'lucide-react';
 import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi } from '../../lib/api';
@@ -31,6 +32,7 @@ interface StatTile {
 }
 
 const MODULES = [
+  { title: 'Reports & Analytics', href: '/admin/reports', icon: BarChart3, description: 'Trends across giving, attendance, membership, and payroll.' },
   { title: 'Branches', href: '/admin/branches', icon: Building2, description: 'Manage the organizational hierarchy.' },
   { title: 'Members', href: '/admin/members', icon: Users, description: 'Member profiles, families, custom fields.' },
   { title: 'Finance', href: '/admin/finance', icon: Wallet, description: 'Record and review contributions.' },

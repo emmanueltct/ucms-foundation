@@ -95,6 +95,8 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'payroll.payment.update', module: 'payroll', description: 'Edit a still-pending payroll payment' },
   { code: 'payroll.payment.pay', module: 'payroll', description: 'Mark a payroll payment as paid' },
   { code: 'payroll.payment.cancel', module: 'payroll', description: 'Cancel a pending payroll payment' },
+
+  { code: 'reports.view', module: 'reports', description: 'View cross-module reports and analytics' },
 ];
 
 async function main() {

@@ -18,11 +18,13 @@ import {
   ListPlus,
   CalendarDays,
   Briefcase,
+  BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
   { href: '/admin/branches', label: 'Branches', icon: Building2 },
   { href: '/admin/members', label: 'Members', icon: Users },
   { href: '/admin/finance', label: 'Finance', icon: Wallet },

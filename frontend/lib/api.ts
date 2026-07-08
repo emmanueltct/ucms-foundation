@@ -610,6 +610,63 @@ export const payrollApi = {
     apiRequest<PayrollPayment>(`/payroll-payments/${id}/cancel`, { method: 'PATCH', tenantSlug, auth: true, body: { cancelReason } }),
 };
 
+export interface ReportOverview {
+  members: number;
+  activeStaff: number;
+  branches: number;
+  upcomingEvents: number;
+  contributionsThisMonth: number;
+  attendanceLast30Days: number;
+}
+
+export interface MonthBucket {
+  month: string;
+  total: number;
+  count: number;
+}
+
+export interface KeyBucket {
+  key: string;
+  total: number;
+  count: number;
+}
+
+export interface MembershipGrowthBucket extends MonthBucket {
+  cumulativeActive: number;
+}
+
+export const reportsApi = {
+  overview: (tenantSlug: string) => apiRequest<ReportOverview>('/reports/overview', { tenantSlug, auth: true }),
+  financeSummary: (tenantSlug: string, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
+    apiRequest<{ byMonth: MonthBucket[]; byType: KeyBucket[] }>(`/reports/finance-summary?${reportRangeQs(params)}`, {
+      tenantSlug,
+      auth: true,
+    }),
+  attendanceTrends: (tenantSlug: string, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
+    apiRequest<{ byMonth: MonthBucket[]; byServiceType: KeyBucket[] }>(
+      `/reports/attendance-trends?${reportRangeQs(params)}`,
+      { tenantSlug, auth: true },
+    ),
+  membershipGrowth: (tenantSlug: string, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
+    apiRequest<{ newMembersByMonth: MembershipGrowthBucket[] }>(`/reports/membership-growth?${reportRangeQs(params)}`, {
+      tenantSlug,
+      auth: true,
+    }),
+  payrollSummary: (tenantSlug: string, params: { dateFrom?: string; dateTo?: string } = {}) =>
+    apiRequest<{ byMonth: MonthBucket[]; byDepartment: KeyBucket[] }>(`/reports/payroll-summary?${reportRangeQs(params)}`, {
+      tenantSlug,
+      auth: true,
+    }),
+};
+
+function reportRangeQs(params: { dateFrom?: string; dateTo?: string; branchId?: string }): string {
+  const qs = new URLSearchParams();
+  if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+  if (params.dateTo) qs.set('dateTo', params.dateTo);
+  if (params.branchId) qs.set('branchId', params.branchId);
+  return qs.toString();
+}
+
 export interface TenantProfile {
   id: string;
   name: string;

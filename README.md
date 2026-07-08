@@ -1,14 +1,14 @@
-# UCMS — Foundation through HR & Payroll (Modules 0-8) + Custom Fields
+# UCMS — Foundation through Reports & Analytics (Modules 0-9) + Custom Fields
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
 Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
-Volunteer Management, Communication, Events, HR & Payroll, and a cross-cutting
-Custom Fields module for the Unified Church Management System. Module 0
-(Foundation), Module 1 (Church & Hierarchy), Module 2 (Member & Family
-Management), Module 3 (Finance), Module 4 (Attendance), Module 5 (Ministry &
-Volunteer Management), Module 6 (Communication), Module 7 (Events), and Module 8
-(HR & Payroll) are complete — everything else (Reports & Analytics, ...) builds
-on top of what's here.
+Volunteer Management, Communication, Events, HR & Payroll, Reports & Analytics,
+and a cross-cutting Custom Fields module for the Unified Church Management
+System. Module 0 (Foundation), Module 1 (Church & Hierarchy), Module 2 (Member &
+Family Management), Module 3 (Finance), Module 4 (Attendance), Module 5
+(Ministry & Volunteer Management), Module 6 (Communication), Module 7 (Events),
+Module 8 (HR & Payroll), and Module 9 (Reports & Analytics) are complete —
+everything else builds on top of what's here.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
 cross-cutting mechanism, wired into Member & Family Management today, that lets a
@@ -30,6 +30,7 @@ docs/
   communication/               Module 6 docs (business analysis, FRs, API design)
   events/                      Module 7 docs (business analysis, FRs, API design)
   hr-payroll/                  Module 8 docs (business analysis, FRs, API design)
+  reports/                     Module 9 docs (business analysis, FRs, API design)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -90,6 +91,10 @@ backend/                       NestJS API
                                 EventRegistration are) + PayrollPayment, a pending -> paid |
                                 cancelled lifecycle guarded the same way Finance guards a
                                 Contribution — never edited once paid or cancelled
+    reports/                   Cross-cutting, read-only aggregation over Finance/Attendance/
+                                Member/Event/HR & Payroll data — no Prisma models of its own;
+                                month-bucketed trends are zero-filled, guarded by a single
+                                `reports.view` permission
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -104,14 +109,16 @@ backend/                       NestJS API
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
                                 tenant profile, finance, attendance, ministries,
-                                notifications, custom fields, events, staff, payroll)
-                                + e2e auth flow
+                                notifications, custom fields, events, staff, payroll,
+                                reports) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
   app/login/page.tsx            Tenant-aware sign-in
   app/admin/layout.tsx           Shared sidebar shell for every /admin/* page
   app/admin/page.tsx             Dashboard — live counts + jump-off cards into each module
+  app/admin/reports/page.tsx     Reports & Analytics dashboard — recharts-based trend charts
+                                  over Finance/Attendance/Membership/Payroll, computed live
   app/admin/config/page.tsx      Church Admin UI for the Configuration Engine
   app/admin/branches/page.tsx    Church Admin UI for the organizational hierarchy tree
   app/admin/members/page.tsx     Church Admin UI for members — renders this tenant's
@@ -206,7 +213,7 @@ same browser tab/session rather than opening admin pages directly by URL in a fr
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -367,6 +374,18 @@ npm run test:e2e             # requires a migrated + seeded test database
     expressed here as a `pending -> paid | cancelled` status lifecycle
     (rule #19's pattern) instead of a boolean. See
     `docs/hr-payroll/business-analysis.md` for the full rationale.
+22. **Not every module needs a table — a reporting layer over existing data is
+    a service, not a schema.** `backend/src/reports/` introduces zero Prisma
+    models; `ReportsService` reads `Contribution`/`AttendanceRecord`/`Member`/
+    `Event`/`Staff`/`PayrollPayment` directly, tenant-scoped the same as
+    everywhere else, and month-buckets in JS rather than a database-level
+    `date_trunc` groupBy so the codebase stays on plain Prisma Client calls
+    (no raw SQL) — fine at single-tenant data volumes, and an isolated,
+    swappable seam if a tenant's history ever outgrows it. One permission,
+    `reports.view`, guards every endpoint — these are read-only aggregates,
+    not separately-owned records, so there's no reason to split it further
+    the way `staff.*` and `payroll.payment.*` are split by action. See
+    `docs/reports/business-analysis.md` for the full rationale.
 
 ## Recent hardening (this pass)
 
@@ -382,6 +401,12 @@ npm run test:e2e             # requires a migrated + seeded test database
 
 ## Next module
 
-Per the intended build order: **Reports & Analytics** is next — now that
-Finance, Attendance, Events, and HR & Payroll all exist as source modules,
-there's enough real data to report on.
+Modules 0-9 (Foundation through Reports & Analytics) plus the cross-cutting
+Custom Fields mechanism are complete. What's left from the platform's full
+36-module brief — small groups (Sunday School / children's ministry,
+Small Groups, Asset & Facility Management, Visitor/Follow-up tracking, ...),
+Document Management, and the optional/AI-assisted features explicitly
+deferred to the end in the original roadmap — builds on the same established
+patterns (tenant scoping, `ConfigItem` for types, permission-guarded
+controllers, soft delete or the stricter void/status pattern where money or
+an audit trail is involved).
