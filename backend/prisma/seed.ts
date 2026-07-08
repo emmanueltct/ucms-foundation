@@ -84,6 +84,17 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'event.registration.read', module: 'event', description: 'View event registrations' },
   { code: 'event.registration.update', module: 'event', description: "Change a registration's status/notes" },
   { code: 'event.registration.delete', module: 'event', description: 'Cancel a registration' },
+
+  { code: 'staff.create', module: 'staff', description: 'Create a staff (HR) record' },
+  { code: 'staff.read', module: 'staff', description: 'View staff records' },
+  { code: 'staff.update', module: 'staff', description: 'Edit a staff record' },
+  { code: 'staff.delete', module: 'staff', description: 'Soft-delete a staff record' },
+
+  { code: 'payroll.payment.create', module: 'payroll', description: 'Create a pending payroll payment' },
+  { code: 'payroll.payment.read', module: 'payroll', description: 'View payroll payments' },
+  { code: 'payroll.payment.update', module: 'payroll', description: 'Edit a still-pending payroll payment' },
+  { code: 'payroll.payment.pay', module: 'payroll', description: 'Mark a payroll payment as paid' },
+  { code: 'payroll.payment.cancel', module: 'payroll', description: 'Cancel a pending payroll payment' },
 ];
 
 async function main() {
@@ -243,6 +254,37 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'event_type', key: et.key } },
       create: { tenantId: tenant.id, namespace: 'event_type', key: et.key, label: et.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (staff positions)...');
+  const staffPositions = [
+    { key: 'senior_pastor', label: 'Senior Pastor' },
+    { key: 'associate_pastor', label: 'Associate Pastor' },
+    { key: 'administrator', label: 'Church Administrator' },
+    { key: 'accountant', label: 'Accountant' },
+    { key: 'facilities', label: 'Facilities / Caretaker' },
+  ];
+  for (const [i, sp] of staffPositions.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'staff_position', key: sp.key } },
+      create: { tenantId: tenant.id, namespace: 'staff_position', key: sp.key, label: sp.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (departments)...');
+  const departments = [
+    { key: 'pastoral', label: 'Pastoral' },
+    { key: 'administration', label: 'Administration' },
+    { key: 'finance', label: 'Finance' },
+    { key: 'facilities', label: 'Facilities' },
+  ];
+  for (const [i, d] of departments.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'department', key: d.key } },
+      create: { tenantId: tenant.id, namespace: 'department', key: d.key, label: d.label, value: {}, sortOrder: i },
       update: {},
     });
   }

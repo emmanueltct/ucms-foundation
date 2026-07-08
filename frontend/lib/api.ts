@@ -530,6 +530,86 @@ export const eventRegistrationsApi = {
     apiRequest<EventRegistration>(`/event-registrations/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface Staff {
+  id: string;
+  memberId: string | null;
+  branchId: string | null;
+  firstName: string;
+  lastName: string;
+  position: string | null;
+  department: string | null;
+  employmentType: string;
+  employmentStatus: 'active' | 'on_leave' | 'terminated';
+  hireDate: string | null;
+  baseSalary: string | null;
+  salaryCurrency: string | null;
+  isActive: boolean;
+}
+
+export interface PayrollPayment {
+  id: string;
+  staffId: string;
+  periodStart: string;
+  periodEnd: string;
+  grossAmount: string;
+  deductions: string;
+  netAmount: string;
+  currency: string;
+  status: 'pending' | 'paid' | 'cancelled';
+  paidAt: string | null;
+  cancelReason: string | null;
+  notes: string | null;
+}
+
+export interface CreateStaffInput {
+  firstName: string;
+  lastName: string;
+  memberId?: string;
+  branchId?: string;
+  position?: string;
+  department?: string;
+  employmentType: string;
+  baseSalary?: number;
+  salaryCurrency?: string;
+}
+
+export const staffApi = {
+  list: (tenantSlug: string, params: { branchId?: string; employmentStatus?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.employmentStatus) qs.set('employmentStatus', params.employmentStatus);
+    if (params.search) qs.set('search', params.search);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<Staff[]>(`/staff?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, staff: CreateStaffInput) =>
+    apiRequest<Staff>('/staff', { method: 'POST', tenantSlug, auth: true, body: staff }),
+  update: (tenantSlug: string, id: string, body: Partial<CreateStaffInput> & { employmentStatus?: string }) =>
+    apiRequest<Staff>(`/staff/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<Staff>(`/staff/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export const payrollApi = {
+  list: (tenantSlug: string, params: { staffId?: string; status?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.staffId) qs.set('staffId', params.staffId);
+    if (params.status) qs.set('status', params.status);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<PayrollPayment[]>(`/payroll-payments?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (
+    tenantSlug: string,
+    payment: { staffId: string; periodStart: string; periodEnd: string; grossAmount: number; deductions?: number; notes?: string },
+  ) => apiRequest<PayrollPayment>('/payroll-payments', { method: 'POST', tenantSlug, auth: true, body: payment }),
+  markPaid: (tenantSlug: string, id: string) =>
+    apiRequest<PayrollPayment>(`/payroll-payments/${id}/mark-paid`, { method: 'PATCH', tenantSlug, auth: true }),
+  cancel: (tenantSlug: string, id: string, cancelReason: string) =>
+    apiRequest<PayrollPayment>(`/payroll-payments/${id}/cancel`, { method: 'PATCH', tenantSlug, auth: true, body: { cancelReason } }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;

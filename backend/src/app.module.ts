@@ -21,6 +21,7 @@ import { AttendanceModule } from './attendance/attendance.module';
 import { MinistriesModule } from './ministries/ministries.module';
 import { CommunicationModule } from './communication/communication.module';
 import { EventsModule } from './events/events.module';
+import { HrModule } from './hr/hr.module';
 
 import { TenantContextMiddleware } from './common/middleware/tenant-context.middleware';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -50,6 +51,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     MinistriesModule,
     CommunicationModule,
     EventsModule,
+    HrModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC.

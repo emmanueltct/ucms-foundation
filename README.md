@@ -1,13 +1,14 @@
-# UCMS — Foundation through Events (Modules 0-7) + Custom Fields
+# UCMS — Foundation through HR & Payroll (Modules 0-8) + Custom Fields
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
 Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
-Volunteer Management, Communication, Events, and a cross-cutting Custom Fields
-module for the Unified Church Management System. Module 0 (Foundation), Module 1
-(Church & Hierarchy), Module 2 (Member & Family Management), Module 3 (Finance),
-Module 4 (Attendance), Module 5 (Ministry & Volunteer Management), Module 6
-(Communication), and Module 7 (Events) are complete — everything else (HR &
-Payroll, Reports & Analytics, ...) builds on top of what's here.
+Volunteer Management, Communication, Events, HR & Payroll, and a cross-cutting
+Custom Fields module for the Unified Church Management System. Module 0
+(Foundation), Module 1 (Church & Hierarchy), Module 2 (Member & Family
+Management), Module 3 (Finance), Module 4 (Attendance), Module 5 (Ministry &
+Volunteer Management), Module 6 (Communication), Module 7 (Events), and Module 8
+(HR & Payroll) are complete — everything else (Reports & Analytics, ...) builds
+on top of what's here.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
 cross-cutting mechanism, wired into Member & Family Management today, that lets a
@@ -28,13 +29,15 @@ docs/
   ministry/                    Module 5 docs (business analysis, FRs, API design)
   communication/               Module 6 docs (business analysis, FRs, API design)
   events/                      Module 7 docs (business analysis, FRs, API design)
+  hr-payroll/                  Module 8 docs (business analysis, FRs, API design)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
   schema.prisma                Tenant, User, Role, Permission, ConfigItem, Branch, Member,
                                 Family, Contribution, AttendanceRecord, Ministry,
                                 MinistryMembership, Notification, CustomFieldDefinition,
-                                CustomFieldValue, Event, EventRegistration, ...
+                                CustomFieldValue, Event, EventRegistration, Staff,
+                                PayrollPayment, ...
 
 backend/                       NestJS API
   src/
@@ -82,6 +85,11 @@ backend/                       NestJS API
                                 (named member or walk-in guest, soft capacity cap enforced
                                 at registration time); deleting an event cancels its
                                 registrations
+    hr/                        Staff records (always the person's own record, never an
+                                optional-FK-with-fallback the way Contribution/Attendance/
+                                EventRegistration are) + PayrollPayment, a pending -> paid |
+                                cancelled lifecycle guarded the same way Finance guards a
+                                Contribution — never edited once paid or cancelled
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -90,12 +98,14 @@ backend/                       NestJS API
                                 categories, feature toggles — all as data)
   prisma/seed.ts                Seeds the permission catalog, a demo tenant, branch
                                 types, membership categories, contribution types, service
-                                types, attendance methods, ministry types, event types, two
-                                example member custom fields, and a headquarters branch
+                                types, attendance methods, ministry types, event types,
+                                staff positions, departments, two example member custom
+                                fields, and a headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
                                 tenant profile, finance, attendance, ministries,
-                                notifications, custom fields, events) + e2e auth flow
+                                notifications, custom fields, events, staff, payroll)
+                                + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -110,6 +120,10 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
   app/admin/ministries/page.tsx  Church Admin UI for ministries and volunteer rosters
   app/admin/events/page.tsx      Church Admin UI for events and registrations (member or guest)
+  app/admin/hr/page.tsx          Church Admin UI for staff records and payroll payments —
+                                  master-detail layout (staff list, selected staff's payroll
+                                  history) with position/department dropdowns sourced from
+                                  ConfigItems
   app/admin/notifications/page.tsx Church Admin UI for sending/reviewing notifications
   app/admin/settings/custom-fields/page.tsx  Define custom fields per entity type
   app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
@@ -340,6 +354,19 @@ npm run test:e2e             # requires a migrated + seeded test database
     for a named record doesn't always have an equivalent for its anonymous
     counterpart, and forcing one anyway (e.g. de-duping guests by name)
     would reject legitimate same-name registrations.
+21. **Not every person-shaped record is an optional-FK-with-fallback —
+    some are always their own record.** Unlike `Contribution.memberId`,
+    `AttendanceRecord.memberId`, or `EventRegistration.memberId`+`guestName`
+    (rule #12), `Staff` has no anonymous-fallback side: it always has its
+    own `firstName`/`lastName`, and `memberId` is an *optional pointer back*
+    to a `Member` (for staff who are also congregants), not the identity
+    itself. `PayrollPayment` then reuses Finance's stricter pattern (rule
+    #10) rather than Attendance's plain one (rule #11): once a payment is
+    `paid` or `cancelled` it cannot be edited, only inspected — the same
+    "money needs an audit trail" reasoning as `Contribution.isVoided`,
+    expressed here as a `pending -> paid | cancelled` status lifecycle
+    (rule #19's pattern) instead of a boolean. See
+    `docs/hr-payroll/business-analysis.md` for the full rationale.
 
 ## Recent hardening (this pass)
 
@@ -355,6 +382,6 @@ npm run test:e2e             # requires a migrated + seeded test database
 
 ## Next module
 
-Per the intended build order: **HR & Payroll** is next — staff records and
-payroll runs, tied into Finance's accounting ledger. **Reports & Analytics**
-follows once enough source modules exist to report on.
+Per the intended build order: **Reports & Analytics** is next — now that
+Finance, Attendance, Events, and HR & Payroll all exist as source modules,
+there's enough real data to report on.

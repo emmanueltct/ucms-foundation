@@ -26,6 +26,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'CustomFieldValue',
   'Event',
   'EventRegistration',
+  'Staff',
+  'PayrollPayment',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

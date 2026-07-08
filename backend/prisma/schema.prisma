@@ -50,6 +50,8 @@ model Tenant {
   customFieldValues      CustomFieldValue[]
   events                 Event[]
   eventRegistrations     EventRegistration[]
+  staff                  Staff[]
+  payrollPayments        PayrollPayment[]
 
   @@map("tenants")
 }
@@ -81,6 +83,8 @@ model User {
   voidedContributions   Contribution[]     @relation("ContributionVoidedBy")
   recordedAttendance    AttendanceRecord[] @relation("AttendanceRecordedBy")
   createdNotifications  Notification[]     @relation("NotificationCreatedBy")
+  paidPayrollPayments     PayrollPayment[] @relation("PayrollPaymentPaidBy")
+  cancelledPayrollPayments PayrollPayment[] @relation("PayrollPaymentCancelledBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -233,6 +237,7 @@ model Branch {
   attendanceRecords AttendanceRecord[]
   ministries        Ministry[]
   events            Event[]
+  staff             Staff[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -309,6 +314,7 @@ model Member {
   ministryMemberships MinistryMembership[]
   notifications       Notification[]
   eventRegistrations  EventRegistration[]
+  staffRecord         Staff?
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
@@ -611,6 +617,84 @@ model EventRegistration {
   @@index([tenantId, eventId])
   @@index([tenantId, memberId])
   @@map("event_registrations")
+}
+
+// ----------------------------------------------------------------------------
+// HR & PAYROLL
+// ----------------------------------------------------------------------------
+
+/// An employment record — see docs/hr-payroll/business-analysis.md. Unlike
+/// Contribution/AttendanceRecord/EventRegistration (transactional records
+/// that reference a person), `Staff` IS the person's HR record, so it always
+/// carries its own name; `memberId` is an optional *link* to an existing
+/// congregation Member (at most one active staff record per member — hence
+/// `@unique`), not a substitute for one, since plenty of staff (a contracted
+/// accountant, IT support) are never members at all.
+model Staff {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  memberId         String?   @unique @map("member_id")
+  member           Member?   @relation(fields: [memberId], references: [id])
+  branchId         String?   @map("branch_id")
+  branch           Branch?   @relation(fields: [branchId], references: [id])
+  firstName        String    @map("first_name")
+  lastName         String    @map("last_name")
+  position         String? // ConfigItem key, namespace "staff_position" (e.g. "senior_pastor", "accountant")
+  department       String? // ConfigItem key, namespace "department"
+  employmentType   String    @map("employment_type") // "full_time" | "part_time" | "contract" | "volunteer_stipend"
+  employmentStatus String    @default("active") @map("employment_status") // "active" | "on_leave" | "terminated"
+  hireDate         DateTime? @map("hire_date")
+  terminationDate  DateTime? @map("termination_date")
+  baseSalary       Decimal?  @map("base_salary") @db.Decimal(14, 2)
+  salaryCurrency   String?   @map("salary_currency")
+  notes            String?
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  payrollPayments PayrollPayment[]
+
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@map("staff")
+}
+
+/// A single payroll disbursement for one Staff record — see
+/// docs/hr-payroll/business-analysis.md for why this follows Finance's
+/// stricter pattern (money leaving the church) rather than Attendance's
+/// plain soft-delete: `netAmount` is fixed at creation and never edited;
+/// correcting a mistake is `cancel` (only while still "pending", with a
+/// mandatory reason), never a field-level edit once "paid".
+model PayrollPayment {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  staffId            String    @map("staff_id")
+  staff              Staff     @relation(fields: [staffId], references: [id])
+  periodStart        DateTime  @map("period_start")
+  periodEnd          DateTime  @map("period_end")
+  grossAmount        Decimal   @map("gross_amount") @db.Decimal(14, 2)
+  deductions         Decimal   @default(0) @map("deductions") @db.Decimal(14, 2)
+  netAmount          Decimal   @map("net_amount") @db.Decimal(14, 2)
+  currency           String
+  status             String    @default("pending") // "pending" | "paid" | "cancelled"
+  paidAt             DateTime? @map("paid_at")
+  paidByUserId       String?   @map("paid_by_user_id")
+  paidByUser         User?     @relation("PayrollPaymentPaidBy", fields: [paidByUserId], references: [id])
+  cancelReason       String?   @map("cancel_reason")
+  cancelledAt        DateTime? @map("cancelled_at")
+  cancelledByUserId  String?   @map("cancelled_by_user_id")
+  cancelledByUser    User?     @relation("PayrollPaymentCancelledBy", fields: [cancelledByUserId], references: [id])
+  notes              String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([tenantId, staffId])
+  @@index([tenantId, periodStart])
+  @@map("payroll_payments")
 }
 
 // ----------------------------------------------------------------------------

@@ -15,9 +15,10 @@ import {
   HeartHandshake,
   Bell,
   CalendarDays,
+  Briefcase,
   type LucideIcon,
 } from 'lucide-react';
-import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi } from '../../lib/api';
+import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 
 const TENANT_SLUG = 'demo-church';
@@ -36,6 +37,7 @@ const MODULES = [
   { title: 'Attendance', href: '/admin/attendance', icon: CalendarCheck, description: 'Check-ins and head-counts.' },
   { title: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, description: 'Ministries and volunteer rosters.' },
   { title: 'Events', href: '/admin/events', icon: CalendarDays, description: 'Schedule events and manage registrations.' },
+  { title: 'HR & Payroll', href: '/admin/hr', icon: Briefcase, description: 'Staff records and payroll payments.' },
   { title: 'Notifications', href: '/admin/notifications', icon: Bell, description: 'Send and review messages.' },
 ];
 
@@ -47,6 +49,7 @@ export default function AdminDashboardPage() {
     { label: 'Attendance records', href: '/admin/attendance', icon: CalendarCheck, value: null },
     { label: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, value: null },
     { label: 'Events', href: '/admin/events', icon: CalendarDays, value: null },
+    { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: null },
     { label: 'Notifications sent', href: '/admin/notifications', icon: Bell, value: null },
   ]);
   const [error, setError] = useState<string | null>(null);
@@ -54,13 +57,14 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [branches, members, contributions, attendance, ministries, events, notifications] = await Promise.all([
+        const [branches, members, contributions, attendance, ministries, events, staff, notifications] = await Promise.all([
           branchesApi.list(TENANT_SLUG),
           membersApi.list(TENANT_SLUG, {}),
           contributionsApi.list(TENANT_SLUG),
           attendanceApi.list(TENANT_SLUG),
           ministriesApi.list(TENANT_SLUG),
           eventsApi.list(TENANT_SLUG),
+          staffApi.list(TENANT_SLUG),
           notificationsApi.list(TENANT_SLUG),
         ]);
         setStats([
@@ -70,6 +74,7 @@ export default function AdminDashboardPage() {
           { label: 'Attendance records', href: '/admin/attendance', icon: CalendarCheck, value: attendance.data?.length ?? 0 },
           { label: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, value: ministries.data?.length ?? 0 },
           { label: 'Events', href: '/admin/events', icon: CalendarDays, value: events.data?.length ?? 0 },
+          { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: staff.data?.length ?? 0 },
           { label: 'Notifications sent', href: '/admin/notifications', icon: Bell, value: notifications.data?.length ?? 0 },
         ]);
       } catch {
