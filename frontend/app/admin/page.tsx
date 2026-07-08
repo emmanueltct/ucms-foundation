@@ -18,9 +18,10 @@ import {
   Briefcase,
   BarChart3,
   Boxes,
+  UserPlus,
   type LucideIcon,
 } from 'lucide-react';
-import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi } from '../../lib/api';
+import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi, visitorsApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 
 const TENANT_SLUG = 'demo-church';
@@ -36,6 +37,7 @@ const MODULES = [
   { title: 'Reports & Analytics', href: '/admin/reports', icon: BarChart3, description: 'Trends across giving, attendance, membership, and payroll.' },
   { title: 'Branches', href: '/admin/branches', icon: Building2, description: 'Manage the organizational hierarchy.' },
   { title: 'Members', href: '/admin/members', icon: Users, description: 'Member profiles, families, custom fields.' },
+  { title: 'Visitors', href: '/admin/visitors', icon: UserPlus, description: 'Track first-time visitors through follow-up to joining.' },
   { title: 'Finance', href: '/admin/finance', icon: Wallet, description: 'Record and review contributions.' },
   { title: 'Attendance', href: '/admin/attendance', icon: CalendarCheck, description: 'Check-ins and head-counts.' },
   { title: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, description: 'Ministries and volunteer rosters.' },
@@ -55,6 +57,7 @@ export default function AdminDashboardPage() {
     { label: 'Events', href: '/admin/events', icon: CalendarDays, value: null },
     { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: null },
     { label: 'Assets', href: '/admin/assets', icon: Boxes, value: null },
+    { label: 'Visitors', href: '/admin/visitors', icon: UserPlus, value: null },
     { label: 'Notifications sent', href: '/admin/notifications', icon: Bell, value: null },
   ]);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +65,7 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [branches, members, contributions, attendance, ministries, events, staff, assets, notifications] = await Promise.all([
+        const [branches, members, contributions, attendance, ministries, events, staff, assets, visitors, notifications] = await Promise.all([
           branchesApi.list(TENANT_SLUG),
           membersApi.list(TENANT_SLUG, {}),
           contributionsApi.list(TENANT_SLUG),
@@ -71,6 +74,7 @@ export default function AdminDashboardPage() {
           eventsApi.list(TENANT_SLUG),
           staffApi.list(TENANT_SLUG),
           assetsApi.list(TENANT_SLUG),
+          visitorsApi.list(TENANT_SLUG),
           notificationsApi.list(TENANT_SLUG),
         ]);
         setStats([
@@ -82,6 +86,7 @@ export default function AdminDashboardPage() {
           { label: 'Events', href: '/admin/events', icon: CalendarDays, value: events.data?.length ?? 0 },
           { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: staff.data?.length ?? 0 },
           { label: 'Assets', href: '/admin/assets', icon: Boxes, value: assets.data?.length ?? 0 },
+          { label: 'Visitors', href: '/admin/visitors', icon: UserPlus, value: visitors.data?.length ?? 0 },
           { label: 'Notifications sent', href: '/admin/notifications', icon: Bell, value: notifications.data?.length ?? 0 },
         ]);
       } catch {

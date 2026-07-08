@@ -102,6 +102,14 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'asset.read', module: 'asset', description: 'View assets and their documents' },
   { code: 'asset.update', module: 'asset', description: 'Edit an asset and upload its documents' },
   { code: 'asset.delete', module: 'asset', description: 'Soft-delete an asset' },
+
+  { code: 'visitor.create', module: 'visitor', description: 'Record a first-time visitor' },
+  { code: 'visitor.read', module: 'visitor', description: 'View visitors and their follow-up history' },
+  { code: 'visitor.update', module: 'visitor', description: 'Edit a visitor and change their follow-up status' },
+  { code: 'visitor.delete', module: 'visitor', description: 'Soft-delete a visitor' },
+  { code: 'visitor.convert', module: 'visitor', description: 'Link a visitor to a member and mark them joined' },
+  { code: 'visitor.followup.create', module: 'visitor', description: 'Log a follow-up interaction with a visitor' },
+  { code: 'visitor.followup.read', module: 'visitor', description: "View a visitor's follow-up history" },
 ];
 
 async function main() {
@@ -325,6 +333,39 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'asset_condition', key: c.key } },
       create: { tenantId: tenant.id, namespace: 'asset_condition', key: c.key, label: c.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (visitor sources)...');
+  const visitorSources = [
+    { key: 'friend_family', label: 'Friend / Family' },
+    { key: 'social_media', label: 'Social Media' },
+    { key: 'walk_in', label: 'Walk-in' },
+    { key: 'event', label: 'Event' },
+    { key: 'outreach', label: 'Outreach' },
+    { key: 'other', label: 'Other' },
+  ];
+  for (const [i, s] of visitorSources.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'visitor_source', key: s.key } },
+      create: { tenantId: tenant.id, namespace: 'visitor_source', key: s.key, label: s.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (follow-up methods)...');
+  const followUpMethods = [
+    { key: 'call', label: 'Phone Call' },
+    { key: 'sms', label: 'SMS' },
+    { key: 'email', label: 'Email' },
+    { key: 'visit', label: 'In-Person Visit' },
+    { key: 'other', label: 'Other' },
+  ];
+  for (const [i, m] of followUpMethods.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'follow_up_method', key: m.key } },
+      create: { tenantId: tenant.id, namespace: 'follow_up_method', key: m.key, label: m.label, value: {}, sortOrder: i },
       update: {},
     });
   }

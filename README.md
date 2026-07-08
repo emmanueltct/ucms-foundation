@@ -1,14 +1,15 @@
-# UCMS — Foundation through Asset & Facility Management (Modules 0-10) + Custom Fields
+# UCMS — Foundation through Visitor & Follow-up Management (Modules 0-11) + Custom Fields
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
 Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
 Volunteer Management, Communication, Events, HR & Payroll, Reports & Analytics,
-Asset & Facility Management, and a cross-cutting Custom Fields module for the
-Unified Church Management System. Module 0 (Foundation), Module 1 (Church &
-Hierarchy), Module 2 (Member & Family Management), Module 3 (Finance), Module 4
-(Attendance), Module 5 (Ministry & Volunteer Management), Module 6
-(Communication), Module 7 (Events), Module 8 (HR & Payroll), Module 9 (Reports
-& Analytics), and Module 10 (Asset & Facility Management) are complete —
+Asset & Facility Management, Visitor & Follow-up Management, and a cross-cutting
+Custom Fields module for the Unified Church Management System. Module 0
+(Foundation), Module 1 (Church & Hierarchy), Module 2 (Member & Family
+Management), Module 3 (Finance), Module 4 (Attendance), Module 5 (Ministry &
+Volunteer Management), Module 6 (Communication), Module 7 (Events), Module 8
+(HR & Payroll), Module 9 (Reports & Analytics), Module 10 (Asset & Facility
+Management), and Module 11 (Visitor & Follow-up Management) are complete —
 everything else builds on top of what's here.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
@@ -33,6 +34,7 @@ docs/
   hr-payroll/                  Module 8 docs (business analysis, FRs, API design)
   reports/                     Module 9 docs (business analysis, FRs, API design)
   asset-management/            Module 10 docs (business analysis, FRs, API design)
+  visitor-management/          Module 11 docs (business analysis, FRs, API design)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -40,7 +42,7 @@ prisma/
                                 Family, Contribution, AttendanceRecord, Ministry,
                                 MinistryMembership, Notification, CustomFieldDefinition,
                                 CustomFieldValue, Event, EventRegistration, Staff,
-                                PayrollPayment, ...
+                                PayrollPayment, Asset, Visitor, VisitorFollowUp, ...
 
 backend/                       NestJS API
   src/
@@ -103,6 +105,11 @@ backend/                       NestJS API
                                 its own field set with zero new tables, including a new `file`
                                 fieldType for document uploads (proof of purchase, insurance,
                                 ...) routed through the Storage module
+    visitors/                  Visitors tracked from first contact through an append-only
+                                follow-up log (VisitorFollowUp) to (optionally) becoming a
+                                Member — `status` is a plain lifecycle field except "joined",
+                                which only ever happens via the dedicated `convert` action
+                                that links `convertedMemberId`
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -113,14 +120,15 @@ backend/                       NestJS API
                                 types, membership categories, contribution types, service
                                 types, attendance methods, ministry types, event types,
                                 staff positions, departments, asset categories, asset
-                                conditions, example asset:vehicle/asset:building custom
-                                fields (including two file-upload fields), two example
-                                member custom fields, and a headquarters branch
+                                conditions, visitor sources, follow-up methods, example
+                                asset:vehicle/asset:building custom fields (including two
+                                file-upload fields), two example member custom fields, and
+                                a headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
                                 tenant profile, finance, attendance, ministries,
                                 notifications, custom fields, events, staff, payroll,
-                                reports, assets) + e2e auth flow
+                                reports, assets, visitors) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -145,6 +153,9 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   create form (custom fields render dynamically per selected
                                   category) + master-detail list with in-place status changes
                                   and per-field document upload/download
+  app/admin/visitors/page.tsx     Church Admin UI for visitors — master-detail layout
+                                  (visitor list, selected visitor's follow-up timeline) with
+                                  in-place status changes and a convert-to-member action
   app/admin/notifications/page.tsx Church Admin UI for sending/reviewing notifications
   app/admin/settings/custom-fields/page.tsx  Define custom fields per entity type — asset
                                   categories appear here automatically as `asset:{category}`
@@ -229,7 +240,7 @@ same browser tab/session rather than opening admin pages directly by URL in a fr
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports, assets)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports, assets, visitors)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -432,6 +443,27 @@ npm run test:e2e             # requires a migrated + seeded test database
     the moment one is — the same shape the rest of this platform already
     uses for a two-step "create, then attach children" flow (a `PayrollPayment`
     needs a `Staff` id, an `EventRegistration` needs an `Event` id).
+26. **A record that turns into a different kind of record gets one dedicated
+    action, not a status value you can set directly.** `Visitor.status` is a
+    plain, freely-editable field (rule #19's pattern) for every transition
+    except `"joined"` — setting that one directly is rejected
+    (`400 VISITOR_USE_CONVERT_ENDPOINT`) because it has a real side effect
+    (linking `convertedMemberId`) that a bare field edit can't safely
+    express. `PATCH /visitors/:id/convert` takes an *existing* `memberId`
+    rather than creating the `Member` itself — reusing Member & Family
+    Management's own validation instead of building a second, parallel
+    "create a member" path that would drift from the real one. The same
+    "a field with real side effects earns its own endpoint" reasoning as
+    `Member.transfer` (rule #8) and `Family.setHead`, applied to a
+    cross-module conversion instead of a same-module field.
+27. **An append-only interaction log doesn't need — and shouldn't offer —
+    an edit or delete path.** `VisitorFollowUp` rows are never updated or
+    removed once logged, the same "history doesn't get rewritten" shape
+    `AuditLog` already has; a correction is a new entry, not a mutation of
+    an old one. Not every child record needs `PATCH`/`DELETE` just because
+    `PayrollPayment` or `EventRegistration` have them — it depends on
+    whether the record represents a fact that already happened (a follow-up
+    call) or a piece of state with a legitimate "undo" (a pending payment).
 
 ## Recent hardening (this pass)
 
@@ -447,13 +479,16 @@ npm run test:e2e             # requires a migrated + seeded test database
 
 ## Next module
 
-Modules 0-10 (Foundation through Asset & Facility Management) plus the
+Modules 0-11 (Foundation through Visitor & Follow-up Management) plus the
 cross-cutting Custom Fields mechanism are complete. What's left from the
 platform's full 36-module brief — small groups (Sunday School / children's
-ministry, Small Groups), Visitor/Follow-up tracking, Document Management, and
-the optional/AI-assisted features explicitly deferred to the end in the
-original roadmap — builds on the same established patterns (tenant scoping,
-`ConfigItem` for types, permission-guarded controllers, soft delete or the
-stricter void/status pattern where money or an audit trail is involved, and
-now Custom Fields' `entityType` composition trick where a module needs
-per-category or per-type fields the way Assets did).
+ministry, Small Groups), Document Management, and the optional/AI-assisted
+features explicitly deferred to the end in the original roadmap — builds on
+the same established patterns (tenant scoping, `ConfigItem` for types,
+permission-guarded controllers, soft delete or the stricter void/status
+pattern where money or an audit trail is involved, Custom Fields'
+`entityType` composition trick where a module needs per-category or per-type
+fields the way Assets did, and now the "dedicated conversion endpoint reusing
+an existing module's validation" pattern Visitors established for turning
+into a Member — Small Groups' own "graduate to membership"-style flows, if
+any, can reuse the same shape).

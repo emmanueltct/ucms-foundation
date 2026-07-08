@@ -744,6 +744,84 @@ export const assetsApi = {
     }),
 };
 
+export interface AppUser {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+}
+
+export const usersApi = {
+  list: (tenantSlug: string) => apiRequest<AppUser[]>('/users?page=1&pageSize=100', { tenantSlug, auth: true }),
+};
+
+export interface Visitor {
+  id: string;
+  branchId: string | null;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  visitDate: string;
+  source: string | null;
+  invitedByMemberId: string | null;
+  assignedToUserId: string | null;
+  status: 'new' | 'contacted' | 'scheduled_visit' | 'joined' | 'no_response' | 'closed';
+  convertedMemberId: string | null;
+  notes: string | null;
+  isActive: boolean;
+}
+
+export interface VisitorFollowUp {
+  id: string;
+  visitorId: string;
+  method: string;
+  followUpDate: string;
+  outcome: string | null;
+  performedByUserId: string | null;
+  createdAt: string;
+}
+
+export interface CreateVisitorInput {
+  firstName: string;
+  lastName: string;
+  branchId?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  visitDate: string;
+  source?: string;
+  invitedByMemberId?: string;
+  assignedToUserId?: string;
+  notes?: string;
+}
+
+export const visitorsApi = {
+  list: (tenantSlug: string, params: { branchId?: string; status?: string; assignedToUserId?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.status) qs.set('status', params.status);
+    if (params.assignedToUserId) qs.set('assignedToUserId', params.assignedToUserId);
+    if (params.search) qs.set('search', params.search);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<Visitor[]>(`/visitors?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, visitor: CreateVisitorInput) =>
+    apiRequest<Visitor>('/visitors', { method: 'POST', tenantSlug, auth: true, body: visitor }),
+  update: (tenantSlug: string, id: string, body: Partial<CreateVisitorInput> & { status?: string }) =>
+    apiRequest<Visitor>(`/visitors/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<Visitor>(`/visitors/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  convert: (tenantSlug: string, id: string, memberId: string) =>
+    apiRequest<Visitor>(`/visitors/${id}/convert`, { method: 'PATCH', tenantSlug, auth: true, body: { memberId } }),
+  addFollowUp: (tenantSlug: string, visitorId: string, followUp: { method: string; followUpDate?: string; outcome?: string }) =>
+    apiRequest<VisitorFollowUp>(`/visitors/${visitorId}/follow-ups`, { method: 'POST', tenantSlug, auth: true, body: followUp }),
+  listFollowUps: (tenantSlug: string, visitorId: string) =>
+    apiRequest<VisitorFollowUp[]>(`/visitors/${visitorId}/follow-ups`, { tenantSlug, auth: true }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;

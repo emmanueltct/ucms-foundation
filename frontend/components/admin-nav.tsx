@@ -20,6 +20,7 @@ import {
   Briefcase,
   BarChart3,
   Boxes,
+  UserPlus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
   { href: '/admin/branches', label: 'Branches', icon: Building2 },
   { href: '/admin/members', label: 'Members', icon: Users },
+  { href: '/admin/visitors', label: 'Visitors', icon: UserPlus },
   { href: '/admin/finance', label: 'Finance', icon: Wallet },
   { href: '/admin/attendance', label: 'Attendance', icon: CalendarCheck },
   { href: '/admin/ministries', label: 'Ministries', icon: HeartHandshake },

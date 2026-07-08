@@ -53,6 +53,8 @@ model Tenant {
   staff                  Staff[]
   payrollPayments        PayrollPayment[]
   assets                 Asset[]
+  visitors               Visitor[]
+  visitorFollowUps       VisitorFollowUp[]
 
   @@map("tenants")
 }
@@ -86,6 +88,8 @@ model User {
   createdNotifications  Notification[]     @relation("NotificationCreatedBy")
   paidPayrollPayments     PayrollPayment[] @relation("PayrollPaymentPaidBy")
   cancelledPayrollPayments PayrollPayment[] @relation("PayrollPaymentCancelledBy")
+  assignedVisitors        Visitor[]        @relation("VisitorAssignedTo")
+  performedFollowUps      VisitorFollowUp[] @relation("FollowUpPerformedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -240,6 +244,7 @@ model Branch {
   events            Event[]
   staff             Staff[]
   assets            Asset[]
+  visitors          Visitor[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -317,6 +322,8 @@ model Member {
   notifications       Notification[]
   eventRegistrations  EventRegistration[]
   staffRecord         Staff?
+  invitedVisitors     Visitor[]            @relation("VisitorInvitedBy")
+  convertedFromVisitor Visitor?            @relation("VisitorConvertedTo")
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
@@ -737,6 +744,71 @@ model Asset {
   @@index([tenantId, branchId])
   @@index([tenantId, assetCategory])
   @@map("assets")
+}
+
+// ----------------------------------------------------------------------------
+// VISITOR & FOLLOW-UP MANAGEMENT (Module 11)
+// ----------------------------------------------------------------------------
+
+/// A first-time (or not-yet-member) visitor — tracked from first contact
+/// through follow-up to (optionally) becoming a Member. `status` is a plain
+/// lifecycle field (unlike PayrollPayment's stricter pending->paid pattern)
+/// since nothing here carries a financial audit-trail obligation. See
+/// docs/visitor-management/business-analysis.md.
+model Visitor {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  branchId         String?   @map("branch_id")
+  branch           Branch?   @relation(fields: [branchId], references: [id])
+  firstName        String    @map("first_name")
+  lastName         String    @map("last_name")
+  phone            String?
+  email            String?
+  address          String?
+  visitDate        DateTime  @map("visit_date")
+  source           String?   // ConfigItem key, namespace "visitor_source"
+  invitedByMemberId String?  @map("invited_by_member_id")
+  invitedByMember  Member?   @relation("VisitorInvitedBy", fields: [invitedByMemberId], references: [id])
+  assignedToUserId String?   @map("assigned_to_user_id")
+  assignedToUser   User?     @relation("VisitorAssignedTo", fields: [assignedToUserId], references: [id])
+  status           String    @default("new") // "new" | "contacted" | "scheduled_visit" | "joined" | "no_response" | "closed"
+  convertedMemberId String?  @unique @map("converted_member_id")
+  convertedMember  Member?   @relation("VisitorConvertedTo", fields: [convertedMemberId], references: [id])
+  notes            String?
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  followUps VisitorFollowUp[]
+
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, status])
+  @@map("visitors")
+}
+
+/// One logged follow-up interaction (a call, a message, a visit) against a
+/// Visitor — a Visitor accumulates a history the same way a Staff record
+/// accumulates PayrollPayments, rather than a single "last contacted" field
+/// that discards history on every update.
+model VisitorFollowUp {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  visitorId        String    @map("visitor_id")
+  visitor          Visitor   @relation(fields: [visitorId], references: [id])
+  method           String    // ConfigItem key, namespace "follow_up_method"
+  followUpDate     DateTime  @default(now()) @map("follow_up_date")
+  outcome          String?
+  performedByUserId String?  @map("performed_by_user_id")
+  performedByUser  User?     @relation("FollowUpPerformedBy", fields: [performedByUserId], references: [id])
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([tenantId, visitorId])
+  @@map("visitor_follow_ups")
 }
 
 // ----------------------------------------------------------------------------

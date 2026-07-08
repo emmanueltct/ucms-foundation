@@ -29,6 +29,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'Staff',
   'PayrollPayment',
   'Asset',
+  'Visitor',
+  'VisitorFollowUp',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([
