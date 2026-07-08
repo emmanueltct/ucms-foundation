@@ -1,12 +1,13 @@
 'use client';
 
 // app/admin/page.tsx
-// Dashboard landing page — quick at-a-glance counts plus a jump-off point
-// into every module, so signing in lands somewhere useful instead of a
-// blank route.
+// Dashboard landing page — quick at-a-glance counts, live trend charts, and
+// a jump-off point into every module, so signing in lands somewhere useful
+// instead of a blank route.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import {
   Building2,
   Users,
@@ -24,10 +25,27 @@ import {
   HelpCircle,
   type LucideIcon,
 } from 'lucide-react';
-import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi, visitorsApi, documentsApi, smallGroupsApi } from '../../lib/api';
+import {
+  branchesApi,
+  membersApi,
+  contributionsApi,
+  attendanceApi,
+  ministriesApi,
+  notificationsApi,
+  eventsApi,
+  staffApi,
+  assetsApi,
+  visitorsApi,
+  documentsApi,
+  smallGroupsApi,
+  reportsApi,
+  MonthBucket,
+} from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 
 const TENANT_SLUG = 'demo-church';
+const NAVY = '#1E2A44';
+const GOLD = '#C9A24B';
 
 interface StatTile {
   label: string;
@@ -53,6 +71,13 @@ const MODULES = [
   { title: 'Help & Test Guide', href: '/admin/help', icon: HelpCircle, description: 'Feature coverage and step-by-step test scripts.' },
 ];
 
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
 export default function AdminDashboardPage() {
   const [stats, setStats] = useState<StatTile[]>([
     { label: 'Branches', href: '/admin/branches', icon: Building2, value: null },
@@ -68,6 +93,8 @@ export default function AdminDashboardPage() {
     { label: 'Documents', href: '/admin/documents', icon: FileText, value: null },
     { label: 'Notifications sent', href: '/admin/notifications', icon: Bell, value: null },
   ]);
+  const [givingTrend, setGivingTrend] = useState<MonthBucket[]>([]);
+  const [attendanceTrend, setAttendanceTrend] = useState<MonthBucket[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -105,14 +132,27 @@ export default function AdminDashboardPage() {
         setError('Could not reach the server — sign in first, or check the API is running.');
       }
     }
+    async function loadTrends() {
+      try {
+        const [finance, attendance] = await Promise.all([
+          reportsApi.financeSummary(TENANT_SLUG),
+          reportsApi.attendanceTrends(TENANT_SLUG),
+        ]);
+        if (finance.success && finance.data) setGivingTrend(finance.data.byMonth.slice(-6));
+        if (attendance.success && attendance.data) setAttendanceTrend(attendance.data.byMonth.slice(-6));
+      } catch {
+        // Charts are a nice-to-have on this page — Reports has the full picture if this fails.
+      }
+    }
     load();
+    loadTrends();
   }, []);
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-10">
       <header className="mb-8">
         <p className="text-xs uppercase tracking-wide text-[#C9A24B] font-medium mb-1">Dashboard</p>
-        <h1 className="font-serif text-3xl text-[#1E2A44]">Welcome back</h1>
+        <h1 className="font-serif text-3xl text-[#1E2A44]">{greeting()}</h1>
         <p className="text-sm text-slate-500 mt-2">A quick look at what&rsquo;s happening across your church.</p>
       </header>
 
@@ -120,18 +160,58 @@ export default function AdminDashboardPage() {
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-6">{error}</div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-10">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
         {stats.map((s) => (
           <Link
             key={s.label}
             href={s.href}
             className="rounded-xl border border-slate-200 bg-white p-4 hover:border-[#1E2A44]/30 hover:shadow-sm transition-all"
           >
-            <s.icon className="h-4 w-4 text-[#C9A24B] mb-2" strokeWidth={2} />
+            <div className="h-8 w-8 rounded-full bg-[#C9A24B]/10 flex items-center justify-center mb-2.5">
+              <s.icon className="h-4 w-4 text-[#C9A24B]" strokeWidth={2} />
+            </div>
             <p className="font-serif text-2xl text-[#1E2A44]">{s.value ?? '—'}</p>
             <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
           </Link>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs uppercase tracking-wide text-slate-400 font-medium">Giving, last 6 months</h3>
+            <Link href="/admin/reports" className="text-xs text-[#1E2A44] hover:underline">
+              Full report →
+            </Link>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={givingTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} width={36} />
+              <Tooltip />
+              <Bar dataKey="total" fill={GOLD} radius={[4, 4, 0, 0]} name="Total given" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs uppercase tracking-wide text-slate-400 font-medium">Attendance, last 6 months</h3>
+            <Link href="/admin/reports" className="text-xs text-[#1E2A44] hover:underline">
+              Full report →
+            </Link>
+          </div>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={attendanceTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} width={36} />
+              <Tooltip />
+              <Line type="monotone" dataKey="total" stroke={NAVY} strokeWidth={2} dot={false} name="Headcount" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <h2 className="text-xs uppercase tracking-wide text-slate-400 font-medium mb-3">Jump into a module</h2>
@@ -140,7 +220,9 @@ export default function AdminDashboardPage() {
           <Link key={m.href} href={m.href}>
             <Card className="border-slate-200 hover:border-[#1E2A44]/30 hover:shadow-sm transition-all h-full">
               <CardHeader>
-                <m.icon className="h-5 w-5 text-[#1E2A44] mb-1" strokeWidth={2} />
+                <div className="h-9 w-9 rounded-lg bg-[#1E2A44]/5 flex items-center justify-center mb-2">
+                  <m.icon className="h-4 w-4 text-[#1E2A44]" strokeWidth={2} />
+                </div>
                 <CardTitle className="font-serif text-base text-[#1E2A44]">{m.title}</CardTitle>
                 <CardDescription className="text-slate-500">{m.description}</CardDescription>
               </CardHeader>
