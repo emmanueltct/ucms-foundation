@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsEmail, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsEmail, IsIn, IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
 
 const GENDERS = ['male', 'female', 'other'] as const;
 const FAMILY_ROLES = ['head', 'spouse', 'child', 'dependent', 'other'] as const;
@@ -96,4 +96,13 @@ export class CreateMemberDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'This tenant\'s custom fields for "member" (see GET /custom-field-definitions?entityType=member), keyed by fieldKey.',
+    example: { confirmation_date: '2020-06-01', spiritual_gift: 'teaching' },
+  })
+  @IsOptional()
+  @IsObject()
+  customFields?: Record<string, unknown>;
 }

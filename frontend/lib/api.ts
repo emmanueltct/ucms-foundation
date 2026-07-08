@@ -162,6 +162,7 @@ export interface Member {
   photoUrl: string | null;
   notes: string | null;
   isActive: boolean;
+  customFields: Record<string, unknown>;
 }
 
 export interface MemberListMeta {
@@ -184,6 +185,7 @@ export interface CreateMemberInput {
   address?: string;
   membershipCategory?: string;
   membershipStatus?: string;
+  customFields?: Record<string, unknown>;
 }
 
 export const membersApi = {
@@ -418,6 +420,48 @@ export const notificationsApi = {
   },
   create: (tenantSlug: string, notification: CreateNotificationInput) =>
     apiRequest<Notification>('/notifications', { method: 'POST', tenantSlug, auth: true, body: notification }),
+};
+
+export interface CustomFieldOption {
+  key: string;
+  label: string;
+}
+
+export interface CustomFieldDefinition {
+  id: string;
+  entityType: string;
+  fieldKey: string;
+  label: string;
+  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  options: CustomFieldOption[] | null;
+  isRequired: boolean;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export interface CreateCustomFieldDefinitionInput {
+  entityType: string;
+  fieldKey: string;
+  label: string;
+  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  options?: CustomFieldOption[];
+  isRequired?: boolean;
+  sortOrder?: number;
+}
+
+export const customFieldDefinitionsApi = {
+  list: (tenantSlug: string, params: { entityType?: string; includeInactive?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.entityType) qs.set('entityType', params.entityType);
+    if (params.includeInactive) qs.set('includeInactive', 'true');
+    return apiRequest<CustomFieldDefinition[]>(`/custom-field-definitions?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, definition: CreateCustomFieldDefinitionInput) =>
+    apiRequest<CustomFieldDefinition>('/custom-field-definitions', { method: 'POST', tenantSlug, auth: true, body: definition }),
+  deactivate: (tenantSlug: string, id: string) =>
+    apiRequest<CustomFieldDefinition>(`/custom-field-definitions/${id}/deactivate`, { method: 'PATCH', tenantSlug, auth: true }),
+  reactivate: (tenantSlug: string, id: string) =>
+    apiRequest<CustomFieldDefinition>(`/custom-field-definitions/${id}/reactivate`, { method: 'PATCH', tenantSlug, auth: true }),
 };
 
 export interface TenantProfile {

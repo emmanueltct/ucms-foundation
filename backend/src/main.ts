@@ -41,4 +41,13 @@ async function bootstrap() {
   console.log(`UCMS API listening on :${port} (prefix: /api/v1, docs: /api/docs)`);
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  // eslint-disable-next-line no-console
+  console.error(
+    'UCMS API failed to start. If this mentions Redis/ECONNREFUSED, the queue module needs Redis ' +
+      'reachable at REDIS_URL — see README.md "Running the backend locally" for how to get one running.',
+  );
+  // eslint-disable-next-line no-console
+  console.error(error);
+  process.exit(1);
+});

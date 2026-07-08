@@ -12,6 +12,7 @@ import { UsersModule } from './users/users.module';
 import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { ConfigEngineModule } from './config-engine/config.module';
+import { CustomFieldsModule } from './custom-fields/custom-fields.module';
 import { BranchesModule } from './branches/branches.module';
 import { FamiliesModule } from './families/families.module';
 import { MembersModule } from './members/members.module';
@@ -39,6 +40,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     RolesModule,
     PermissionsModule,
     ConfigEngineModule,
+    CustomFieldsModule,
     BranchesModule,
     FamiliesModule,
     MembersModule,

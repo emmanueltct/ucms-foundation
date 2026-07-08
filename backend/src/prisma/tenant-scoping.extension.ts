@@ -22,6 +22,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'Ministry',
   'MinistryMembership',
   'Notification',
+  'CustomFieldDefinition',
+  'CustomFieldValue',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

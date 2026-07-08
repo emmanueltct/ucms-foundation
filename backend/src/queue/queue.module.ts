@@ -29,6 +29,11 @@ import { NotificationsProcessor } from './notifications.processor';
             port: Number(url.port || 6379),
             password: url.password || undefined,
             maxRetriesPerRequest: null, // required by BullMQ's blocking commands
+            connectTimeout: 5_000,
+            // Bounded, unlike ioredis's infinite-retry default: without this, an
+            // unreachable Redis hangs `NestFactory.create()` forever instead of
+            // failing with a message that says what's actually wrong.
+            retryStrategy: (times: number) => (times > 5 ? null : Math.min(times * 500, 3_000)),
           },
         };
       },

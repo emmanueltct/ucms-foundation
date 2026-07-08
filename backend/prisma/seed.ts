@@ -70,6 +70,11 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
 
   { code: 'communication.notification.create', module: 'communication', description: 'Send a notification (email/sms/push)' },
   { code: 'communication.notification.read', module: 'communication', description: 'View notification history' },
+
+  { code: 'customfield.definition.create', module: 'customfield', description: 'Define a new custom field on an entity' },
+  { code: 'customfield.definition.read', module: 'customfield', description: 'View custom field definitions' },
+  { code: 'customfield.definition.update', module: 'customfield', description: 'Edit or reactivate a custom field definition' },
+  { code: 'customfield.definition.delete', module: 'customfield', description: 'Retire a custom field definition' },
 ];
 
 async function main() {
@@ -214,6 +219,35 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'ministry_type', key: mt.key } },
       create: { tenantId: tenant.id, namespace: 'ministry_type', key: mt.key, label: mt.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example custom field definitions (member)...');
+  const memberCustomFields = [
+    {
+      fieldKey: 'confirmation_date',
+      label: 'Confirmation Date',
+      fieldType: 'date',
+      sortOrder: 0,
+    },
+    {
+      fieldKey: 'spiritual_gift',
+      label: 'Spiritual Gift',
+      fieldType: 'select',
+      options: [
+        { key: 'teaching', label: 'Teaching' },
+        { key: 'worship', label: 'Worship' },
+        { key: 'hospitality', label: 'Hospitality' },
+        { key: 'evangelism', label: 'Evangelism' },
+      ],
+      sortOrder: 1,
+    },
+  ];
+  for (const cf of memberCustomFields) {
+    await prisma.customFieldDefinition.upsert({
+      where: { tenantId_entityType_fieldKey: { tenantId: tenant.id, entityType: 'member', fieldKey: cf.fieldKey } },
+      create: { tenantId: tenant.id, entityType: 'member', ...cf },
       update: {},
     });
   }

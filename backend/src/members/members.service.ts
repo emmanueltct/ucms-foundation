@@ -2,23 +2,35 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Member } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FamiliesService } from '../families/families.service';
+import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
+
+export type MemberWithCustomFields = Member & { customFields: Record<string, unknown> };
+
+/** entityType key this module registers its records under with the Custom Fields module. */
+const CUSTOM_FIELD_ENTITY_TYPE = 'member';
 
 /**
  * Member profiles — see docs/member-management/business-analysis.md. Every
  * member belongs to exactly one Branch (Module 1) and optionally one Family;
  * branch changes only happen through `transfer` (mirrors Branch's `move`).
+ *
+ * The flagship integration of the Custom Fields module (see
+ * docs/custom-fields/business-analysis.md): a tenant's `customFields` for
+ * "member" are validated and persisted alongside the fixed core fields, and
+ * returned on every read, without this table ever changing shape.
  */
 @Injectable()
 export class MembersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly familiesService: FamiliesService,
+    private readonly customFieldsService: CustomFieldsService,
   ) {}
 
-  async create(tenantId: string, dto: CreateMemberDto): Promise<Member> {
+  async create(tenantId: string, dto: CreateMemberDto): Promise<MemberWithCustomFields> {
     await this.assertBranchExists(tenantId, dto.branchId);
     if (dto.familyId) {
       await this.familiesService.findOne(tenantId, dto.familyId);
@@ -26,8 +38,10 @@ export class MembersService {
     if (dto.membershipNumber) {
       await this.assertMembershipNumberFree(tenantId, dto.membershipNumber);
     }
+    // Fail before writing the member row at all if a required custom field is missing.
+    await this.customFieldsService.assertRequiredFieldsProvided(tenantId, CUSTOM_FIELD_ENTITY_TYPE, dto.customFields);
 
-    return this.prisma.member.create({
+    const member = await this.prisma.member.create({
       data: {
         tenantId,
         branchId: dto.branchId,
@@ -50,6 +64,12 @@ export class MembersService {
         notes: dto.notes,
       },
     });
+
+    if (dto.customFields) {
+      await this.customFieldsService.setValues(tenantId, CUSTOM_FIELD_ENTITY_TYPE, member.id, dto.customFields);
+    }
+
+    return { ...member, customFields: dto.customFields ?? {} };
   }
 
   async findAll(tenantId: string, query: MemberQueryDto) {
@@ -82,17 +102,33 @@ export class MembersService {
       this.prisma.member.count({ where }),
     ]);
 
-    return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
+    const customFieldsByMemberId = await this.customFieldsService.getValuesForMany(
+      tenantId,
+      CUSTOM_FIELD_ENTITY_TYPE,
+      items.map((m) => m.id),
+    );
+    const itemsWithCustomFields: MemberWithCustomFields[] = items.map((m) => ({
+      ...m,
+      customFields: customFieldsByMemberId[m.id] ?? {},
+    }));
+
+    return { items: itemsWithCustomFields, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
   }
 
-  async findOne(tenantId: string, id: string): Promise<Member> {
+  async findOne(tenantId: string, id: string): Promise<MemberWithCustomFields> {
+    const member = await this.findOneRaw(tenantId, id);
+    const customFields = await this.customFieldsService.getValues(tenantId, CUSTOM_FIELD_ENTITY_TYPE, id);
+    return { ...member, customFields };
+  }
+
+  private async findOneRaw(tenantId: string, id: string): Promise<Member> {
     const member = await this.prisma.member.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!member) throw new NotFoundException({ code: 'MEMBER_NOT_FOUND', message: 'Member not found.' });
     return member;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateMemberDto): Promise<Member> {
-    const existing = await this.findOne(tenantId, id);
+  async update(tenantId: string, id: string, dto: UpdateMemberDto): Promise<MemberWithCustomFields> {
+    const existing = await this.findOneRaw(tenantId, id);
 
     if (dto.familyId) {
       await this.familiesService.findOne(tenantId, dto.familyId);
@@ -105,7 +141,7 @@ export class MembersService {
       await this.familiesService.clearHeadIfMember(tenantId, id);
     }
 
-    return this.prisma.member.update({
+    const updated = await this.prisma.member.update({
       where: { id },
       data: {
         familyId: dto.familyId,
@@ -127,18 +163,25 @@ export class MembersService {
         notes: dto.notes,
       },
     });
+
+    if (dto.customFields) {
+      await this.customFieldsService.setValues(tenantId, CUSTOM_FIELD_ENTITY_TYPE, id, dto.customFields);
+    }
+    const customFields = await this.customFieldsService.getValues(tenantId, CUSTOM_FIELD_ENTITY_TYPE, id);
+
+    return { ...updated, customFields };
   }
 
   /** Moves a member to a different branch — the only way `branchId` ever changes (FR-MM-2). */
   async transfer(tenantId: string, id: string, branchId: string): Promise<Member> {
-    await this.findOne(tenantId, id);
+    await this.findOneRaw(tenantId, id);
     await this.assertBranchExists(tenantId, branchId);
     return this.prisma.member.update({ where: { id }, data: { branchId } });
   }
 
   /** Soft-deletes the member and clears any family's headOfFamilyId pointing at them (FR-MM-1.8). */
   async softDelete(tenantId: string, id: string): Promise<Member> {
-    await this.findOne(tenantId, id);
+    await this.findOneRaw(tenantId, id);
     await this.familiesService.clearHeadIfMember(tenantId, id);
     return this.prisma.member.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
   }

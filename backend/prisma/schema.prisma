@@ -46,6 +46,8 @@ model Tenant {
   ministries         Ministry[]
   ministryMemberships MinistryMembership[]
   notifications      Notification[]
+  customFieldDefinitions CustomFieldDefinition[]
+  customFieldValues      CustomFieldValue[]
 
   @@map("tenants")
 }
@@ -487,6 +489,62 @@ model Notification {
   @@index([tenantId, recipientMemberId])
   @@index([tenantId, status])
   @@map("notifications")
+}
+
+// ----------------------------------------------------------------------------
+// CUSTOM FIELDS
+// ----------------------------------------------------------------------------
+
+/// A tenant-defined extra field on some entity type ("member",
+/// "contribution", "attendance_record", "ministry", ...) — see
+/// docs/custom-fields/business-analysis.md. This is the mechanism behind the
+/// platform's "never assume all churches operate the same way" brief taken
+/// literally: a Catholic parish can add "Confirmation Date" to its Member
+/// form, a Baptist church never sees that field at all, and neither requires
+/// a code change or a migration. `entityType` is a free string (not an enum)
+/// so a brand-new entity type never needs a schema change here either —
+/// consistent with the Foundation module's "new types belong in config, not
+/// schema" rule, just applied one level up (to fields themselves, not to
+/// values within a fixed field).
+model CustomFieldDefinition {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  entityType String   @map("entity_type") // "member" | "contribution" | "attendance_record" | "ministry" | ...
+  fieldKey   String   @map("field_key") // stable machine key, e.g. "confirmation_date"
+  label      String
+  fieldType  String   @map("field_type") // "text" | "number" | "date" | "boolean" | "select"
+  options    Json? // for fieldType "select": [{ "key": "...", "label": "..." }, ...]
+  isRequired Boolean  @default(false) @map("is_required")
+  sortOrder  Int      @default(0) @map("sort_order")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, entityType, fieldKey])
+  @@index([tenantId, entityType])
+  @@map("custom_field_definitions")
+}
+
+/// One entity record's value for one custom field. Deliberately a separate
+/// EAV-style table rather than a `customFields Json` column bolted onto
+/// every entity — a new entity type (or a brand-new module down the line)
+/// needs zero schema changes to gain custom-field support, it just starts
+/// passing its own `entityType` string.
+model CustomFieldValue {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") // the Member.id / Contribution.id / etc. this value belongs to
+  fieldKey   String   @map("field_key")
+  value      Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, entityType, entityId, fieldKey])
+  @@index([tenantId, entityType, entityId])
+  @@map("custom_field_values")
 }
 
 // ----------------------------------------------------------------------------

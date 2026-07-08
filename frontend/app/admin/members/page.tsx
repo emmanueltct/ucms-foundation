@@ -6,10 +6,11 @@
 // Family Management module.
 
 import { useEffect, useState } from 'react';
-import { membersApi, branchesApi, familiesApi, Member, Branch, Family } from '../../../lib/api';
+import { membersApi, branchesApi, familiesApi, customFieldDefinitionsApi, Member, Branch, Family, CustomFieldDefinition } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { DynamicCustomFields } from '../../../components/dynamic-custom-fields';
 
 const TENANT_SLUG = 'demo-church'; // in production this comes from the resolved workspace/domain
 
@@ -37,19 +38,24 @@ export default function MembersAdminPage() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
 
+  const [customFieldDefs, setCustomFieldDefs] = useState<CustomFieldDefinition[]>([]);
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
+
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [membersRes, branchesRes, familiesRes] = await Promise.all([
+      const [membersRes, branchesRes, familiesRes, customFieldsRes] = await Promise.all([
         membersApi.list(TENANT_SLUG, { search: search || undefined, branchId: branchFilter || undefined }),
         branchesApi.list(TENANT_SLUG),
         familiesApi.list(TENANT_SLUG),
+        customFieldDefinitionsApi.list(TENANT_SLUG, { entityType: 'member' }),
       ]);
       if (membersRes.success && membersRes.data) setMembers(membersRes.data);
       else setError(membersRes.error?.message ?? 'Could not load members.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
       if (familiesRes.success && familiesRes.data) setFamilies(familiesRes.data);
+      if (customFieldsRes.success && customFieldsRes.data) setCustomFieldDefs(customFieldsRes.data);
     } catch {
       setError('Could not reach the server. Check the API is running.');
     } finally {
@@ -76,6 +82,7 @@ export default function MembersAdminPage() {
         familyId: familyId || undefined,
         phone: phone.trim() || undefined,
         email: email.trim() || undefined,
+        customFields: Object.keys(customFieldValues).length > 0 ? customFieldValues : undefined,
       });
       if (res.success) {
         setFirstName('');
@@ -83,6 +90,7 @@ export default function MembersAdminPage() {
         setFamilyId('');
         setPhone('');
         setEmail('');
+        setCustomFieldValues({});
         load();
       } else {
         setError(res.error?.message ?? 'Could not create the member.');
@@ -198,6 +206,24 @@ export default function MembersAdminPage() {
               <Input id="member-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jean@example.com" />
             </div>
           </div>
+
+          {customFieldDefs.length > 0 && (
+            <>
+              <div className="pt-2 border-t border-slate-100">
+                <p className="text-xs uppercase tracking-wide text-slate-400 mb-3">
+                  This church&rsquo;s custom fields
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <DynamicCustomFields
+                  definitions={customFieldDefs}
+                  values={customFieldValues}
+                  onChange={(key, value) => setCustomFieldValues((prev) => ({ ...prev, [key]: value }))}
+                />
+              </div>
+            </>
+          )}
+
           <Button type="submit" style={{ backgroundColor: '#1E2A44' }}>
             Add member
           </Button>
