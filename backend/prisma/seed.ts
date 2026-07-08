@@ -75,6 +75,15 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'customfield.definition.read', module: 'customfield', description: 'View custom field definitions' },
   { code: 'customfield.definition.update', module: 'customfield', description: 'Edit or reactivate a custom field definition' },
   { code: 'customfield.definition.delete', module: 'customfield', description: 'Retire a custom field definition' },
+
+  { code: 'event.create', module: 'event', description: 'Create an event' },
+  { code: 'event.read', module: 'event', description: 'View events' },
+  { code: 'event.update', module: 'event', description: 'Edit an event' },
+  { code: 'event.delete', module: 'event', description: 'Soft-delete an event' },
+  { code: 'event.registration.create', module: 'event', description: 'Register a member or guest for an event' },
+  { code: 'event.registration.read', module: 'event', description: 'View event registrations' },
+  { code: 'event.registration.update', module: 'event', description: "Change a registration's status/notes" },
+  { code: 'event.registration.delete', module: 'event', description: 'Cancel a registration' },
 ];
 
 async function main() {
@@ -219,6 +228,21 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'ministry_type', key: mt.key } },
       create: { tenantId: tenant.id, namespace: 'ministry_type', key: mt.key, label: mt.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (event types)...');
+  const eventTypes = [
+    { key: 'conference', label: 'Conference' },
+    { key: 'camp', label: 'Camp / Retreat' },
+    { key: 'outreach', label: 'Outreach' },
+    { key: 'social', label: 'Social / Fellowship' },
+  ];
+  for (const [i, et] of eventTypes.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'event_type', key: et.key } },
+      create: { tenantId: tenant.id, namespace: 'event_type', key: et.key, label: et.label, value: {}, sortOrder: i },
       update: {},
     });
   }

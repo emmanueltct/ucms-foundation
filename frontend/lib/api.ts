@@ -464,6 +464,72 @@ export const customFieldDefinitionsApi = {
     apiRequest<CustomFieldDefinition>(`/custom-field-definitions/${id}/reactivate`, { method: 'PATCH', tenantSlug, auth: true }),
 };
 
+export interface Event {
+  id: string;
+  branchId: string | null;
+  name: string;
+  eventType: string | null;
+  description: string | null;
+  location: string | null;
+  startsAt: string;
+  endsAt: string | null;
+  capacity: number | null;
+  isActive: boolean;
+}
+
+export interface EventRegistration {
+  id: string;
+  eventId: string;
+  memberId: string | null;
+  guestName: string | null;
+  guestContact: string | null;
+  status: 'registered' | 'attended' | 'cancelled';
+  notes: string | null;
+}
+
+export interface CreateEventInput {
+  name: string;
+  branchId?: string;
+  eventType?: string;
+  description?: string;
+  location?: string;
+  startsAt: string;
+  endsAt?: string;
+  capacity?: number;
+}
+
+export const eventsApi = {
+  list: (tenantSlug: string, params: { branchId?: string; eventType?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.eventType) qs.set('eventType', params.eventType);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<Event[]>(`/events?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, event: CreateEventInput) =>
+    apiRequest<Event>('/events', { method: 'POST', tenantSlug, auth: true, body: event }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<Event>(`/events/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export const eventRegistrationsApi = {
+  list: (tenantSlug: string, params: { eventId?: string; memberId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.eventId) qs.set('eventId', params.eventId);
+    if (params.memberId) qs.set('memberId', params.memberId);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<EventRegistration[]>(`/event-registrations?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, registration: { eventId: string; memberId?: string; guestName?: string; guestContact?: string }) =>
+    apiRequest<EventRegistration>('/event-registrations', { method: 'POST', tenantSlug, auth: true, body: registration }),
+  update: (tenantSlug: string, id: string, body: { status?: string; notes?: string }) =>
+    apiRequest<EventRegistration>(`/event-registrations/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<EventRegistration>(`/event-registrations/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;

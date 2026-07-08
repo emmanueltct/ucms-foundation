@@ -1,13 +1,13 @@
-# UCMS — Foundation through Communication (Modules 0-6) + Custom Fields
+# UCMS — Foundation through Events (Modules 0-7) + Custom Fields
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
 Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
-Volunteer Management, Communication, and a cross-cutting Custom Fields module for
-the Unified Church Management System. Module 0 (Foundation), Module 1 (Church &
-Hierarchy), Module 2 (Member & Family Management), Module 3 (Finance), Module 4
-(Attendance), Module 5 (Ministry & Volunteer Management), and Module 6
-(Communication) are complete — everything else (Events, HR & Payroll, Reports, ...)
-builds on top of what's here.
+Volunteer Management, Communication, Events, and a cross-cutting Custom Fields
+module for the Unified Church Management System. Module 0 (Foundation), Module 1
+(Church & Hierarchy), Module 2 (Member & Family Management), Module 3 (Finance),
+Module 4 (Attendance), Module 5 (Ministry & Volunteer Management), Module 6
+(Communication), and Module 7 (Events) are complete — everything else (HR &
+Payroll, Reports & Analytics, ...) builds on top of what's here.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
 cross-cutting mechanism, wired into Member & Family Management today, that lets a
@@ -27,13 +27,14 @@ docs/
   attendance/                  Module 4 docs (business analysis, FRs, API design)
   ministry/                    Module 5 docs (business analysis, FRs, API design)
   communication/               Module 6 docs (business analysis, FRs, API design)
+  events/                      Module 7 docs (business analysis, FRs, API design)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
   schema.prisma                Tenant, User, Role, Permission, ConfigItem, Branch, Member,
                                 Family, Contribution, AttendanceRecord, Ministry,
                                 MinistryMembership, Notification, CustomFieldDefinition,
-                                CustomFieldValue, ...
+                                CustomFieldValue, Event, EventRegistration, ...
 
 backend/                       NestJS API
   src/
@@ -77,6 +78,10 @@ backend/                       NestJS API
                                 ConfigItem's API shape) + CustomFieldsService (the reusable
                                 get/set-values service other modules inject). Wired into
                                 Members today as the flagship integration.
+    events/                    Events (flat, optionally branch-scoped) + registrations
+                                (named member or walk-in guest, soft capacity cap enforced
+                                at registration time); deleting an event cancels its
+                                registrations
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -85,12 +90,12 @@ backend/                       NestJS API
                                 categories, feature toggles — all as data)
   prisma/seed.ts                Seeds the permission catalog, a demo tenant, branch
                                 types, membership categories, contribution types, service
-                                types, attendance methods, ministry types, two example
-                                member custom fields, and a headquarters branch
+                                types, attendance methods, ministry types, event types, two
+                                example member custom fields, and a headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
                                 tenant profile, finance, attendance, ministries,
-                                notifications, custom fields) + e2e auth flow
+                                notifications, custom fields, events) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -104,6 +109,7 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/finance/page.tsx     Church Admin UI for recording/voiding contributions
   app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
   app/admin/ministries/page.tsx  Church Admin UI for ministries and volunteer rosters
+  app/admin/events/page.tsx      Church Admin UI for events and registrations (member or guest)
   app/admin/notifications/page.tsx Church Admin UI for sending/reviewing notifications
   app/admin/settings/custom-fields/page.tsx  Define custom fields per entity type
   app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
@@ -186,7 +192,7 @@ same browser tab/session rather than opening admin pages directly by URL in a fr
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -318,6 +324,22 @@ npm run test:e2e             # requires a migrated + seeded test database
     by whatever permission already guards the record it belongs to
     (`member.create` covers a member's custom field values too). Don't
     invent a new permission axis just because a new table exists.
+19. **A status field can replace `deletedAt`/`isActive` when the record
+    already has a natural lifecycle.** `EventRegistration.status`
+    (`registered` → `attended` | `cancelled`) is how "soft delete, always"
+    (rule #4) shows up here — cancelling sets `status: "cancelled"` rather
+    than adding a `deletedAt` column, since the record needed a status field
+    anyway. Don't add a second "is this gone" mechanism when one already
+    exists; pick whichever the entity's own shape calls for.
+20. **A duplicate-check that makes sense for one side of an optional FK can
+    be meaningless for the other.** `EventRegistration` cannot enforce
+    "already registered" for a guest the way it does for a `memberId` — a
+    guest has no stable identifier to de-duplicate against. This is the
+    same asymmetry `AttendanceRecord.memberId` already established (rule
+    #12), applied to a third module: the validation rule that makes sense
+    for a named record doesn't always have an equivalent for its anonymous
+    counterpart, and forcing one anyway (e.g. de-duping guests by name)
+    would reject legitimate same-name registrations.
 
 ## Recent hardening (this pass)
 
@@ -333,6 +355,6 @@ npm run test:e2e             # requires a migrated + seeded test database
 
 ## Next module
 
-Per the intended build order: **Events** is next — event scheduling and
-registration, likely reusing `Notification` to confirm/remind registrants.
-**HR & Payroll** and **Reports & Analytics** follow after that.
+Per the intended build order: **HR & Payroll** is next — staff records and
+payroll runs, tied into Finance's accounting ledger. **Reports & Analytics**
+follows once enough source modules exist to report on.

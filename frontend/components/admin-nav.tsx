@@ -16,6 +16,7 @@ import {
   Bell,
   SlidersHorizontal,
   ListPlus,
+  CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { href: '/admin/finance', label: 'Finance', icon: Wallet },
   { href: '/admin/attendance', label: 'Attendance', icon: CalendarCheck },
   { href: '/admin/ministries', label: 'Ministries', icon: HeartHandshake },
+  { href: '/admin/events', label: 'Events', icon: CalendarDays },
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/config', label: 'Configuration', icon: SlidersHorizontal },
   { href: '/admin/settings/custom-fields', label: 'Custom Fields', icon: ListPlus },
