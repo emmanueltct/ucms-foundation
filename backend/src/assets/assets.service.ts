@@ -6,6 +6,7 @@ import { StorageService } from '../storage/storage.service';
 import { CreateAssetDto } from './dto/create-asset.dto';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { AssetQueryDto } from './dto/asset-query.dto';
+import { ALLOWED_DOCUMENT_MIME_TYPES } from '../common/constants/file-upload.constants';
 
 export type AssetWithCustomFields = Asset & { customFields: Record<string, unknown> };
 
@@ -15,14 +16,6 @@ export interface UploadedFileValue {
   size: number;
   contentType: string;
 }
-
-const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-]);
 
 /**
  * Assets — see docs/asset-management/business-analysis.md. Unlike every

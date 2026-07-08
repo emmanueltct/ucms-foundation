@@ -31,6 +31,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'Asset',
   'Visitor',
   'VisitorFollowUp',
+  'Document',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

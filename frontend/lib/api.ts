@@ -62,6 +62,18 @@ export async function apiRequest<T>(path: string, opts: RequestOptions): Promise
   return json;
 }
 
+/** For endpoints that accept multipart/form-data (a file upload) rather than JSON. */
+export async function multipartRequest<T>(
+  path: string,
+  opts: { method?: 'POST' | 'PATCH'; tenantSlug: string; form: FormData },
+): Promise<ApiEnvelope<T>> {
+  const headers: Record<string, string> = { 'X-Tenant-Slug': opts.tenantSlug };
+  if (inMemoryAccessToken) headers.Authorization = `Bearer ${inMemoryAccessToken}`;
+
+  const res = await fetch(`${API_BASE}${path}`, { method: opts.method ?? 'POST', headers, body: opts.form });
+  return (await res.json()) as ApiEnvelope<T>;
+}
+
 export const authApi = {
   login: (tenantSlug: string, email: string, password: string) =>
     apiRequest<{ user: any; tokens: { accessToken: string; refreshToken: string } }>('/auth/login', {
@@ -725,17 +737,13 @@ export const assetsApi = {
     apiRequest<Asset>(`/assets/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) =>
     apiRequest<Asset>(`/assets/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
-  uploadDocument: async (tenantSlug: string, assetId: string, fieldKey: string, file: File): Promise<ApiEnvelope<UploadedFileValue>> => {
+  uploadDocument: (tenantSlug: string, assetId: string, fieldKey: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    const headers: Record<string, string> = { 'X-Tenant-Slug': tenantSlug };
-    if (inMemoryAccessToken) headers.Authorization = `Bearer ${inMemoryAccessToken}`;
-    const res = await fetch(`${API_BASE}/assets/${assetId}/documents?fieldKey=${encodeURIComponent(fieldKey)}`, {
-      method: 'POST',
-      headers,
-      body: form,
+    return multipartRequest<UploadedFileValue>(`/assets/${assetId}/documents?fieldKey=${encodeURIComponent(fieldKey)}`, {
+      tenantSlug,
+      form,
     });
-    return (await res.json()) as ApiEnvelope<UploadedFileValue>;
   },
   getDocumentDownloadUrl: (tenantSlug: string, assetId: string, fieldKey: string) =>
     apiRequest<{ url: string; filename: string }>(`/assets/${assetId}/documents/${fieldKey}/download`, {
@@ -820,6 +828,52 @@ export const visitorsApi = {
     apiRequest<VisitorFollowUp>(`/visitors/${visitorId}/follow-ups`, { method: 'POST', tenantSlug, auth: true, body: followUp }),
   listFollowUps: (tenantSlug: string, visitorId: string) =>
     apiRequest<VisitorFollowUp[]>(`/visitors/${visitorId}/follow-ups`, { tenantSlug, auth: true }),
+};
+
+export interface ChurchDocument {
+  id: string;
+  branchId: string | null;
+  title: string;
+  description: string | null;
+  category: string;
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+  uploadedByUserId: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export const documentsApi = {
+  list: (tenantSlug: string, params: { branchId?: string; category?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.category) qs.set('category', params.category);
+    if (params.search) qs.set('search', params.search);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<ChurchDocument[]>(`/documents?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, doc: { title: string; category: string; description?: string; branchId?: string; file: File }) => {
+    const form = new FormData();
+    form.append('title', doc.title);
+    form.append('category', doc.category);
+    if (doc.description) form.append('description', doc.description);
+    if (doc.branchId) form.append('branchId', doc.branchId);
+    form.append('file', doc.file);
+    return multipartRequest<ChurchDocument>('/documents', { tenantSlug, form });
+  },
+  update: (tenantSlug: string, id: string, body: { title?: string; category?: string; description?: string; branchId?: string }) =>
+    apiRequest<ChurchDocument>(`/documents/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  replaceFile: (tenantSlug: string, id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return multipartRequest<ChurchDocument>(`/documents/${id}/file`, { method: 'PATCH', tenantSlug, form });
+  },
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<ChurchDocument>(`/documents/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  getDownloadUrl: (tenantSlug: string, id: string) =>
+    apiRequest<{ url: string; filename: string }>(`/documents/${id}/download`, { tenantSlug, auth: true }),
 };
 
 export interface TenantProfile {

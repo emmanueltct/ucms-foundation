@@ -19,9 +19,10 @@ import {
   BarChart3,
   Boxes,
   UserPlus,
+  FileText,
   type LucideIcon,
 } from 'lucide-react';
-import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi, visitorsApi } from '../../lib/api';
+import { branchesApi, membersApi, contributionsApi, attendanceApi, ministriesApi, notificationsApi, eventsApi, staffApi, assetsApi, visitorsApi, documentsApi } from '../../lib/api';
 import { Card, CardHeader, CardTitle, CardDescription } from '../../components/ui/card';
 
 const TENANT_SLUG = 'demo-church';
@@ -44,6 +45,7 @@ const MODULES = [
   { title: 'Events', href: '/admin/events', icon: CalendarDays, description: 'Schedule events and manage registrations.' },
   { title: 'HR & Payroll', href: '/admin/hr', icon: Briefcase, description: 'Staff records and payroll payments.' },
   { title: 'Assets', href: '/admin/assets', icon: Boxes, description: 'Buildings, vehicles, equipment — one register per category.' },
+  { title: 'Documents', href: '/admin/documents', icon: FileText, description: 'Policies, minutes, forms, and other files, categorized.' },
   { title: 'Notifications', href: '/admin/notifications', icon: Bell, description: 'Send and review messages.' },
 ];
 
@@ -58,6 +60,7 @@ export default function AdminDashboardPage() {
     { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: null },
     { label: 'Assets', href: '/admin/assets', icon: Boxes, value: null },
     { label: 'Visitors', href: '/admin/visitors', icon: UserPlus, value: null },
+    { label: 'Documents', href: '/admin/documents', icon: FileText, value: null },
     { label: 'Notifications sent', href: '/admin/notifications', icon: Bell, value: null },
   ]);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +68,7 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [branches, members, contributions, attendance, ministries, events, staff, assets, visitors, notifications] = await Promise.all([
+        const [branches, members, contributions, attendance, ministries, events, staff, assets, visitors, documents, notifications] = await Promise.all([
           branchesApi.list(TENANT_SLUG),
           membersApi.list(TENANT_SLUG, {}),
           contributionsApi.list(TENANT_SLUG),
@@ -75,6 +78,7 @@ export default function AdminDashboardPage() {
           staffApi.list(TENANT_SLUG),
           assetsApi.list(TENANT_SLUG),
           visitorsApi.list(TENANT_SLUG),
+          documentsApi.list(TENANT_SLUG),
           notificationsApi.list(TENANT_SLUG),
         ]);
         setStats([
@@ -87,6 +91,7 @@ export default function AdminDashboardPage() {
           { label: 'Staff', href: '/admin/hr', icon: Briefcase, value: staff.data?.length ?? 0 },
           { label: 'Assets', href: '/admin/assets', icon: Boxes, value: assets.data?.length ?? 0 },
           { label: 'Visitors', href: '/admin/visitors', icon: UserPlus, value: visitors.data?.length ?? 0 },
+          { label: 'Documents', href: '/admin/documents', icon: FileText, value: documents.data?.length ?? 0 },
           { label: 'Notifications sent', href: '/admin/notifications', icon: Bell, value: notifications.data?.length ?? 0 },
         ]);
       } catch {

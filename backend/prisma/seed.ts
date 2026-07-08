@@ -110,6 +110,11 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'visitor.convert', module: 'visitor', description: 'Link a visitor to a member and mark them joined' },
   { code: 'visitor.followup.create', module: 'visitor', description: 'Log a follow-up interaction with a visitor' },
   { code: 'visitor.followup.read', module: 'visitor', description: "View a visitor's follow-up history" },
+
+  { code: 'document.create', module: 'document', description: 'Upload a document' },
+  { code: 'document.read', module: 'document', description: 'View and download documents' },
+  { code: 'document.update', module: 'document', description: "Edit a document's metadata or replace its file" },
+  { code: 'document.delete', module: 'document', description: 'Soft-delete a document' },
 ];
 
 async function main() {
@@ -366,6 +371,24 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'follow_up_method', key: m.key } },
       create: { tenantId: tenant.id, namespace: 'follow_up_method', key: m.key, label: m.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (document categories)...');
+  const documentCategories = [
+    { key: 'policy', label: 'Policy' },
+    { key: 'minutes', label: 'Meeting Minutes' },
+    { key: 'form', label: 'Form' },
+    { key: 'certificate', label: 'Certificate' },
+    { key: 'sermon_notes', label: 'Sermon Notes' },
+    { key: 'legal', label: 'Legal' },
+    { key: 'other', label: 'Other' },
+  ];
+  for (const [i, c] of documentCategories.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'document_category', key: c.key } },
+      create: { tenantId: tenant.id, namespace: 'document_category', key: c.key, label: c.label, value: {}, sortOrder: i },
       update: {},
     });
   }

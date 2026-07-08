@@ -55,6 +55,7 @@ model Tenant {
   assets                 Asset[]
   visitors               Visitor[]
   visitorFollowUps       VisitorFollowUp[]
+  documents              Document[]
 
   @@map("tenants")
 }
@@ -90,6 +91,7 @@ model User {
   cancelledPayrollPayments PayrollPayment[] @relation("PayrollPaymentCancelledBy")
   assignedVisitors        Visitor[]        @relation("VisitorAssignedTo")
   performedFollowUps      VisitorFollowUp[] @relation("FollowUpPerformedBy")
+  uploadedDocuments       Document[]       @relation("DocumentUploadedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -245,6 +247,7 @@ model Branch {
   staff             Staff[]
   assets            Asset[]
   visitors          Visitor[]
+  documents         Document[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -809,6 +812,42 @@ model VisitorFollowUp {
   @@index([tenantId])
   @@index([tenantId, visitorId])
   @@map("visitor_follow_ups")
+}
+
+// ----------------------------------------------------------------------------
+// DOCUMENT MANAGEMENT (Module 12)
+// ----------------------------------------------------------------------------
+
+/// A stored file (policy, meeting minutes, form, certificate, sermon notes,
+/// legal document, ...) with metadata — unlike Asset's `file`-type custom
+/// fields (one small attachment on someone else's record), a Document *is*
+/// the record; `category` is a ConfigItem, not a composed Custom Fields
+/// entityType, since a document has no category-specific extra fields to
+/// model. See docs/document-management/business-analysis.md.
+model Document {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  branchId         String?   @map("branch_id")
+  branch           Branch?   @relation(fields: [branchId], references: [id])
+  title            String
+  description      String?
+  category         String    // ConfigItem key, namespace "document_category"
+  fileKey          String    @map("file_key")
+  fileName         String    @map("file_name")
+  fileSize         Int       @map("file_size")
+  contentType      String    @map("content_type")
+  uploadedByUserId String?   @map("uploaded_by_user_id")
+  uploadedByUser   User?     @relation("DocumentUploadedBy", fields: [uploadedByUserId], references: [id])
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, category])
+  @@map("documents")
 }
 
 // ----------------------------------------------------------------------------

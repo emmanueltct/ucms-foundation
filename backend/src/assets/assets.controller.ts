@@ -9,8 +9,7 @@ import { AssetQueryDto } from './dto/asset-query.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
-
-const MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+import { MAX_DOCUMENT_SIZE_BYTES } from '../common/constants/file-upload.constants';
 
 @ApiTags('assets')
 @ApiBearerAuth()
