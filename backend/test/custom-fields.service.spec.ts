@@ -36,6 +36,7 @@ describe('CustomFieldsService', () => {
     options: [{ key: 'teaching', label: 'Teaching' }],
     isRequired: false,
   };
+  const fileField = { id: 'def-6', fieldKey: 'insurance_document', label: 'Insurance Document', fieldType: 'file', options: null, isRequired: false };
 
   describe('getValues / getValuesForMany', () => {
     it('getValues collapses rows into a fieldKey -> value map', async () => {
@@ -96,6 +97,28 @@ describe('CustomFieldsService', () => {
       await expect(
         service.setValues(TENANT_ID, ENTITY_TYPE, 'member-1', { spiritual_gift: 'not_an_option' }),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it.each([
+      ['a bare string', 'not-a-file-reference'],
+      ['an object missing filename', { key: 'tenants/1/assets/2/insurance_document/file.pdf' }],
+    ])('rejects a file value that is %s', async (_label, badValue) => {
+      mockPrisma.customFieldDefinition.findMany.mockResolvedValue([fileField]);
+
+      await expect(
+        service.setValues(TENANT_ID, ENTITY_TYPE, 'member-1', { insurance_document: badValue }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('accepts a well-shaped file reference', async () => {
+      mockPrisma.customFieldDefinition.findMany.mockResolvedValue([fileField]);
+      mockPrisma.customFieldValue.upsert.mockResolvedValue({});
+
+      await expect(
+        service.setValues(TENANT_ID, ENTITY_TYPE, 'member-1', {
+          insurance_document: { key: 'tenants/1/assets/2/insurance_document/file.pdf', filename: 'file.pdf' },
+        }),
+      ).resolves.not.toThrow();
     });
 
     it('accepts null/undefined without a type check, for clearing an optional field', async () => {

@@ -15,9 +15,20 @@ interface DynamicCustomFieldsProps {
   definitions: CustomFieldDefinition[];
   values: Record<string, unknown>;
   onChange: (fieldKey: string, value: unknown) => void;
+  /** Once the parent record exists, `file` fields become uploadable/downloadable. */
+  entityId?: string;
+  onUploadFile?: (fieldKey: string, file: File) => void | Promise<void>;
+  onDownloadFile?: (fieldKey: string) => void | Promise<void>;
 }
 
-export function DynamicCustomFields({ definitions, values, onChange }: DynamicCustomFieldsProps) {
+export function DynamicCustomFields({
+  definitions,
+  values,
+  onChange,
+  entityId,
+  onUploadFile,
+  onDownloadFile,
+}: DynamicCustomFieldsProps) {
   if (definitions.length === 0) return null;
 
   return (
@@ -82,6 +93,32 @@ export function DynamicCustomFields({ definitions, values, onChange }: DynamicCu
                 ))}
               </select>
             )}
+            {def.fieldType === 'file' &&
+              (!entityId ? (
+                <p className="text-xs text-slate-400 italic">Save first, then upload a file here.</p>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {Boolean(value && typeof value === 'object' && 'filename' in (value as Record<string, unknown>)) && (
+                    <button
+                      type="button"
+                      onClick={() => onDownloadFile?.(def.fieldKey)}
+                      className="text-xs font-medium px-2 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-[#1E2A44]/30"
+                    >
+                      📎 {(value as { filename: string }).filename}
+                    </button>
+                  )}
+                  <input
+                    id={inputId}
+                    type="file"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) onUploadFile?.(def.fieldKey, file);
+                      e.target.value = '';
+                    }}
+                    className="text-xs text-slate-500 file:mr-2 file:rounded-full file:border file:border-slate-200 file:bg-white file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-slate-600"
+                  />
+                </div>
+              ))}
           </div>
         );
       })}

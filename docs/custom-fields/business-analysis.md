@@ -31,10 +31,11 @@ Ministry without any change to this module itself.
 - **`entityType` is a free string, not an enum.** Consistent with the Foundation module's rule
   that new "types" belong in configuration, not schema — applied one level up, to the fields
   themselves rather than to values within a fixed field.
-- **Five field types cover the common cases**: `text`, `number`, `date`, `boolean`, `select`
-  (with tenant-defined options). This is deliberately not an arbitrarily extensible type system —
-  five types cover what a church intake form actually needs, and adding a sixth is a contained,
-  well-understood change if one is ever needed.
+- **Six field types cover the common cases**: `text`, `number`, `date`, `boolean`, `select`
+  (with tenant-defined options), and `file` (added for Asset & Facility Management, Module 10 —
+  see `docs/asset-management/business-analysis.md`). This is deliberately not an arbitrarily
+  extensible type system — six types cover what a church's forms actually need, and adding one
+  was a contained, well-understood change, exactly as anticipated here.
 - **`fieldKey`, `entityType`, and `fieldType` are immutable once a definition is created.**
   Changing any of them would silently reinterpret every existing `CustomFieldValue` row that
   references that key. Retire the field (soft-deactivate) and create a new one instead — the
@@ -48,9 +49,11 @@ Ministry without any change to this module itself.
   half-created row behind.
 - **Value validation is type-aware but intentionally light.** `text`/`number`/`boolean`/`date`
   check the JS type (or that a date string parses); `select` checks the value is one of the
-  definition's declared option keys. This isn't a general-purpose schema validator — it's enough
-  to catch "the frontend sent the wrong shape," not to replace `class-validator` on the fixed
-  core fields.
+  definition's declared option keys; `file` checks the value is shaped `{ key, filename }` — this
+  module never receives or validates the binary itself, only the storage reference an integrating
+  module writes after it uploads the file (see Asset & Facility Management for the first real
+  consumer). This isn't a general-purpose schema validator — it's enough to catch "the frontend
+  sent the wrong shape," not to replace `class-validator` on the fixed core fields.
 - **Reading a record always returns its custom field values inline** (`member.customFields`),
   fetched via one batched query per list request (`getValuesForMany`) — a list endpoint never
   does one custom-fields query per row.

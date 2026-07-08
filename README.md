@@ -1,13 +1,14 @@
-# UCMS — Foundation through Reports & Analytics (Modules 0-9) + Custom Fields
+# UCMS — Foundation through Asset & Facility Management (Modules 0-10) + Custom Fields
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
 Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
 Volunteer Management, Communication, Events, HR & Payroll, Reports & Analytics,
-and a cross-cutting Custom Fields module for the Unified Church Management
-System. Module 0 (Foundation), Module 1 (Church & Hierarchy), Module 2 (Member &
-Family Management), Module 3 (Finance), Module 4 (Attendance), Module 5
-(Ministry & Volunteer Management), Module 6 (Communication), Module 7 (Events),
-Module 8 (HR & Payroll), and Module 9 (Reports & Analytics) are complete —
+Asset & Facility Management, and a cross-cutting Custom Fields module for the
+Unified Church Management System. Module 0 (Foundation), Module 1 (Church &
+Hierarchy), Module 2 (Member & Family Management), Module 3 (Finance), Module 4
+(Attendance), Module 5 (Ministry & Volunteer Management), Module 6
+(Communication), Module 7 (Events), Module 8 (HR & Payroll), Module 9 (Reports
+& Analytics), and Module 10 (Asset & Facility Management) are complete —
 everything else builds on top of what's here.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
@@ -31,6 +32,7 @@ docs/
   events/                      Module 7 docs (business analysis, FRs, API design)
   hr-payroll/                  Module 8 docs (business analysis, FRs, API design)
   reports/                     Module 9 docs (business analysis, FRs, API design)
+  asset-management/            Module 10 docs (business analysis, FRs, API design)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -95,6 +97,12 @@ backend/                       NestJS API
                                 Member/Event/HR & Payroll data — no Prisma models of its own;
                                 month-bucketed trends are zero-filled, guarded by a single
                                 `reports.view` permission
+    assets/                    Assets (buildings, vehicles, equipment, ...) under a
+                                tenant-configurable category; Custom Fields is reused with a
+                                composed entityType (`asset:{category}`) so each category gets
+                                its own field set with zero new tables, including a new `file`
+                                fieldType for document uploads (proof of purchase, insurance,
+                                ...) routed through the Storage module
     users/                     Tenant-scoped user management
     roles/                     Tenant-defined roles built from the permission catalog
     permissions/                Global, read-only permission catalog
@@ -104,13 +112,15 @@ backend/                       NestJS API
   prisma/seed.ts                Seeds the permission catalog, a demo tenant, branch
                                 types, membership categories, contribution types, service
                                 types, attendance methods, ministry types, event types,
-                                staff positions, departments, two example member custom
-                                fields, and a headquarters branch
+                                staff positions, departments, asset categories, asset
+                                conditions, example asset:vehicle/asset:building custom
+                                fields (including two file-upload fields), two example
+                                member custom fields, and a headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
                                 tenant scoping, MFA, branches, families, members,
                                 tenant profile, finance, attendance, ministries,
                                 notifications, custom fields, events, staff, payroll,
-                                reports) + e2e auth flow
+                                reports, assets) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -131,8 +141,14 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   master-detail layout (staff list, selected staff's payroll
                                   history) with position/department dropdowns sourced from
                                   ConfigItems
+  app/admin/assets/page.tsx      Church Admin UI for the asset register — category-driven
+                                  create form (custom fields render dynamically per selected
+                                  category) + master-detail list with in-place status changes
+                                  and per-field document upload/download
   app/admin/notifications/page.tsx Church Admin UI for sending/reviewing notifications
-  app/admin/settings/custom-fields/page.tsx  Define custom fields per entity type
+  app/admin/settings/custom-fields/page.tsx  Define custom fields per entity type — asset
+                                  categories appear here automatically as `asset:{category}`
+                                  entity types, sourced from the asset_category ConfigItems
   app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
   components/admin-nav.tsx       The sidebar nav consumed by app/admin/layout.tsx
   components/dynamic-custom-fields.tsx  Renders whatever fields GET
@@ -213,7 +229,7 @@ same browser tab/session rather than opening admin pages directly by URL in a fr
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports, assets)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -386,6 +402,36 @@ npm run test:e2e             # requires a migrated + seeded test database
     not separately-owned records, so there's no reason to split it further
     the way `staff.*` and `payroll.payment.*` are split by action. See
     `docs/reports/business-analysis.md` for the full rationale.
+23. **A cross-cutting mechanism can be reused in a new way without changing
+    its own shape.** Custom Fields' `entityType` was already "a free string,
+    not an enum" (rule #17) — Asset & Facility Management (Module 10) composes
+    it as `asset:{assetCategory}` instead of a fixed constant, so each
+    tenant-defined asset category (vehicle, building, ...) gets its own field
+    set from the exact same `CustomFieldDefinition`/`CustomFieldValue` tables
+    Member & Family Management already uses. Nothing about the Custom Fields
+    module changed to make this possible — only the string an integrating
+    module passes it. See `docs/asset-management/business-analysis.md`.
+24. **A field type is a small, well-understood axis to extend; a value's
+    *meaning* is not something this module tries to police.** Custom Fields
+    gained a sixth `fieldType`, `file` — introduced for Asset & Facility
+    Management's document uploads (proof of purchase, insurance, title
+    deeds) — validated the same lightweight way every other type is: a
+    `file` value must be shaped `{ key, filename }`, a reference to an
+    object the *integrating* module already uploaded to the Storage module.
+    Custom Fields never touches the binary or talks to S3 itself; `Asset`'s
+    own `POST /assets/:id/documents` endpoint is where the upload, the MIME
+    allowlist, and the size cap actually live — the same "one seam, clearly
+    marked" discipline rule #16 established for the queue's stubbed gateway.
+25. **Some fields are only meaningful once the parent record exists, and
+    that's fine to surface in the form itself.** A brand-new asset has no
+    `id` yet, so `file`-type custom fields can't be uploaded during
+    creation (the storage key is namespaced by the record's id). Rather
+    than warping the create flow to upload-then-attach, `DynamicCustomFields`
+    just shows "save first, then upload" for a `file` field when no
+    `entityId` is known yet, and becomes a working upload/download control
+    the moment one is — the same shape the rest of this platform already
+    uses for a two-step "create, then attach children" flow (a `PayrollPayment`
+    needs a `Staff` id, an `EventRegistration` needs an `Event` id).
 
 ## Recent hardening (this pass)
 
@@ -401,12 +447,13 @@ npm run test:e2e             # requires a migrated + seeded test database
 
 ## Next module
 
-Modules 0-9 (Foundation through Reports & Analytics) plus the cross-cutting
-Custom Fields mechanism are complete. What's left from the platform's full
-36-module brief — small groups (Sunday School / children's ministry,
-Small Groups, Asset & Facility Management, Visitor/Follow-up tracking, ...),
-Document Management, and the optional/AI-assisted features explicitly
-deferred to the end in the original roadmap — builds on the same established
-patterns (tenant scoping, `ConfigItem` for types, permission-guarded
-controllers, soft delete or the stricter void/status pattern where money or
-an audit trail is involved).
+Modules 0-10 (Foundation through Asset & Facility Management) plus the
+cross-cutting Custom Fields mechanism are complete. What's left from the
+platform's full 36-module brief — small groups (Sunday School / children's
+ministry, Small Groups), Visitor/Follow-up tracking, Document Management, and
+the optional/AI-assisted features explicitly deferred to the end in the
+original roadmap — builds on the same established patterns (tenant scoping,
+`ConfigItem` for types, permission-guarded controllers, soft delete or the
+stricter void/status pattern where money or an audit trail is involved, and
+now Custom Fields' `entityType` composition trick where a module needs
+per-category or per-type fields the way Assets did).

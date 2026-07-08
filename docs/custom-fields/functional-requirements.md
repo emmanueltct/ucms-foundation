@@ -3,7 +3,7 @@
 ## FR-CF-1 Defining a Custom Field
 
 - FR-CF-1.1 A tenant can create a `CustomFieldDefinition` with required `entityType`, `fieldKey`,
-  `label`, `fieldType` (`text` | `number` | `date` | `boolean` | `select`), and optional
+  `label`, `fieldType` (`text` | `number` | `date` | `boolean` | `select` | `file`), and optional
   `options`, `isRequired`, `sortOrder`.
 - FR-CF-1.2 `options` is required (non-empty) when `fieldType` is `select`, or the request is
   rejected with `400 CUSTOM_FIELD_OPTIONS_REQUIRED`.
@@ -24,7 +24,9 @@
 
 - FR-CF-3.1 A value is validated against its field's declared `fieldType` before being
   persisted: `text` must be a string, `number` a number, `boolean` a boolean, `date` a string
-  that parses, `select` one of the definition's option keys. An invalid value is rejected with
+  that parses, `select` one of the definition's option keys, `file` an object shaped
+  `{ key, filename }` (the storage reference an uploading module writes after a successful
+  upload — this module never handles the binary itself). An invalid value is rejected with
   `400 CUSTOM_FIELD_INVALID_VALUE`.
 - FR-CF-3.2 Setting a value for a `fieldKey` with no matching active definition for that
   `entityType` is rejected with `400 CUSTOM_FIELD_UNKNOWN`.

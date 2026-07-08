@@ -19,6 +19,7 @@ import {
   CalendarDays,
   Briefcase,
   BarChart3,
+  Boxes,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { href: '/admin/ministries', label: 'Ministries', icon: HeartHandshake },
   { href: '/admin/events', label: 'Events', icon: CalendarDays },
   { href: '/admin/hr', label: 'HR & Payroll', icon: Briefcase },
+  { href: '/admin/assets', label: 'Assets', icon: Boxes },
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/config', label: 'Configuration', icon: SlidersHorizontal },
   { href: '/admin/settings/custom-fields', label: 'Custom Fields', icon: ListPlus },

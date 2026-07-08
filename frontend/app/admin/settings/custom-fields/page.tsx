@@ -7,14 +7,14 @@
 // docs/custom-fields/business-analysis.md.
 
 import { useEffect, useState } from 'react';
-import { customFieldDefinitionsApi, CustomFieldDefinition, CustomFieldOption } from '../../../../lib/api';
+import { customFieldDefinitionsApi, configApi, CustomFieldDefinition, CustomFieldOption } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
 
 const TENANT_SLUG = 'demo-church';
 
-const ENTITY_TYPES = [
+const BASE_ENTITY_TYPES = [
   { value: 'member', label: 'Member' },
   { value: 'contribution', label: 'Contribution' },
   { value: 'attendance_record', label: 'Attendance Record' },
@@ -27,19 +27,37 @@ const FIELD_TYPES = [
   { value: 'date', label: 'Date' },
   { value: 'boolean', label: 'Yes / No' },
   { value: 'select', label: 'Dropdown' },
+  { value: 'file', label: 'File upload' },
 ];
 
 export default function CustomFieldsSettingsPage() {
-  const [entityType, setEntityType] = useState(ENTITY_TYPES[0].value);
+  // Asset categories are themselves tenant-configurable ConfigItems (see the
+  // Asset & Facility Management module), so each one gets its own entry here
+  // as "asset:{category}" — the same free-string entityType composition the
+  // Assets backend module uses, rather than a fixed pill list.
+  const [assetEntityTypes, setAssetEntityTypes] = useState<{ value: string; label: string }[]>([]);
+  const ENTITY_TYPES = [...BASE_ENTITY_TYPES, ...assetEntityTypes];
+
+  const [entityType, setEntityType] = useState(BASE_ENTITY_TYPES[0].value);
   const [definitions, setDefinitions] = useState<CustomFieldDefinition[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [label, setLabel] = useState('');
   const [fieldKey, setFieldKey] = useState('');
-  const [fieldType, setFieldType] = useState<'text' | 'number' | 'date' | 'boolean' | 'select'>('text');
+  const [fieldType, setFieldType] = useState<'text' | 'number' | 'date' | 'boolean' | 'select' | 'file'>('text');
   const [isRequired, setIsRequired] = useState(false);
   const [optionsText, setOptionsText] = useState(''); // "key:Label, key2:Label 2"
+
+  useEffect(() => {
+    configApi.listByNamespace(TENANT_SLUG, 'asset_category').then((res) => {
+      if (res.success && res.data) {
+        setAssetEntityTypes(
+          (res.data as { key: string; label: string }[]).map((c) => ({ value: `asset:${c.key}`, label: `Asset: ${c.label}` })),
+        );
+      }
+    });
+  }, []);
 
   async function load() {
     setLoading(true);

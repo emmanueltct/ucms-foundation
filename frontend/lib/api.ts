@@ -432,7 +432,7 @@ export interface CustomFieldDefinition {
   entityType: string;
   fieldKey: string;
   label: string;
-  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'file';
   options: CustomFieldOption[] | null;
   isRequired: boolean;
   sortOrder: number;
@@ -443,7 +443,7 @@ export interface CreateCustomFieldDefinitionInput {
   entityType: string;
   fieldKey: string;
   label: string;
-  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select';
+  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'file';
   options?: CustomFieldOption[];
   isRequired?: boolean;
   sortOrder?: number;
@@ -666,6 +666,83 @@ function reportRangeQs(params: { dateFrom?: string; dateTo?: string; branchId?: 
   if (params.branchId) qs.set('branchId', params.branchId);
   return qs.toString();
 }
+
+export interface UploadedFileValue {
+  key: string;
+  filename: string;
+  size: number;
+  contentType: string;
+}
+
+export interface Asset {
+  id: string;
+  branchId: string | null;
+  name: string;
+  assetCategory: string;
+  assetTag: string | null;
+  condition: string | null;
+  status: 'in_use' | 'in_storage' | 'under_maintenance' | 'disposed' | 'lost';
+  location: string | null;
+  acquisitionDate: string | null;
+  acquisitionCost: string | null;
+  currentValue: string | null;
+  currency: string | null;
+  notes: string | null;
+  isActive: boolean;
+  customFields: Record<string, unknown>;
+}
+
+export interface CreateAssetInput {
+  name: string;
+  assetCategory: string;
+  branchId?: string;
+  assetTag?: string;
+  condition?: string;
+  status?: string;
+  location?: string;
+  acquisitionDate?: string;
+  acquisitionCost?: number;
+  currentValue?: number;
+  currency?: string;
+  notes?: string;
+  customFields?: Record<string, unknown>;
+}
+
+export const assetsApi = {
+  list: (tenantSlug: string, params: { branchId?: string; assetCategory?: string; status?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.assetCategory) qs.set('assetCategory', params.assetCategory);
+    if (params.status) qs.set('status', params.status);
+    if (params.search) qs.set('search', params.search);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<Asset[]>(`/assets?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, asset: CreateAssetInput) =>
+    apiRequest<Asset>('/assets', { method: 'POST', tenantSlug, auth: true, body: asset }),
+  update: (tenantSlug: string, id: string, body: Partial<Omit<CreateAssetInput, 'assetCategory'>>) =>
+    apiRequest<Asset>(`/assets/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<Asset>(`/assets/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  uploadDocument: async (tenantSlug: string, assetId: string, fieldKey: string, file: File): Promise<ApiEnvelope<UploadedFileValue>> => {
+    const form = new FormData();
+    form.append('file', file);
+    const headers: Record<string, string> = { 'X-Tenant-Slug': tenantSlug };
+    if (inMemoryAccessToken) headers.Authorization = `Bearer ${inMemoryAccessToken}`;
+    const res = await fetch(`${API_BASE}/assets/${assetId}/documents?fieldKey=${encodeURIComponent(fieldKey)}`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    return (await res.json()) as ApiEnvelope<UploadedFileValue>;
+  },
+  getDocumentDownloadUrl: (tenantSlug: string, assetId: string, fieldKey: string) =>
+    apiRequest<{ url: string; filename: string }>(`/assets/${assetId}/documents/${fieldKey}/download`, {
+      tenantSlug,
+      auth: true,
+    }),
+};
 
 export interface TenantProfile {
   id: string;

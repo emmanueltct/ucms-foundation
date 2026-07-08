@@ -1,0 +1,13 @@
+import { Module } from '@nestjs/common';
+import { AssetsService } from './assets.service';
+import { AssetsController } from './assets.controller';
+import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
+import { StorageModule } from '../storage/storage.module';
+
+@Module({
+  imports: [CustomFieldsModule, StorageModule],
+  controllers: [AssetsController],
+  providers: [AssetsService],
+  exports: [AssetsService],
+})
+export class AssetsModule {}

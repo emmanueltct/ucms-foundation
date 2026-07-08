@@ -129,6 +129,18 @@ export class CustomFieldsService {
         }
         break;
       }
+      case 'file': {
+        const fileValue = value as { key?: unknown; filename?: unknown } | null;
+        if (
+          typeof fileValue !== 'object' ||
+          fileValue === null ||
+          typeof fileValue.key !== 'string' ||
+          typeof fileValue.filename !== 'string'
+        ) {
+          this.throwInvalidType(definition, 'an uploaded file reference ({ key, filename })');
+        }
+        break;
+      }
     }
   }
 

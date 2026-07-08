@@ -97,6 +97,11 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'payroll.payment.cancel', module: 'payroll', description: 'Cancel a pending payroll payment' },
 
   { code: 'reports.view', module: 'reports', description: 'View cross-module reports and analytics' },
+
+  { code: 'asset.create', module: 'asset', description: 'Register a new asset' },
+  { code: 'asset.read', module: 'asset', description: 'View assets and their documents' },
+  { code: 'asset.update', module: 'asset', description: 'Edit an asset and upload its documents' },
+  { code: 'asset.delete', module: 'asset', description: 'Soft-delete an asset' },
 ];
 
 async function main() {
@@ -289,6 +294,63 @@ async function main() {
       create: { tenantId: tenant.id, namespace: 'department', key: d.key, label: d.label, value: {}, sortOrder: i },
       update: {},
     });
+  }
+
+  console.log('Seeding example configuration items (asset categories)...');
+  const assetCategories = [
+    { key: 'building', label: 'Building' },
+    { key: 'vehicle', label: 'Vehicle' },
+    { key: 'equipment', label: 'Equipment' },
+    { key: 'furniture', label: 'Furniture' },
+    { key: 'electronics', label: 'Electronics' },
+    { key: 'land', label: 'Land' },
+  ];
+  for (const [i, c] of assetCategories.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'asset_category', key: c.key } },
+      create: { tenantId: tenant.id, namespace: 'asset_category', key: c.key, label: c.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (asset conditions)...');
+  const assetConditions = [
+    { key: 'excellent', label: 'Excellent' },
+    { key: 'good', label: 'Good' },
+    { key: 'fair', label: 'Fair' },
+    { key: 'poor', label: 'Poor' },
+    { key: 'damaged', label: 'Damaged' },
+  ];
+  for (const [i, c] of assetConditions.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'asset_condition', key: c.key } },
+      create: { tenantId: tenant.id, namespace: 'asset_condition', key: c.key, label: c.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example custom field definitions (asset:vehicle, asset:building)...');
+  const assetCustomFieldsByEntityType = {
+    'asset:vehicle': [
+      { fieldKey: 'make_model', label: 'Make / Model', fieldType: 'text', sortOrder: 0 },
+      { fieldKey: 'license_plate', label: 'License Plate', fieldType: 'text', sortOrder: 1 },
+      { fieldKey: 'mileage_km', label: 'Mileage (km)', fieldType: 'number', sortOrder: 2 },
+      { fieldKey: 'insurance_document', label: 'Insurance Document', fieldType: 'file', sortOrder: 3 },
+    ],
+    'asset:building': [
+      { fieldKey: 'square_meters', label: 'Floor Area (sqm)', fieldType: 'number', sortOrder: 0 },
+      { fieldKey: 'floors', label: 'Number of Floors', fieldType: 'number', sortOrder: 1 },
+      { fieldKey: 'ownership_document', label: 'Ownership Document', fieldType: 'file', sortOrder: 2 },
+    ],
+  };
+  for (const [entityType, fields] of Object.entries(assetCustomFieldsByEntityType)) {
+    for (const cf of fields) {
+      await prisma.customFieldDefinition.upsert({
+        where: { tenantId_entityType_fieldKey: { tenantId: tenant.id, entityType, fieldKey: cf.fieldKey as string } },
+        create: { tenantId: tenant.id, entityType, ...cf },
+        update: {},
+      });
+    }
   }
 
   console.log('Seeding example custom field definitions (member)...');

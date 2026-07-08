@@ -52,6 +52,7 @@ model Tenant {
   eventRegistrations     EventRegistration[]
   staff                  Staff[]
   payrollPayments        PayrollPayment[]
+  assets                 Asset[]
 
   @@map("tenants")
 }
@@ -238,6 +239,7 @@ model Branch {
   ministries        Ministry[]
   events            Event[]
   staff             Staff[]
+  assets            Asset[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -695,6 +697,46 @@ model PayrollPayment {
   @@index([tenantId, staffId])
   @@index([tenantId, periodStart])
   @@map("payroll_payments")
+}
+
+// ----------------------------------------------------------------------------
+// ASSET & FACILITY MANAGEMENT (Module 10)
+// ----------------------------------------------------------------------------
+
+/// A church-owned physical asset — a building, vehicle, instrument, piece of
+/// equipment, land parcel, etc. `assetCategory` (a ConfigItem key in
+/// namespace "asset_category") is more than a label here: the Custom Fields
+/// module treats `asset:{assetCategory}` as the entityType, so each category
+/// gets its own set of tenant-defined fields (a vehicle's mileage, a
+/// building's floor count, ...) without a new table or migration per
+/// category. See docs/asset-management/business-analysis.md.
+model Asset {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id])
+  branchId        String?   @map("branch_id")
+  branch          Branch?   @relation(fields: [branchId], references: [id])
+  name            String
+  assetCategory   String    @map("asset_category") // ConfigItem key, namespace "asset_category" — fixed after creation
+  assetTag        String?   @map("asset_tag") // optional human/barcode identifier
+  condition       String?   // ConfigItem key, namespace "asset_condition"
+  status          String    @default("in_use") // "in_use" | "in_storage" | "under_maintenance" | "disposed" | "lost"
+  location        String?
+  acquisitionDate DateTime? @map("acquisition_date")
+  acquisitionCost Decimal?  @map("acquisition_cost") @db.Decimal(14, 2)
+  currentValue    Decimal?  @map("current_value") @db.Decimal(14, 2)
+  currency        String?
+  notes           String?
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  @@unique([tenantId, assetTag])
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, assetCategory])
+  @@map("assets")
 }
 
 // ----------------------------------------------------------------------------
