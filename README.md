@@ -208,7 +208,7 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/settings/custom-fields/page.tsx  Define custom fields per entity type — asset
                                   categories appear here automatically as `asset:{category}`
                                   entity types, sourced from the asset_category ConfigItems
-  app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
+  app/onboarding/page.tsx        First-run wizard (name your levels -> headquarters -> build structure -> finish)
   components/admin-nav.tsx       The sidebar nav consumed by app/admin/layout.tsx —
                                   now also a workspace switcher when a user has more
                                   than one church
@@ -577,6 +577,16 @@ npm run test:e2e             # requires a migrated + seeded test database
     used for tenant-owned business data, only identity-routing rows
     (`User`, `PasswordResetToken`, `EmailVerificationToken`). See
     `docs/business-analysis.md`.
+32. **Naming your own hierarchy levels needed zero new schema.** The
+    onboarding wizard's new "name your levels" and "build your structure"
+    steps are just the Configuration Engine (`branch_type` `ConfigItem`s)
+    and the existing `POST /branches` endpoint, driven interactively — the
+    same composition the standalone Branches page already used. The one
+    behavior change is that `PATCH /tenant/onboarding/complete` is now
+    called mid-wizard (right after headquarters creation) instead of only
+    at the end, which is safe only because that endpoint was already
+    idempotent (design decision #7). See
+    `docs/church-hierarchy/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -598,6 +608,11 @@ npm run test:e2e             # requires a migrated + seeded test database
   email, phone, address, time, gps, image, video, audio, signature, lookup),
   backed by a new dependency-free `RichTextEditor` component. See design
   decision #30 and `docs/custom-fields/business-analysis.md`.
+- **Onboarding wizard redesign**: the old 3-step (Welcome -> Headquarters ->
+  Finish) wizard is now 5 steps, letting a church name its own hierarchy
+  levels and build out several branches interactively before finishing,
+  instead of only creating a single headquarters branch. See design
+  decision #32 and `docs/church-hierarchy/business-analysis.md`.
 
 ## Next module
 
@@ -607,26 +622,21 @@ above covers a large chunk of the "everything must be configurable" +
 security requirements named in the platform's expanded requirements list.
 Still in progress from that same list, in priority order:
 
-1. **Dynamic, admin-defined organizational hierarchy levels** — `Branch`
-   already supports an arbitrary-depth tree; what's missing is letting a
-   tenant *name* its own levels (Province/Diocese/District/Parish, or
-   whatever fits) and walk through creating them during onboarding, rather
-   than only offering a flat "parent branch" picker.
-2. **Visitor groups + configurable visitor activities** — extending
+1. **Visitor groups + configurable visitor activities** — extending
    `Visitor` to represent a group/delegation, not just an individual, and
    replacing `VisitorFollowUp`'s fixed shape with tenant-defined activity
    types (own Custom Fields per type, the same `entityType` composition
    trick Assets already uses).
-3. **A generalized Member Activities module** with a per-member activity
+2. **A generalized Member Activities module** with a per-member activity
    history report aggregating ministries, small groups, events, attendance,
    and the new activities module into one timeline.
-4. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
+3. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
    Reports & Analytics and per-module list views.
-5. **File management polish** — multi-file upload, image/video/audio
+4. **File management polish** — multi-file upload, image/video/audio
    previews, and a lightweight version history on Document Management.
    (Virus scanning is out of scope — it needs a 3rd-party service this
    environment has no credentials for.)
-6. **Session/device management + login history**, building on the
+5. **Session/device management + login history**, building on the
    `RefreshToken` records already tracked per device.
 
 Whichever is picked up should still follow the established patterns: tenant

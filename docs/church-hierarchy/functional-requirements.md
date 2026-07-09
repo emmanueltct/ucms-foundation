@@ -51,6 +51,12 @@
   no branches yet, it creates a headquarters branch (defaulting to the tenant's name and type
   `headquarters`); it then sets `onboardedAt` if not already set. Calling it again after
   onboarding is already complete is a no-op that returns the current tenant unchanged.
+- FR-CH-5.4 The onboarding wizard's "name your levels" step creates `ConfigItem`s in namespace
+  `branch_type` via the Configuration Engine (`POST /config/items` — see the Foundation module's
+  API design) rather than a dedicated endpoint; the "build your structure" step that follows HQ
+  creation is likewise plain `POST /branches` calls with the wizard defaulting `parentBranchId`
+  to the just-created headquarters. No hierarchy-specific onboarding endpoints exist beyond
+  FR-CH-5.3 — the wizard composes this module's and the Foundation module's existing endpoints.
 
 ## FR-CH-6 Non-Functional
 

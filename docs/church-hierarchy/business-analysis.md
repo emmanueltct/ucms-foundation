@@ -47,6 +47,16 @@ The actors most relevant here:
   branding (already on `Tenant`) → hierarchy setup (this module's branch tree) → first admin
   user, and finishes with an idempotent "complete onboarding" call that guarantees at least one
   headquarters branch exists before later modules (Member Management) can assume one does.
+- **The wizard's hierarchy step is a thin UI over `branch_type` config, not new schema.** Since
+  every church names its own levels differently (province/diocese/parish/cell vs. a flat
+  independent church with none of those), the frontend wizard (`app/onboarding/page.tsx`) walks
+  the admin through: (1) naming their levels — each one becomes a `ConfigItem` in namespace
+  `branch_type` via the existing Configuration Engine endpoints, no new module code; (2) creating
+  the headquarters branch (calling the already-idempotent `PATCH /tenant/onboarding/complete`,
+  now invoked mid-wizard rather than only at the very end, which is safe precisely because that
+  endpoint was designed to be callable more than once); (3) optionally adding further branches
+  underneath it (`POST /branches`) before finishing. Every step is a call to an endpoint this
+  module already exposed for the standalone Branches page — the wizard adds no backend surface.
 - Provisioning a tenant may optionally bootstrap its first Church Administrator account in the
   same call (`CreateTenantDto.adminEmail`) — this grants only tenant-scoped permission codes
   (never the `platform.*` catalog), distinct from the Foundation demo seed's admin role, which
