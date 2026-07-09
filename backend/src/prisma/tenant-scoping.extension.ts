@@ -11,6 +11,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'User',
   'Role',
   'RefreshToken',
+  'PasswordResetToken',
   'ConfigItem',
   'FeatureToggle',
   'AuditLog',

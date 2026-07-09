@@ -37,6 +37,7 @@ model Tenant {
   configItems    ConfigItem[]
   featureToggles FeatureToggle[]
   refreshTokens  RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
   auditLogs      AuditLog[]
   branches           Branch[]
   members            Member[]
@@ -84,6 +85,7 @@ model User {
 
   userRoles             UserRole[]
   refreshTokens         RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
   auditLogs             AuditLog[]
   recordedContributions Contribution[]     @relation("ContributionRecordedBy")
   voidedContributions   Contribution[]     @relation("ContributionVoidedBy")
@@ -175,6 +177,27 @@ model RefreshToken {
   @@index([userId])
   @@index([tenantId])
   @@map("refresh_tokens")
+}
+
+/// A one-time-use token for the forgot/reset-password flow. Looked up by
+/// `tokenHash` alone (never by tenantId — the tenant is resolved *from* the
+/// token, via `PrismaService.unscoped`, exactly like login-by-email
+/// routing does), since the person resetting their password doesn't
+/// necessarily know or remember which church workspace they're in.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // ----------------------------------------------------------------------------
@@ -539,10 +562,14 @@ model CustomFieldDefinition {
   entityType String   @map("entity_type") // "member" | "contribution" | "attendance_record" | "ministry" | ...
   fieldKey   String   @map("field_key") // stable machine key, e.g. "confirmation_date"
   label      String
-  fieldType  String   @map("field_type") // "text" | "number" | "date" | "boolean" | "select"
-  options    Json? // for fieldType "select": [{ "key": "...", "label": "..." }, ...]
+  fieldType  String   @map("field_type") // "text" | "richtext" | "number" | "date" | "time" | "boolean" | "select" | "radio" | "multiselect" | "email" | "phone" | "address" | "gps" | "file" | "image" | "video" | "audio" | "signature" | "lookup"
+  options    Json? // for fieldType "select"/"radio"/"multiselect": [{ "key": "...", "label": "..." }, ...]
   isRequired Boolean  @default(false) @map("is_required")
   sortOrder  Int      @default(0) @map("sort_order")
+  section    String? // optional grouping label so a form can be laid out in sections, e.g. "Contact Info"
+  visibleToRoleNames String[] @default([]) @map("visible_to_role_names") // empty = visible to every role
+  validationRules Json? @map("validation_rules") // generic: { minLength?, maxLength?, min?, max?, pattern? }
+  lookupEntityType String? @map("lookup_entity_type") // only for fieldType "lookup" — which entityType this field references
   isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")

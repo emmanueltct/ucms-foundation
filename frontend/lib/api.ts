@@ -24,15 +24,36 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000/api/
 // server action / route handler, not in client-readable storage at all.
 let inMemoryAccessToken: string | null = null;
 let inMemoryRefreshToken: string | null = null;
+let currentTenant: { slug: string; name: string } | null = null;
+let currentUser: AuthUser | null = null;
 
-export function setSession(accessToken: string, refreshToken: string) {
+export function setSession(accessToken: string, refreshToken: string, tenant?: { slug: string; name: string }, user?: AuthUser) {
   inMemoryAccessToken = accessToken;
   inMemoryRefreshToken = refreshToken;
+  if (tenant) currentTenant = tenant;
+  if (user) currentUser = user;
 }
 
 export function clearSession() {
   inMemoryAccessToken = null;
   inMemoryRefreshToken = null;
+  currentTenant = null;
+  currentUser = null;
+}
+
+/** Which church workspace the current session is scoped to — set by login/switch-tenant. */
+export function getCurrentTenant(): { slug: string; name: string } | null {
+  return currentTenant;
+}
+
+/** The signed-in user's own profile (roles/permissions/MFA status) — set by login/switch-tenant. */
+export function getCurrentUser(): AuthUser | null {
+  return currentUser;
+}
+
+/** Lets a page update just the MFA flag after enroll/disable, without a full re-login. */
+export function updateCurrentUserMfaStatus(mfaEnabled: boolean) {
+  if (currentUser) currentUser = { ...currentUser, mfaEnabled };
 }
 
 interface RequestOptions {
@@ -74,13 +95,81 @@ export async function multipartRequest<T>(
   return (await res.json()) as ApiEnvelope<T>;
 }
 
+export interface AuthUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
+  permissions: string[];
+  mfaEnabled: boolean;
+}
+
+export interface AuthTenant {
+  slug: string;
+  name: string;
+}
+
+export interface AuthSuccessResult {
+  user: AuthUser;
+  tokens: { accessToken: string; refreshToken: string; expiresIn: number };
+  tenant: AuthTenant;
+}
+
+export interface WorkspaceOption {
+  slug: string;
+  name: string;
+}
+
+/** Returned instead of AuthSuccessResult when the same email+password matches more than one church workspace. */
+export interface WorkspaceSelectionResult {
+  requiresWorkspaceSelection: true;
+  workspaces: WorkspaceOption[];
+}
+
+export type LoginResult = AuthSuccessResult | WorkspaceSelectionResult;
+
 export const authApi = {
-  login: (tenantSlug: string, email: string, password: string) =>
-    apiRequest<{ user: any; tokens: { accessToken: string; refreshToken: string } }>('/auth/login', {
+  /**
+   * `tenantSlug` is optional — omit it to route by email+password alone
+   * across every church workspace (see AuthService.login on the backend).
+   */
+  login: (email: string, password: string, tenantSlug?: string, mfaCode?: string) =>
+    apiRequest<LoginResult>('/auth/login', {
       method: 'POST',
-      tenantSlug,
-      body: { email, password },
+      tenantSlug: tenantSlug ?? '',
+      body: { email, password, mfaCode },
     }),
+  // Not tenant-scoped — the person may not remember which church workspace they're in.
+  forgotPassword: (email: string) =>
+    apiRequest<{ message: string }>('/auth/forgot-password', { method: 'POST', tenantSlug: '', body: { email } }),
+  resetPassword: (token: string, newPassword: string) =>
+    apiRequest<{ message: string }>('/auth/reset-password', { method: 'POST', tenantSlug: '', body: { token, newPassword } }),
+  /** `currentTenantSlug` names the workspace the caller is already signed into; `targetTenantSlug` is where they're switching to. */
+  switchTenant: (currentTenantSlug: string, targetTenantSlug: string) =>
+    apiRequest<AuthSuccessResult>('/auth/switch-tenant', {
+      method: 'POST',
+      tenantSlug: currentTenantSlug,
+      auth: true,
+      body: { tenantSlug: targetTenantSlug },
+    }),
+  listWorkspaces: (currentTenantSlug: string) =>
+    apiRequest<WorkspaceOption[]>('/auth/workspaces', { tenantSlug: currentTenantSlug, auth: true }),
+};
+
+export interface MfaSetupResult {
+  secret: string;
+  otpAuthUrl: string;
+  qrCodeDataUrl: string;
+}
+
+export const mfaApi = {
+  setup: (tenantSlug: string) =>
+    apiRequest<MfaSetupResult>('/auth/mfa/setup', { method: 'POST', tenantSlug, auth: true }),
+  enable: (tenantSlug: string, code: string) =>
+    apiRequest<{ message: string }>('/auth/mfa/enable', { method: 'POST', tenantSlug, auth: true, body: { code } }),
+  disable: (tenantSlug: string, code: string) =>
+    apiRequest<{ message: string }>('/auth/mfa/disable', { method: 'POST', tenantSlug, auth: true, body: { code } }),
 };
 
 export const configApi = {
@@ -92,6 +181,16 @@ export const configApi = {
     apiRequest<any>(`/config/items/${id}/deactivate`, { method: 'PATCH', tenantSlug, auth: true }),
   reactivate: (tenantSlug: string, id: string) =>
     apiRequest<any>(`/config/items/${id}/reactivate`, { method: 'PATCH', tenantSlug, auth: true }),
+};
+
+export interface Role {
+  id: string;
+  name: string;
+  isSystem: boolean;
+}
+
+export const rolesApi = {
+  list: (tenantSlug: string) => apiRequest<Role[]>('/roles', { tenantSlug, auth: true }),
 };
 
 export interface Branch {
@@ -439,15 +538,48 @@ export interface CustomFieldOption {
   label: string;
 }
 
+export type CustomFieldType =
+  | 'text'
+  | 'richtext'
+  | 'number'
+  | 'date'
+  | 'time'
+  | 'boolean'
+  | 'select'
+  | 'radio'
+  | 'multiselect'
+  | 'email'
+  | 'phone'
+  | 'address'
+  | 'gps'
+  | 'file'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'signature'
+  | 'lookup';
+
+export interface CustomFieldValidationRules {
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  pattern?: string;
+}
+
 export interface CustomFieldDefinition {
   id: string;
   entityType: string;
   fieldKey: string;
   label: string;
-  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'file';
+  fieldType: CustomFieldType;
   options: CustomFieldOption[] | null;
   isRequired: boolean;
   sortOrder: number;
+  section: string | null;
+  visibleToRoleNames: string[];
+  validationRules: CustomFieldValidationRules | null;
+  lookupEntityType: string | null;
   isActive: boolean;
 }
 
@@ -455,10 +587,14 @@ export interface CreateCustomFieldDefinitionInput {
   entityType: string;
   fieldKey: string;
   label: string;
-  fieldType: 'text' | 'number' | 'date' | 'boolean' | 'select' | 'file';
+  fieldType: CustomFieldType;
   options?: CustomFieldOption[];
   isRequired?: boolean;
   sortOrder?: number;
+  section?: string;
+  visibleToRoleNames?: string[];
+  validationRules?: CustomFieldValidationRules;
+  lookupEntityType?: string;
 }
 
 export const customFieldDefinitionsApi = {

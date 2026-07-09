@@ -4,8 +4,9 @@
 // Persistent sidebar navigation for every /admin/* page — replaces what
 // used to be a set of isolated, unlinked routes with one cohesive app shell.
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
   Building2,
@@ -24,8 +25,11 @@ import {
   FileText,
   Users2,
   HelpCircle,
+  ChevronsUpDown,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { authApi, getCurrentTenant, setSession, WorkspaceOption } from '@/lib/api';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -44,22 +48,83 @@ const NAV_ITEMS = [
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/config', label: 'Configuration', icon: SlidersHorizontal },
   { href: '/admin/settings/custom-fields', label: 'Custom Fields', icon: ListPlus },
+  { href: '/admin/settings/security', label: 'Security', icon: ShieldCheck },
   { href: '/admin/help', label: 'Help & Test Guide', icon: HelpCircle },
 ];
 
 export function AdminNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const [tenant, setTenant] = useState(getCurrentTenant());
+  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    const current = getCurrentTenant();
+    setTenant(current);
+    if (!current) return;
+    authApi.listWorkspaces(current.slug).then((res) => {
+      if (res.success && res.data) setWorkspaces(res.data);
+    });
+  }, [pathname]);
+
+  async function handleSwitch(targetSlug: string) {
+    if (!tenant || targetSlug === tenant.slug) {
+      setSwitcherOpen(false);
+      return;
+    }
+    setSwitching(true);
+    try {
+      const res = await authApi.switchTenant(tenant.slug, targetSlug);
+      if (res.success && res.data) {
+        setSession(res.data.tokens.accessToken, res.data.tokens.refreshToken, res.data.tenant, res.data.user);
+        setSwitcherOpen(false);
+        router.push('/admin');
+        router.refresh();
+      }
+    } finally {
+      setSwitching(false);
+    }
+  }
 
   return (
     <aside className="w-60 shrink-0 border-r border-slate-200/70 bg-white min-h-screen sticky top-0 flex flex-col">
-      <div className="h-16 flex items-center gap-2.5 px-5 border-b border-slate-200/70">
-        <div className="h-8 w-8 rounded-full bg-[#1E2A44] flex items-center justify-center shrink-0">
-          <span className="text-[#C9A24B] text-sm font-serif">✝</span>
-        </div>
-        <div className="min-w-0">
-          <p className="font-serif text-sm text-[#1E2A44] leading-tight truncate">Demo Church</p>
-          <p className="text-[11px] text-slate-400 leading-tight">UCMS Admin</p>
-        </div>
+      <div className="border-b border-slate-200/70 relative">
+        <button
+          onClick={() => workspaces.length > 1 && setSwitcherOpen((v) => !v)}
+          className={cn(
+            'h-16 w-full flex items-center gap-2.5 px-5 text-left',
+            workspaces.length > 1 && 'hover:bg-slate-50 cursor-pointer',
+          )}
+        >
+          <div className="h-8 w-8 rounded-full bg-[#1E2A44] flex items-center justify-center shrink-0">
+            <span className="text-[#C9A24B] text-sm font-serif">✝</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-serif text-sm text-[#1E2A44] leading-tight truncate">{tenant?.name ?? 'UCMS'}</p>
+            <p className="text-[11px] text-slate-400 leading-tight">UCMS Admin</p>
+          </div>
+          {workspaces.length > 1 && <ChevronsUpDown className="h-3.5 w-3.5 text-slate-300 shrink-0" />}
+        </button>
+
+        {switcherOpen && (
+          <div className="absolute left-3 right-3 top-[calc(100%+4px)] z-10 rounded-lg border border-slate-200 bg-white shadow-md overflow-hidden">
+            {workspaces.map((w) => (
+              <button
+                key={w.slug}
+                onClick={() => handleSwitch(w.slug)}
+                disabled={switching}
+                className={cn(
+                  'w-full text-left px-3 py-2 text-sm transition-colors',
+                  w.slug === tenant?.slug ? 'bg-[#1E2A44]/5 text-[#1E2A44] font-medium' : 'text-slate-600 hover:bg-slate-50',
+                )}
+              >
+                {w.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-0.5">

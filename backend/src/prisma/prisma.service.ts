@@ -13,12 +13,27 @@ import { tenantScopingExtension } from './tenant-scoping.extension';
  */
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+  /**
+   * A second, deliberately UNEXTENDED client — reserved for the handful of
+   * legitimate cross-tenant identity lookups (routing a login by email to
+   * the right tenant, resolving a global password-reset token) where the
+   * tenant is exactly what's being discovered, so the tenant-scoping
+   * extension's "no tenant context" guard would otherwise throw. Never use
+   * this for tenant-owned business data — every call site using it must
+   * only ever touch identity-routing rows (User email/tenant lookups,
+   * PasswordResetToken), and only to decide *which* tenant to operate in,
+   * never to read or write that tenant's actual records.
+   */
+  readonly unscoped = new PrismaClient();
+
   async onModuleInit() {
     await this.$connect();
+    await this.unscoped.$connect();
     Object.assign(this, this.$extends(tenantScopingExtension));
   }
 
   async onModuleDestroy() {
     await this.$disconnect();
+    await this.unscoped.$disconnect();
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
@@ -7,6 +7,9 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { VerifyMfaDto } from './dto/verify-mfa.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SwitchTenantDto } from './dto/switch-tenant.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -27,14 +30,70 @@ export class AuthController {
     return ok(result);
   }
 
-  @ApiOperation({ summary: 'Log in and receive an access/refresh token pair (rate-limited 5/min)' })
+  @ApiOperation({
+    summary:
+      'Log in and receive an access/refresh token pair (rate-limited 5/min). The X-Tenant-Slug header is ' +
+      'optional here — omit it to route by email+password alone across every church workspace; if the same ' +
+      'email+password matches more than one, the response asks the caller to pick one and resubmit with the ' +
+      'header set.',
+  })
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  async login(@CurrentTenantId() tenantId: string, @Body() dto: LoginDto) {
-    const result = await this.authService.login(tenantId, dto);
+  async login(@Headers('x-tenant-slug') tenantSlug: string | undefined, @Body() dto: LoginDto) {
+    const result = await this.authService.login(tenantSlug, dto);
     return ok(result);
+  }
+
+  @ApiOperation({
+    summary:
+      "Switch an already-authenticated session to a different church workspace this same person (matched by " +
+      "email) also belongs to — no password re-entry. The X-Tenant-Slug header names the *current* workspace; " +
+      "the target workspace is in the body.",
+  })
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @Post('switch-tenant')
+  async switchTenant(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SwitchTenantDto,
+  ) {
+    const result = await this.authService.switchTenant(tenantId, user.userId, dto.tenantSlug);
+    return ok(result);
+  }
+
+  @ApiOperation({ summary: 'List every church workspace the current user has an active account in' })
+  @ApiBearerAuth()
+  @Get('workspaces')
+  async listWorkspaces(@CurrentUser() user: AuthenticatedUser) {
+    const result = await this.authService.listMyWorkspaces(user.email);
+    return ok(result);
+  }
+
+  @ApiOperation({
+    summary:
+      'Request a password reset link. Not tenant-scoped — a person may not remember which church workspace ' +
+      'they registered under, so this checks every tenant and emails a link for each account found. Always ' +
+      'responds the same way regardless of whether anything matched (rate-limited 5/min).',
+  })
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto) {
+    await this.authService.forgotPassword(dto.email);
+    return ok({ message: 'If an account exists for that email, a reset link has been sent.' });
+  }
+
+  @ApiOperation({ summary: 'Complete a password reset using the token from the emailed link' })
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto) {
+    await this.authService.resetPassword(dto.token, dto.newPassword);
+    return ok({ message: 'Password updated. Sign in with your new password.' });
   }
 
   @ApiOperation({ summary: 'Rotate a refresh token for a new access/refresh token pair' })

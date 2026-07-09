@@ -29,6 +29,17 @@ export class AuthUserDto {
 
   @ApiProperty({ type: [String] })
   permissions: string[];
+
+  @ApiProperty()
+  mfaEnabled: boolean;
+}
+
+export class AuthTenantDto {
+  @ApiProperty()
+  slug: string;
+
+  @ApiProperty()
+  name: string;
 }
 
 export class AuthResponseDto {
@@ -37,4 +48,24 @@ export class AuthResponseDto {
 
   @ApiProperty({ type: AuthTokensDto })
   tokens: AuthTokensDto;
+
+  @ApiProperty({ type: AuthTenantDto, description: 'Which church workspace this session is scoped to' })
+  tenant: AuthTenantDto;
+}
+
+export class WorkspaceOptionDto {
+  @ApiProperty()
+  slug: string;
+
+  @ApiProperty()
+  name: string;
+}
+
+/** Returned instead of AuthResponseDto when the same email+password matches more than one church workspace. */
+export class WorkspaceSelectionResponseDto {
+  @ApiProperty({ default: true })
+  requiresWorkspaceSelection: true;
+
+  @ApiProperty({ type: [WorkspaceOptionDto] })
+  workspaces: WorkspaceOptionDto[];
 }

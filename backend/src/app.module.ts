@@ -79,6 +79,15 @@ export class AppModule implements NestModule {
       .exclude(
         { path: 'health', method: RequestMethod.GET },
         { path: 'platform/tenants*', method: RequestMethod.ALL }, // platform-admin routes aren't tenant-scoped
+        // Password reset is deliberately cross-tenant — the person resetting a
+        // password may not remember which church workspace they're in; the
+        // token itself (not a header) resolves the tenant. See AuthService.
+        { path: 'auth/forgot-password', method: RequestMethod.POST },
+        { path: 'auth/reset-password', method: RequestMethod.POST },
+        // Login's X-Tenant-Slug header is optional (see AuthService.login) —
+        // it resolves the tenant itself when a slug is given, and routes by
+        // email+password across every tenant when it's not.
+        { path: 'auth/login', method: RequestMethod.POST },
       )
       .forRoutes('*');
   }

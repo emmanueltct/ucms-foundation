@@ -6,9 +6,10 @@ import { AuthController } from './auth.controller';
 import { MfaService } from './mfa.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtRefreshStrategy } from './strategies/jwt-refresh.strategy';
+import { CommunicationModule } from '../communication/communication.module';
 
 @Module({
-  imports: [PassportModule, JwtModule.register({})],
+  imports: [PassportModule, JwtModule.register({}), CommunicationModule],
   controllers: [AuthController],
   providers: [AuthService, MfaService, JwtStrategy, JwtRefreshStrategy],
   exports: [AuthService],

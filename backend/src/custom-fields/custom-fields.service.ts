@@ -108,10 +108,20 @@ export class CustomFieldsService {
 
     switch (definition.fieldType) {
       case 'text':
+      case 'richtext':
+      case 'phone':
+      case 'address':
         if (typeof value !== 'string') this.throwInvalidType(definition, 'a string');
+        this.assertStringRules(definition, value as string);
+        break;
+      case 'email':
+        if (typeof value !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+          this.throwInvalidType(definition, 'a valid email address');
+        }
         break;
       case 'number':
         if (typeof value !== 'number') this.throwInvalidType(definition, 'a number');
+        this.assertNumberRules(definition, value as number);
         break;
       case 'boolean':
         if (typeof value !== 'boolean') this.throwInvalidType(definition, 'a boolean');
@@ -119,7 +129,20 @@ export class CustomFieldsService {
       case 'date':
         if (typeof value !== 'string' || Number.isNaN(Date.parse(value))) this.throwInvalidType(definition, 'an ISO date string');
         break;
-      case 'select': {
+      case 'time':
+        if (typeof value !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+          this.throwInvalidType(definition, 'a 24-hour "HH:mm" time');
+        }
+        break;
+      case 'gps': {
+        const gps = value as { lat?: unknown; lng?: unknown } | null;
+        if (typeof gps !== 'object' || gps === null || typeof gps.lat !== 'number' || typeof gps.lng !== 'number') {
+          this.throwInvalidType(definition, 'a GPS coordinate ({ lat, lng })');
+        }
+        break;
+      }
+      case 'select':
+      case 'radio': {
         const options = (definition.options as { key: string }[] | null) ?? [];
         if (typeof value !== 'string' || !options.some((o) => o.key === value)) {
           throw new BadRequestException({
@@ -129,7 +152,22 @@ export class CustomFieldsService {
         }
         break;
       }
-      case 'file': {
+      case 'multiselect': {
+        const options = (definition.options as { key: string }[] | null) ?? [];
+        const validKeys = new Set(options.map((o) => o.key));
+        if (!Array.isArray(value) || !value.every((v) => typeof v === 'string' && validKeys.has(v))) {
+          throw new BadRequestException({
+            code: 'CUSTOM_FIELD_INVALID_VALUE',
+            message: `"${definition.label}" must be a list of: ${options.map((o) => o.key).join(', ')}`,
+          });
+        }
+        break;
+      }
+      case 'file':
+      case 'image':
+      case 'video':
+      case 'audio':
+      case 'signature': {
         const fileValue = value as { key?: unknown; filename?: unknown } | null;
         if (
           typeof fileValue !== 'object' ||
@@ -141,7 +179,35 @@ export class CustomFieldsService {
         }
         break;
       }
+      case 'lookup': {
+        const lookupValue = value as { entityId?: unknown } | null;
+        if (typeof lookupValue !== 'object' || lookupValue === null || typeof lookupValue.entityId !== 'string') {
+          this.throwInvalidType(definition, 'a lookup reference ({ entityId })');
+        }
+        break;
+      }
     }
+  }
+
+  private assertStringRules(definition: CustomFieldDefinition, value: string): void {
+    const rules = definition.validationRules as { minLength?: number; maxLength?: number; pattern?: string } | null;
+    if (!rules) return;
+    if (rules.minLength !== undefined && value.length < rules.minLength) {
+      this.throwInvalidType(definition, `at least ${rules.minLength} characters`);
+    }
+    if (rules.maxLength !== undefined && value.length > rules.maxLength) {
+      this.throwInvalidType(definition, `at most ${rules.maxLength} characters`);
+    }
+    if (rules.pattern && !new RegExp(rules.pattern).test(value)) {
+      this.throwInvalidType(definition, `formatted like ${rules.pattern}`);
+    }
+  }
+
+  private assertNumberRules(definition: CustomFieldDefinition, value: number): void {
+    const rules = definition.validationRules as { min?: number; max?: number } | null;
+    if (!rules) return;
+    if (rules.min !== undefined && value < rules.min) this.throwInvalidType(definition, `at least ${rules.min}`);
+    if (rules.max !== undefined && value > rules.max) this.throwInvalidType(definition, `at most ${rules.max}`);
   }
 
   private throwInvalidType(definition: CustomFieldDefinition, expected: string): never {

@@ -18,6 +18,7 @@ export class CustomFieldDefinitionsService {
 
   async create(tenantId: string, dto: CreateCustomFieldDefinitionDto): Promise<CustomFieldDefinition> {
     this.assertOptionsValidForType(dto.fieldType, dto.options);
+    this.assertLookupEntityTypeValidForType(dto.fieldType, dto.lookupEntityType);
 
     const existing = await this.prisma.customFieldDefinition.findUnique({
       where: { tenantId_entityType_fieldKey: { tenantId, entityType: dto.entityType, fieldKey: dto.fieldKey } },
@@ -39,6 +40,10 @@ export class CustomFieldDefinitionsService {
         options: dto.options as any,
         isRequired: dto.isRequired ?? false,
         sortOrder: dto.sortOrder ?? 0,
+        section: dto.section,
+        visibleToRoleNames: dto.visibleToRoleNames ?? [],
+        validationRules: dto.validationRules as any,
+        lookupEntityType: dto.lookupEntityType,
       },
     });
   }
@@ -75,6 +80,9 @@ export class CustomFieldDefinitionsService {
         options: dto.options as any,
         isRequired: dto.isRequired,
         sortOrder: dto.sortOrder,
+        section: dto.section,
+        visibleToRoleNames: dto.visibleToRoleNames,
+        validationRules: dto.validationRules as any,
         isActive: dto.isActive,
       },
     });
@@ -92,10 +100,19 @@ export class CustomFieldDefinitionsService {
   }
 
   private assertOptionsValidForType(fieldType: string, options: { key: string; label: string }[] | undefined): void {
-    if (fieldType === 'select' && (!options || options.length === 0)) {
+    if (['select', 'radio', 'multiselect'].includes(fieldType) && (!options || options.length === 0)) {
       throw new BadRequestException({
         code: 'CUSTOM_FIELD_OPTIONS_REQUIRED',
-        message: 'A "select" field requires at least one option.',
+        message: `A "${fieldType}" field requires at least one option.`,
+      });
+    }
+  }
+
+  private assertLookupEntityTypeValidForType(fieldType: string, lookupEntityType: string | undefined): void {
+    if (fieldType === 'lookup' && !lookupEntityType) {
+      throw new BadRequestException({
+        code: 'CUSTOM_FIELD_LOOKUP_ENTITY_TYPE_REQUIRED',
+        message: 'A "lookup" field requires lookupEntityType (which entity it points to).',
       });
     }
   }

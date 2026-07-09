@@ -1,11 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from '../src/auth/auth.service';
 import { MfaService } from '../src/auth/mfa.service';
+import { NotificationsService } from '../src/communication/notifications.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuthResponseDto, WorkspaceSelectionResponseDto } from '../src/auth/dto/auth-response.dto';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -13,10 +15,18 @@ describe('AuthService', () => {
 
   const TENANT_ID = 'tenant-1';
 
+  const TENANT_SLUG = 'demo-church';
+
   const mockPrisma = {
     user: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
+    tenant: { findFirst: jest.fn(), findUnique: jest.fn() },
     refreshToken: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+    passwordResetToken: { create: jest.fn(), update: jest.fn() },
     auditLog: { create: jest.fn() },
+    unscoped: {
+      user: { findMany: jest.fn() },
+      passwordResetToken: { findUnique: jest.fn() },
+    },
   };
 
   const mockMfa = {
@@ -24,6 +34,10 @@ describe('AuthService', () => {
     getOtpAuthUrl: jest.fn().mockReturnValue('otpauth://totp/UCMS:test'),
     generateQrCodeDataUrl: jest.fn().mockResolvedValue('data:image/png;base64,...'),
     verifyToken: jest.fn(),
+  };
+
+  const mockNotifications = {
+    create: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -42,6 +56,7 @@ describe('AuthService', () => {
           useValue: { get: jest.fn().mockReturnValue('secret') },
         },
         { provide: MfaService, useValue: mockMfa },
+        { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
 
@@ -84,12 +99,25 @@ describe('AuthService', () => {
     });
   });
 
-  describe('login', () => {
+  describe('login (tenant slug given)', () => {
+    beforeEach(() => {
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: TENANT_ID, slug: TENANT_SLUG, isActive: true, deletedAt: null });
+      mockPrisma.tenant.findUnique.mockResolvedValue({ id: TENANT_ID, slug: TENANT_SLUG, name: 'Demo Church' });
+    });
+
+    it('throws BadRequestException when the slug does not resolve to a tenant', async () => {
+      mockPrisma.tenant.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.login(TENANT_SLUG, { email: 'nobody@church.rw', password: 'whatever1' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('throws UnauthorizedException for an unknown email', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.login(TENANT_ID, { email: 'nobody@church.rw', password: 'whatever1' }),
+        service.login(TENANT_SLUG, { email: 'nobody@church.rw', password: 'whatever1' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -104,7 +132,7 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.login(TENANT_ID, { email: 'pastor@church.rw', password: 'WrongPass1' }),
+        service.login(TENANT_SLUG, { email: 'pastor@church.rw', password: 'WrongPass1' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -119,11 +147,11 @@ describe('AuthService', () => {
       });
 
       await expect(
-        service.login(TENANT_ID, { email: 'pastor@church.rw', password: 'CorrectPass1' }),
+        service.login(TENANT_SLUG, { email: 'pastor@church.rw', password: 'CorrectPass1' }),
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('returns tokens and flattens role permissions on success', async () => {
+    it('returns tokens, the resolved tenant, and flattens role permissions on success', async () => {
       const passwordHash = await bcrypt.hash('CorrectPass1', 12);
       mockPrisma.user.findUnique
         .mockResolvedValueOnce({
@@ -141,16 +169,167 @@ describe('AuthService', () => {
             },
           ],
         })
-        .mockResolvedValueOnce({ id: 'user-1', firstName: 'Pastor', lastName: 'John' });
+        .mockResolvedValueOnce({ id: 'user-1', firstName: 'Pastor', lastName: 'John' }); // issueSession's own lookup
 
-      const result = await service.login(TENANT_ID, { email: 'pastor@church.rw', password: 'CorrectPass1' });
+      const result = (await service.login(TENANT_SLUG, {
+        email: 'pastor@church.rw',
+        password: 'CorrectPass1',
+      })) as AuthResponseDto;
 
       expect(result.user.roles).toEqual(['Pastor']);
       expect(result.user.permissions).toEqual(['user.read']); // deduplicated
+      expect(result.tenant).toEqual({ slug: TENANT_SLUG, name: 'Demo Church' });
       expect(mockPrisma.refreshToken.create).toHaveBeenCalled();
       expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ action: 'auth.login' }) }),
       );
+    });
+  });
+
+  describe('login (no tenant slug — cross-tenant email routing)', () => {
+    it('throws UnauthorizedException when no active account matches the email in any tenant', async () => {
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.login(undefined, { email: 'nobody@anywhere.rw', password: 'whatever1' }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('logs straight in when exactly one tenant has a matching active account', async () => {
+      const passwordHash = await bcrypt.hash('CorrectPass1', 12);
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([
+        {
+          id: 'user-1',
+          tenantId: TENANT_ID,
+          email: 'pastor@church.rw',
+          passwordHash,
+          tenant: { id: TENANT_ID, slug: TENANT_SLUG, name: 'Demo Church', isActive: true, deletedAt: null },
+        },
+      ]);
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({
+          id: 'user-1',
+          email: 'pastor@church.rw',
+          isActive: true,
+          deletedAt: null,
+          passwordHash,
+          userRoles: [],
+        })
+        .mockResolvedValueOnce({ id: 'user-1', firstName: 'Pastor', lastName: 'John' });
+      mockPrisma.tenant.findUnique.mockResolvedValue({ id: TENANT_ID, slug: TENANT_SLUG, name: 'Demo Church' });
+
+      const result = (await service.login(undefined, {
+        email: 'pastor@church.rw',
+        password: 'CorrectPass1',
+      })) as AuthResponseDto;
+
+      expect(result.tenant.slug).toBe(TENANT_SLUG);
+    });
+
+    it('asks the caller to disambiguate when the same email+password matches more than one tenant', async () => {
+      const passwordHash = await bcrypt.hash('CorrectPass1', 12);
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([
+        {
+          id: 'user-1',
+          tenantId: 'tenant-1',
+          passwordHash,
+          tenant: { id: 'tenant-1', slug: 'church-one', name: 'Church One', isActive: true, deletedAt: null },
+        },
+        {
+          id: 'user-2',
+          tenantId: 'tenant-2',
+          passwordHash,
+          tenant: { id: 'tenant-2', slug: 'church-two', name: 'Church Two', isActive: true, deletedAt: null },
+        },
+      ]);
+
+      const result = (await service.login(undefined, {
+        email: 'shared@example.com',
+        password: 'CorrectPass1',
+      })) as WorkspaceSelectionResponseDto;
+
+      expect(result.requiresWorkspaceSelection).toBe(true);
+      expect(result.workspaces).toEqual([
+        { slug: 'church-one', name: 'Church One' },
+        { slug: 'church-two', name: 'Church Two' },
+      ]);
+    });
+
+    it('skips accounts belonging to an inactive tenant when routing by email', async () => {
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([
+        {
+          id: 'user-1',
+          tenantId: 'tenant-1',
+          passwordHash: 'irrelevant',
+          tenant: { id: 'tenant-1', slug: 'church-one', name: 'Church One', isActive: false, deletedAt: null },
+        },
+      ]);
+
+      await expect(
+        service.login(undefined, { email: 'pastor@church.rw', password: 'whatever1' }),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('switchTenant', () => {
+    it('rejects when the current user cannot be found in the current tenant', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.switchTenant(TENANT_ID, 'user-1', 'other-church')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('rejects when the target workspace slug does not resolve', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', isActive: true, email: 'pastor@church.rw' });
+      mockPrisma.tenant.findFirst.mockResolvedValue(null);
+
+      await expect(service.switchTenant(TENANT_ID, 'user-1', 'nonexistent')).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects when this person has no account in the target workspace', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', isActive: true, email: 'pastor@church.rw' });
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: 'tenant-2', slug: 'other-church', isActive: true, deletedAt: null });
+      mockPrisma.user.findUnique.mockResolvedValue(null); // no matching email in the target tenant
+
+      await expect(service.switchTenant(TENANT_ID, 'user-1', 'other-church')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('issues a fresh session for the target tenant without requiring a password', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', isActive: true, email: 'pastor@church.rw' });
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: 'tenant-2', slug: 'other-church', isActive: true, deletedAt: null });
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({
+          id: 'user-2',
+          email: 'pastor@church.rw',
+          isActive: true,
+          deletedAt: null,
+          userRoles: [],
+        })
+        .mockResolvedValueOnce({ id: 'user-2', firstName: 'Pastor', lastName: 'John' });
+      mockPrisma.tenant.findUnique.mockResolvedValue({ id: 'tenant-2', slug: 'other-church', name: 'Other Church' });
+
+      const result = await service.switchTenant(TENANT_ID, 'user-1', 'other-church');
+
+      expect(result.tenant.slug).toBe('other-church');
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ action: 'auth.switch_tenant' }) }),
+      );
+    });
+  });
+
+  describe('listMyWorkspaces', () => {
+    it('returns every active tenant this email has an active account in', async () => {
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([
+        { tenant: { slug: 'church-one', name: 'Church One', isActive: true, deletedAt: null } },
+        { tenant: { slug: 'church-two', name: 'Church Two', isActive: true, deletedAt: null } },
+        { tenant: { slug: 'inactive-church', name: 'Inactive', isActive: false, deletedAt: null } },
+      ]);
+
+      const result = await service.listMyWorkspaces('pastor@church.rw');
+
+      expect(result).toEqual([
+        { slug: 'church-one', name: 'Church One' },
+        { slug: 'church-two', name: 'Church Two' },
+      ]);
     });
   });
 
@@ -225,11 +404,16 @@ describe('AuthService', () => {
       userRoles: [],
     });
 
+    beforeEach(() => {
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: TENANT_ID, slug: TENANT_SLUG, isActive: true, deletedAt: null });
+      mockPrisma.tenant.findUnique.mockResolvedValue({ id: TENANT_ID, slug: TENANT_SLUG, name: 'Demo Church' });
+    });
+
     it('throws MFA_REQUIRED when no code is provided', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(await mfaUser());
 
       await expect(
-        service.login(TENANT_ID, { email: 'pastor@church.rw', password: 'CorrectPass1' }),
+        service.login(TENANT_SLUG, { email: 'pastor@church.rw', password: 'CorrectPass1' }),
       ).rejects.toMatchObject({ response: { code: 'MFA_REQUIRED' } });
     });
 
@@ -238,7 +422,7 @@ describe('AuthService', () => {
       mockMfa.verifyToken.mockReturnValue(false);
 
       await expect(
-        service.login(TENANT_ID, { email: 'pastor@church.rw', password: 'CorrectPass1', mfaCode: '000000' }),
+        service.login(TENANT_SLUG, { email: 'pastor@church.rw', password: 'CorrectPass1', mfaCode: '000000' }),
       ).rejects.toMatchObject({ response: { code: 'MFA_INVALID' } });
     });
 
@@ -248,11 +432,11 @@ describe('AuthService', () => {
         .mockResolvedValueOnce({ id: 'user-1', firstName: 'Pastor', lastName: 'John' });
       mockMfa.verifyToken.mockReturnValue(true);
 
-      const result = await service.login(TENANT_ID, {
+      const result = (await service.login(TENANT_SLUG, {
         email: 'pastor@church.rw',
         password: 'CorrectPass1',
         mfaCode: '123456',
-      });
+      })) as AuthResponseDto;
 
       expect(result.tokens.accessToken).toBe('signed.jwt.token');
     });
@@ -304,6 +488,111 @@ describe('AuthService', () => {
           data: { mfaEnabled: false, mfaSecret: null },
         }),
       );
+    });
+  });
+
+  describe('forgotPassword', () => {
+    it('creates a reset token and dispatches an email for every active account matching the email, across tenants', async () => {
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([
+        {
+          id: 'user-1',
+          tenantId: 'tenant-1',
+          email: 'pastor@church.rw',
+          tenant: { id: 'tenant-1', name: 'Demo Church', isActive: true, deletedAt: null },
+        },
+      ]);
+      mockPrisma.passwordResetToken.create.mockResolvedValue({});
+      mockNotifications.create.mockResolvedValue({});
+
+      await service.forgotPassword('Pastor@Church.rw');
+
+      expect(mockPrisma.unscoped.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ email: 'pastor@church.rw' }) }),
+      );
+      expect(mockPrisma.passwordResetToken.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ tenantId: 'tenant-1', userId: 'user-1' }) }),
+      );
+      expect(mockNotifications.create).toHaveBeenCalledWith(
+        'tenant-1',
+        undefined,
+        expect.objectContaining({ channel: 'email', recipient: 'pastor@church.rw' }),
+      );
+    });
+
+    it('silently does nothing when no account matches — never reveals whether the email exists', async () => {
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([]);
+
+      await expect(service.forgotPassword('nobody@church.rw')).resolves.not.toThrow();
+
+      expect(mockPrisma.passwordResetToken.create).not.toHaveBeenCalled();
+      expect(mockNotifications.create).not.toHaveBeenCalled();
+    });
+
+    it('skips accounts belonging to an inactive tenant', async () => {
+      mockPrisma.unscoped.user.findMany.mockResolvedValue([
+        {
+          id: 'user-1',
+          tenantId: 'tenant-1',
+          email: 'pastor@church.rw',
+          tenant: { id: 'tenant-1', name: 'Demo Church', isActive: false, deletedAt: null },
+        },
+      ]);
+
+      await service.forgotPassword('pastor@church.rw');
+
+      expect(mockPrisma.passwordResetToken.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resetPassword', () => {
+    it('rejects an unknown, already-used, or expired token', async () => {
+      mockPrisma.unscoped.passwordResetToken.findUnique.mockResolvedValue(null);
+      await expect(service.resetPassword('bad-token', 'NewPass123')).rejects.toThrow(BadRequestException);
+
+      mockPrisma.unscoped.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'prt-1',
+        tenantId: TENANT_ID,
+        userId: 'user-1',
+        usedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await expect(service.resetPassword('used-token', 'NewPass123')).rejects.toThrow(BadRequestException);
+
+      mockPrisma.unscoped.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'prt-2',
+        tenantId: TENANT_ID,
+        userId: 'user-1',
+        usedAt: null,
+        expiresAt: new Date(Date.now() - 60_000),
+      });
+      await expect(service.resetPassword('expired-token', 'NewPass123')).rejects.toThrow(BadRequestException);
+    });
+
+    it('updates the password, marks the token used, and revokes every refresh token for that user', async () => {
+      mockPrisma.unscoped.passwordResetToken.findUnique.mockResolvedValue({
+        id: 'prt-1',
+        tenantId: TENANT_ID,
+        userId: 'user-1',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      mockPrisma.user.update.mockResolvedValue({});
+      mockPrisma.passwordResetToken.update.mockResolvedValue({});
+      mockPrisma.refreshToken.updateMany.mockResolvedValue({ count: 2 });
+
+      await service.resetPassword('good-token', 'NewPass123');
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'user-1', tenantId: TENANT_ID } }),
+      );
+      expect(mockPrisma.passwordResetToken.update).toHaveBeenCalledWith({
+        where: { id: 'prt-1', tenantId: TENANT_ID },
+        data: { usedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', tenantId: TENANT_ID, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
     });
   });
 });

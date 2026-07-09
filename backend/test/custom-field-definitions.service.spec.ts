@@ -27,10 +27,33 @@ describe('CustomFieldDefinitionsService', () => {
   });
 
   describe('create', () => {
-    it('rejects a "select" field with no options', async () => {
+    it.each(['select', 'radio', 'multiselect'])('rejects a "%s" field with no options', async (fieldType) => {
       await expect(
-        service.create(TENANT_ID, { entityType: 'member', fieldKey: 'gift', label: 'Gift', fieldType: 'select' } as any),
+        service.create(TENANT_ID, { entityType: 'member', fieldKey: 'gift', label: 'Gift', fieldType } as any),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a "lookup" field with no lookupEntityType', async () => {
+      await expect(
+        service.create(TENANT_ID, { entityType: 'member', fieldKey: 'emergency_contact', label: 'Emergency Contact', fieldType: 'lookup' } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('creates a lookup field when lookupEntityType is provided', async () => {
+      mockPrisma.customFieldDefinition.findUnique.mockResolvedValue(null);
+      mockPrisma.customFieldDefinition.create.mockResolvedValue({ id: 'cf-2' });
+
+      await service.create(TENANT_ID, {
+        entityType: 'member',
+        fieldKey: 'emergency_contact',
+        label: 'Emergency Contact',
+        fieldType: 'lookup',
+        lookupEntityType: 'member',
+      } as any);
+
+      expect(mockPrisma.customFieldDefinition.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ lookupEntityType: 'member' }) }),
+      );
     });
 
     it('rejects a duplicate (entityType, fieldKey) pair within the tenant', async () => {
