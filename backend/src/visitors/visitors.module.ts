@@ -1,10 +1,15 @@
 import { Module } from '@nestjs/common';
 import { VisitorsService } from './visitors.service';
 import { VisitorsController } from './visitors.controller';
+import { VisitorGroupsService } from './visitor-groups.service';
+import { VisitorGroupsController } from './visitor-groups.controller';
+import { VisitorActivitiesService } from './visitor-activities.service';
+import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
 
 @Module({
-  controllers: [VisitorsController],
-  providers: [VisitorsService],
-  exports: [VisitorsService],
+  imports: [CustomFieldsModule],
+  controllers: [VisitorsController, VisitorGroupsController],
+  providers: [VisitorsService, VisitorGroupsService, VisitorActivitiesService],
+  exports: [VisitorsService, VisitorGroupsService, VisitorActivitiesService],
 })
 export class VisitorsModule {}

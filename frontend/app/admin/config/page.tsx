@@ -22,7 +22,8 @@ const NAMESPACES = [
   { value: 'asset_category', label: 'Asset Categories' },
   { value: 'asset_condition', label: 'Asset Conditions' },
   { value: 'visitor_source', label: 'Visitor Sources' },
-  { value: 'follow_up_method', label: 'Follow-up Methods' },
+  { value: 'visitor_group_type', label: 'Visitor Group Types' },
+  { value: 'visitor_activity_type', label: 'Visitor Activity Types' },
   { value: 'document_category', label: 'Document Categories' },
 ];
 

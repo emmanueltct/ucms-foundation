@@ -57,8 +57,8 @@ prisma/
                                 Family, Contribution, AttendanceRecord, Ministry,
                                 MinistryMembership, Notification, CustomFieldDefinition,
                                 CustomFieldValue, Event, EventRegistration, Staff,
-                                PayrollPayment, Asset, Visitor, VisitorFollowUp, Document,
-                                SmallGroup, SmallGroupMembership, ...
+                                PayrollPayment, Asset, VisitorGroup, Visitor, VisitorActivity,
+                                Document, SmallGroup, SmallGroupMembership, ...
 
 backend/                       NestJS API
   src/
@@ -124,11 +124,15 @@ backend/                       NestJS API
                                 its own field set with zero new tables, including a new `file`
                                 fieldType for document uploads (proof of purchase, insurance,
                                 ...) routed through the Storage module
-    visitors/                  Visitors tracked from first contact through an append-only
-                                follow-up log (VisitorFollowUp) to (optionally) becoming a
-                                Member — `status` is a plain lifecycle field except "joined",
-                                which only ever happens via the dedicated `convert` action
-                                that links `convertedMemberId`
+    visitors/                  Individual Visitors and VisitorGroups (families, delegations,
+                                choir/youth visits, conference parties, mission teams), each
+                                tracked through an append-only, tenant-configurable
+                                VisitorActivity log (visitor_activity:{type} composed Custom
+                                Fields, the same asset:{category} trick Assets uses) to,
+                                for individuals, (optionally) becoming a Member — `status` is
+                                a plain lifecycle field except "joined", which only ever
+                                happens via the dedicated `convert` action that links
+                                `convertedMemberId`
     documents/                 Documents (policies, minutes, forms, certificates, ...) —
                                 unlike Assets' `file`-type custom fields, a Document *is* the
                                 record, so metadata + file upload happen together in one
@@ -152,8 +156,8 @@ backend/                       NestJS API
                                 types, membership categories, contribution types, service
                                 types, attendance methods, ministry types, event types,
                                 staff positions, departments, asset categories, asset
-                                conditions, visitor sources, follow-up methods, document
-                                categories, small group types, example asset:vehicle/
+                                conditions, visitor sources, visitor group types, visitor
+                                activity types, document categories, small group types, example asset:vehicle/
                                 asset:building custom fields (including two file-upload
                                 fields), two example member custom fields, and a
                                 headquarters branch
@@ -194,9 +198,11 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   create form (custom fields render dynamically per selected
                                   category) + master-detail list with in-place status changes
                                   and per-field document upload/download
-  app/admin/visitors/page.tsx     Church Admin UI for visitors — master-detail layout
-                                  (visitor list, selected visitor's follow-up timeline) with
-                                  in-place status changes and a convert-to-member action
+  app/admin/visitors/page.tsx     Church Admin UI for visitors — an Individuals/Groups tab
+                                  switch over the same master-detail layout, activity type
+                                  (not just "follow-up") selection rendering per-type custom
+                                  fields dynamically, in-place status changes, and a
+                                  convert-to-member action for individuals
   app/admin/documents/page.tsx    Church Admin UI for documents — upload (title/category/
                                   branch + file in one form), category/search filtering,
                                   download, and in-place file replacement
@@ -513,7 +519,7 @@ npm run test:e2e             # requires a migrated + seeded test database
     `Member.transfer` (rule #8) and `Family.setHead`, applied to a
     cross-module conversion instead of a same-module field.
 27. **An append-only interaction log doesn't need — and shouldn't offer —
-    an edit or delete path.** `VisitorFollowUp` rows are never updated or
+    an edit or delete path.** `VisitorActivity` rows are never updated or
     removed once logged, the same "history doesn't get rewritten" shape
     `AuditLog` already has; a correction is a new entry, not a mutation of
     an old one. Not every child record needs `PATCH`/`DELETE` just because
@@ -587,6 +593,19 @@ npm run test:e2e             # requires a migrated + seeded test database
     at the end, which is safe only because that endpoint was already
     idempotent (design decision #7). See
     `docs/church-hierarchy/business-analysis.md`.
+33. **A cross-cutting invariant that Prisma can't express in the schema
+    belongs in the service layer, named and tested explicitly.** A
+    `VisitorActivity` must target exactly one of an individual `Visitor` or
+    a whole `VisitorGroup` — Postgres has no portable single-`CHECK` for
+    "exactly one of these two nullable columns is set" that Prisma's schema
+    DSL can express, so `VisitorActivitiesService.assertExactlyOneTarget`
+    enforces it in code, the same place `assertBranchExists`-style
+    cross-record invariants already live throughout this codebase.
+    `activityType` composes into Custom Fields exactly the way Assets'
+    `assetCategory` does (`visitor_activity:{activityType}`, mirroring
+    `asset:{assetCategory}`) — a Baptism Class activity and a Prayer
+    activity can require completely different extra fields with zero code
+    changes. See `docs/visitor-management/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -613,6 +632,15 @@ npm run test:e2e             # requires a migrated + seeded test database
   levels and build out several branches interactively before finishing,
   instead of only creating a single headquarters branch. See design
   decision #32 and `docs/church-hierarchy/business-analysis.md`.
+- **Visitor groups + configurable visitor activities**: a new `VisitorGroup`
+  model tracks families/delegations/choir visits/mission teams (individual
+  `Visitor`s can optionally belong to one), and the old fixed-shape
+  `VisitorFollowUp` is replaced by `VisitorActivity` — a tenant-defined
+  `activityType` (First Visit, Counseling, Prayer, Baptism Class, Marriage
+  Class, Deliverance, Bible Study, Outreach, Conference, or a custom type)
+  with its own Custom Fields per type, loggable against either an
+  individual or a whole group. See design decision #33 and
+  `docs/visitor-management/business-analysis.md`.
 
 ## Next module
 
@@ -622,21 +650,16 @@ above covers a large chunk of the "everything must be configurable" +
 security requirements named in the platform's expanded requirements list.
 Still in progress from that same list, in priority order:
 
-1. **Visitor groups + configurable visitor activities** — extending
-   `Visitor` to represent a group/delegation, not just an individual, and
-   replacing `VisitorFollowUp`'s fixed shape with tenant-defined activity
-   types (own Custom Fields per type, the same `entityType` composition
-   trick Assets already uses).
-2. **A generalized Member Activities module** with a per-member activity
+1. **A generalized Member Activities module** with a per-member activity
    history report aggregating ministries, small groups, events, attendance,
    and the new activities module into one timeline.
-3. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
+2. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
    Reports & Analytics and per-module list views.
-4. **File management polish** — multi-file upload, image/video/audio
+3. **File management polish** — multi-file upload, image/video/audio
    previews, and a lightweight version history on Document Management.
    (Virus scanning is out of scope — it needs a 3rd-party service this
    environment has no credentials for.)
-5. **Session/device management + login history**, building on the
+4. **Session/device management + login history**, building on the
    `RefreshToken` records already tracked per device.
 
 Whichever is picked up should still follow the established patterns: tenant

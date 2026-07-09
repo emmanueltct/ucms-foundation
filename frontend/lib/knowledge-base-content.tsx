@@ -110,7 +110,7 @@ export const knowledgeBaseModules: KnowledgeBaseModule[] = [
       'A ConfigItem has a namespace, a key, and a display label, scoped to one tenant',
       'Items can be deactivated ("retired") and reactivated without ever being deleted',
       'Every other module reads its dropdown options from here at request time — adding an item requires zero code changes',
-      '15 namespaces exist today: branch_type, membership_category, contribution_type, service_type, attendance_method, ministry_type, small_group_type, event_type, staff_position, department, asset_category, asset_condition, visitor_source, follow_up_method, document_category',
+      '16 namespaces exist today: branch_type, membership_category, contribution_type, service_type, attendance_method, ministry_type, small_group_type, event_type, staff_position, department, asset_category, asset_condition, visitor_source, visitor_group_type, visitor_activity_type, document_category',
     ],
     scenarios: [
       {
@@ -642,22 +642,32 @@ export const knowledgeBaseModules: KnowledgeBaseModule[] = [
     icon: UserPlus,
     path: '/admin/visitors',
     summary:
-      'Tracks a first-time visitor from initial contact through a history of logged follow-up interactions to (optionally) becoming a Member. Converting to a member is a dedicated action that links the two records, rather than a plain status edit.',
+      'Tracks both individual visitors and whole visiting groups (families, delegations, choir/youth visits, conference parties, mission teams) from initial contact through a history of tenant-configurable activities (First Visit, Counseling, Prayer, Follow-up, Baptism Class, ...) to, for individuals, (optionally) becoming a Member. Converting to a member is a dedicated action that links the two records, rather than a plain status edit.',
     requirements: [
       'A visitor starts with status "new"; status can be changed freely except directly to "joined"',
       'Converting to a member requires an existing member record and links convertedMemberId',
       'A member can only be linked to one visitor record',
-      'Follow-up interactions (call, SMS, email, visit) are logged as an append-only history — never edited or deleted',
+      'An individual visitor may optionally belong to a VisitorGroup (family, delegation, choir visit, ...)',
+      'Activities (First Visit, Counseling, Prayer, Follow-up, Baptism Class, Marriage Class, ...) are tenant-defined via Configuration → Visitor Activity Types, each with its own optional Custom Fields, and are logged as an append-only history against either an individual visitor or a whole group — never edited or deleted',
     ],
     scenarios: [
       {
-        title: 'Record a visitor and log a follow-up',
+        title: 'Record a visitor and log an activity',
         steps: [
-          'Go to Visitors.',
-          'Fill in First/Last name and a Visit date, optionally How they heard and Assign follow-up to.',
+          'Go to Visitors → Individuals.',
+          'Fill in First/Last name and a Visit date, optionally How they heard, a Group, and Assign follow-up to.',
           'Click "Record visitor".',
-          'Select the visitor, choose a follow-up Method (e.g. "Phone Call"), optionally add an outcome note, click "Log follow-up".',
-          'Expected: the follow-up appears in the visitor’s history, most recent first.',
+          'Select the visitor, choose an Activity type (e.g. "Follow-up"), optionally fill in its custom fields, an outcome/notes, click "Log activity".',
+          'Expected: the activity appears in the visitor’s history, most recent first.',
+        ],
+      },
+      {
+        title: 'Record a visiting group and its members',
+        steps: [
+          'Go to Visitors → Groups, fill in a name, Group type, and Visit date, click "Record group".',
+          'Go to Individuals, record each member of the group, selecting it from "Arrived with group".',
+          'Back on Groups, select the group.',
+          'Expected: every linked individual appears under "Members", and activities can be logged against the group as a whole (e.g. "hosted the choir for evening service") separately from any per-member activity.',
         ],
       },
       {

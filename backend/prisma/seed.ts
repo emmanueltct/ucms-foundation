@@ -104,12 +104,16 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'asset.delete', module: 'asset', description: 'Soft-delete an asset' },
 
   { code: 'visitor.create', module: 'visitor', description: 'Record a first-time visitor' },
-  { code: 'visitor.read', module: 'visitor', description: 'View visitors and their follow-up history' },
+  { code: 'visitor.read', module: 'visitor', description: 'View visitors and their activity history' },
   { code: 'visitor.update', module: 'visitor', description: 'Edit a visitor and change their follow-up status' },
   { code: 'visitor.delete', module: 'visitor', description: 'Soft-delete a visitor' },
   { code: 'visitor.convert', module: 'visitor', description: 'Link a visitor to a member and mark them joined' },
-  { code: 'visitor.followup.create', module: 'visitor', description: 'Log a follow-up interaction with a visitor' },
-  { code: 'visitor.followup.read', module: 'visitor', description: "View a visitor's follow-up history" },
+  { code: 'visitor.activity.create', module: 'visitor', description: 'Log an activity (visit, class, prayer, follow-up, ...) against a visitor or visitor group' },
+  { code: 'visitor.activity.read', module: 'visitor', description: "View a visitor's or visitor group's activity history" },
+  { code: 'visitor_group.create', module: 'visitor', description: 'Record a visiting group (family, delegation, choir visit, mission team, ...)' },
+  { code: 'visitor_group.read', module: 'visitor', description: 'View visitor groups and their members' },
+  { code: 'visitor_group.update', module: 'visitor', description: 'Edit a visitor group' },
+  { code: 'visitor_group.delete', module: 'visitor', description: 'Soft-delete a visitor group' },
 
   { code: 'document.create', module: 'document', description: 'Upload a document' },
   { code: 'document.read', module: 'document', description: 'View and download documents' },
@@ -372,18 +376,43 @@ async function main() {
     });
   }
 
-  console.log('Seeding example configuration items (follow-up methods)...');
-  const followUpMethods = [
-    { key: 'call', label: 'Phone Call' },
-    { key: 'sms', label: 'SMS' },
-    { key: 'email', label: 'Email' },
-    { key: 'visit', label: 'In-Person Visit' },
-    { key: 'other', label: 'Other' },
+  console.log('Seeding example configuration items (visitor group types)...');
+  const visitorGroupTypes = [
+    { key: 'family', label: 'Family' },
+    { key: 'delegation', label: 'Delegation' },
+    { key: 'choir_visit', label: 'Choir Visit' },
+    { key: 'youth_visit', label: 'Youth Group Visit' },
+    { key: 'ministry_visit', label: 'Ministry Visit' },
+    { key: 'conference_visitors', label: 'Conference Visitors' },
+    { key: 'mission_team', label: 'Mission Team' },
   ];
-  for (const [i, m] of followUpMethods.entries()) {
+  for (const [i, g] of visitorGroupTypes.entries()) {
     await prisma.configItem.upsert({
-      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'follow_up_method', key: m.key } },
-      create: { tenantId: tenant.id, namespace: 'follow_up_method', key: m.key, label: m.label, value: {}, sortOrder: i },
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'visitor_group_type', key: g.key } },
+      create: { tenantId: tenant.id, namespace: 'visitor_group_type', key: g.key, label: g.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (visitor activity types)...');
+  const visitorActivityTypes = [
+    { key: 'first_visit', label: 'First Visit' },
+    { key: 'follow_up', label: 'Follow-up' },
+    { key: 'counseling', label: 'Counseling' },
+    { key: 'prayer', label: 'Prayer' },
+    { key: 'evangelism', label: 'Evangelism' },
+    { key: 'home_visit', label: 'Home Visit' },
+    { key: 'baptism_class', label: 'Baptism Class' },
+    { key: 'marriage_class', label: 'Marriage Class' },
+    { key: 'deliverance', label: 'Deliverance' },
+    { key: 'bible_study', label: 'Bible Study' },
+    { key: 'outreach', label: 'Outreach' },
+    { key: 'conference', label: 'Conference' },
+  ];
+  for (const [i, a] of visitorActivityTypes.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'visitor_activity_type', key: a.key } },
+      create: { tenantId: tenant.id, namespace: 'visitor_activity_type', key: a.key, label: a.label, value: {}, sortOrder: i },
       update: {},
     });
   }

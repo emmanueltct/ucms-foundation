@@ -908,6 +908,7 @@ export const usersApi = {
 export interface Visitor {
   id: string;
   branchId: string | null;
+  visitorGroupId: string | null;
   firstName: string;
   lastName: string;
   phone: string | null;
@@ -923,20 +924,41 @@ export interface Visitor {
   isActive: boolean;
 }
 
-export interface VisitorFollowUp {
+export interface VisitorGroup {
   id: string;
-  visitorId: string;
-  method: string;
-  followUpDate: string;
+  branchId: string | null;
+  name: string;
+  groupType: string;
+  visitDate: string;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  expectedSize: number | null;
+  source: string | null;
+  assignedToUserId: string | null;
+  status: 'new' | 'contacted' | 'scheduled_visit' | 'no_response' | 'closed';
+  notes: string | null;
+  isActive: boolean;
+}
+
+export interface VisitorActivity {
+  id: string;
+  visitorId: string | null;
+  visitorGroupId: string | null;
+  activityType: string;
+  activityDate: string;
   outcome: string | null;
+  notes: string | null;
   performedByUserId: string | null;
   createdAt: string;
+  customFields: Record<string, unknown>;
 }
 
 export interface CreateVisitorInput {
   firstName: string;
   lastName: string;
   branchId?: string;
+  visitorGroupId?: string;
   phone?: string;
   email?: string;
   address?: string;
@@ -947,10 +969,36 @@ export interface CreateVisitorInput {
   notes?: string;
 }
 
+export interface CreateVisitorGroupInput {
+  name: string;
+  groupType: string;
+  branchId?: string;
+  visitDate: string;
+  contactName?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  expectedSize?: number;
+  source?: string;
+  assignedToUserId?: string;
+  notes?: string;
+}
+
+export interface CreateVisitorActivityInput {
+  activityType: string;
+  activityDate?: string;
+  outcome?: string;
+  notes?: string;
+  customFields?: Record<string, unknown>;
+}
+
 export const visitorsApi = {
-  list: (tenantSlug: string, params: { branchId?: string; status?: string; assignedToUserId?: string; search?: string } = {}) => {
+  list: (
+    tenantSlug: string,
+    params: { branchId?: string; visitorGroupId?: string; status?: string; assignedToUserId?: string; search?: string } = {},
+  ) => {
     const qs = new URLSearchParams();
     if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.visitorGroupId) qs.set('visitorGroupId', params.visitorGroupId);
     if (params.status) qs.set('status', params.status);
     if (params.assignedToUserId) qs.set('assignedToUserId', params.assignedToUserId);
     if (params.search) qs.set('search', params.search);
@@ -966,10 +1014,35 @@ export const visitorsApi = {
     apiRequest<Visitor>(`/visitors/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
   convert: (tenantSlug: string, id: string, memberId: string) =>
     apiRequest<Visitor>(`/visitors/${id}/convert`, { method: 'PATCH', tenantSlug, auth: true, body: { memberId } }),
-  addFollowUp: (tenantSlug: string, visitorId: string, followUp: { method: string; followUpDate?: string; outcome?: string }) =>
-    apiRequest<VisitorFollowUp>(`/visitors/${visitorId}/follow-ups`, { method: 'POST', tenantSlug, auth: true, body: followUp }),
-  listFollowUps: (tenantSlug: string, visitorId: string) =>
-    apiRequest<VisitorFollowUp[]>(`/visitors/${visitorId}/follow-ups`, { tenantSlug, auth: true }),
+  addActivity: (tenantSlug: string, visitorId: string, activity: CreateVisitorActivityInput) =>
+    apiRequest<VisitorActivity>(`/visitors/${visitorId}/activities`, { method: 'POST', tenantSlug, auth: true, body: activity }),
+  listActivities: (tenantSlug: string, visitorId: string) =>
+    apiRequest<VisitorActivity[]>(`/visitors/${visitorId}/activities`, { tenantSlug, auth: true }),
+};
+
+export const visitorGroupsApi = {
+  list: (tenantSlug: string, params: { branchId?: string; groupType?: string; status?: string; search?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.groupType) qs.set('groupType', params.groupType);
+    if (params.status) qs.set('status', params.status);
+    if (params.search) qs.set('search', params.search);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<VisitorGroup[]>(`/visitor-groups?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, group: CreateVisitorGroupInput) =>
+    apiRequest<VisitorGroup>('/visitor-groups', { method: 'POST', tenantSlug, auth: true, body: group }),
+  update: (tenantSlug: string, id: string, body: Partial<CreateVisitorGroupInput> & { status?: string }) =>
+    apiRequest<VisitorGroup>(`/visitor-groups/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<VisitorGroup>(`/visitor-groups/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  listMembers: (tenantSlug: string, id: string) =>
+    apiRequest<Visitor[]>(`/visitor-groups/${id}/members`, { tenantSlug, auth: true }),
+  addActivity: (tenantSlug: string, groupId: string, activity: CreateVisitorActivityInput) =>
+    apiRequest<VisitorActivity>(`/visitor-groups/${groupId}/activities`, { method: 'POST', tenantSlug, auth: true, body: activity }),
+  listActivities: (tenantSlug: string, groupId: string) =>
+    apiRequest<VisitorActivity[]>(`/visitor-groups/${groupId}/activities`, { tenantSlug, auth: true }),
 };
 
 export interface ChurchDocument {

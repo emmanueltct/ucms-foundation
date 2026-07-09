@@ -7,13 +7,12 @@ describe('VisitorsService', () => {
   let service: VisitorsService;
 
   const TENANT_ID = 'tenant-1';
-  const USER_ID = 'user-1';
 
   const mockPrisma = {
     visitor: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn(), update: jest.fn() },
     branch: { findFirst: jest.fn() },
     member: { findFirst: jest.fn() },
-    visitorFollowUp: { create: jest.fn(), findMany: jest.fn() },
+    visitorGroup: { findFirst: jest.fn() },
   };
 
   beforeEach(async () => {
@@ -50,6 +49,25 @@ describe('VisitorsService', () => {
 
       expect(mockPrisma.visitor.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ tenantId: TENANT_ID, firstName: 'Alice' }) }),
+      );
+    });
+
+    it('rejects when visitorGroupId does not resolve within the tenant', async () => {
+      mockPrisma.visitorGroup.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.create(TENANT_ID, { ...baseDto, visitorGroupId: 'group-1' } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('links the visitor to a valid visitorGroupId', async () => {
+      mockPrisma.visitorGroup.findFirst.mockResolvedValue({ id: 'group-1' });
+      mockPrisma.visitor.create.mockResolvedValue({ id: 'visitor-1' });
+
+      await service.create(TENANT_ID, { ...baseDto, visitorGroupId: 'group-1' } as any);
+
+      expect(mockPrisma.visitor.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ visitorGroupId: 'group-1' }) }),
       );
     });
   });
@@ -115,50 +133,4 @@ describe('VisitorsService', () => {
     });
   });
 
-  describe('addFollowUp', () => {
-    it('rejects when the visitor does not exist', async () => {
-      mockPrisma.visitor.findFirst.mockResolvedValue(null);
-
-      await expect(
-        service.addFollowUp(TENANT_ID, 'visitor-1', USER_ID, { method: 'call' } as any),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('creates a follow-up with the acting user as performedByUserId', async () => {
-      mockPrisma.visitor.findFirst.mockResolvedValue({ id: 'visitor-1' });
-      mockPrisma.visitorFollowUp.create.mockResolvedValue({ id: 'followup-1' });
-
-      await service.addFollowUp(TENANT_ID, 'visitor-1', USER_ID, { method: 'call', outcome: 'Left a voicemail.' } as any);
-
-      expect(mockPrisma.visitorFollowUp.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          tenantId: TENANT_ID,
-          visitorId: 'visitor-1',
-          method: 'call',
-          outcome: 'Left a voicemail.',
-          performedByUserId: USER_ID,
-        }),
-      });
-    });
-  });
-
-  describe('listFollowUps', () => {
-    it('rejects when the visitor does not exist', async () => {
-      mockPrisma.visitor.findFirst.mockResolvedValue(null);
-
-      await expect(service.listFollowUps(TENANT_ID, 'visitor-1')).rejects.toThrow(NotFoundException);
-    });
-
-    it('returns follow-ups most recent first', async () => {
-      mockPrisma.visitor.findFirst.mockResolvedValue({ id: 'visitor-1' });
-      mockPrisma.visitorFollowUp.findMany.mockResolvedValue([{ id: 'followup-2' }, { id: 'followup-1' }]);
-
-      const result = await service.listFollowUps(TENANT_ID, 'visitor-1');
-
-      expect(result).toEqual([{ id: 'followup-2' }, { id: 'followup-1' }]);
-      expect(mockPrisma.visitorFollowUp.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ orderBy: { followUpDate: 'desc' } }),
-      );
-    });
-  });
 });

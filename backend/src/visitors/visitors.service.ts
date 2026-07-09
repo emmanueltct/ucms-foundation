@@ -1,10 +1,9 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Visitor, VisitorFollowUp, Prisma } from '@prisma/client';
+import { Visitor, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { UpdateVisitorDto } from './dto/update-visitor.dto';
 import { VisitorQueryDto } from './dto/visitor-query.dto';
-import { CreateFollowUpDto } from './dto/create-follow-up.dto';
 
 /**
  * Visitors — see docs/visitor-management/business-analysis.md. `status` is a
@@ -12,6 +11,8 @@ import { CreateFollowUpDto } from './dto/create-follow-up.dto';
  * which only ever happens through `convertToMember` since it also links
  * `convertedMemberId` — the same "a field with real side effects gets its
  * own dedicated action" reasoning `Member.transfer`/`Family.setHead` use.
+ * Activity logging (First Visit, Counseling, Follow-up, ...) lives in
+ * `VisitorActivitiesService`, shared with `VisitorGroupsService`.
  */
 @Injectable()
 export class VisitorsService {
@@ -24,11 +25,15 @@ export class VisitorsService {
     if (dto.invitedByMemberId) {
       await this.assertMemberExists(tenantId, dto.invitedByMemberId);
     }
+    if (dto.visitorGroupId) {
+      await this.assertVisitorGroupExists(tenantId, dto.visitorGroupId);
+    }
 
     return this.prisma.visitor.create({
       data: {
         tenantId,
         branchId: dto.branchId,
+        visitorGroupId: dto.visitorGroupId,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phone: dto.phone,
@@ -78,11 +83,15 @@ export class VisitorsService {
     if (dto.invitedByMemberId) {
       await this.assertMemberExists(tenantId, dto.invitedByMemberId);
     }
+    if (dto.visitorGroupId) {
+      await this.assertVisitorGroupExists(tenantId, dto.visitorGroupId);
+    }
 
     return this.prisma.visitor.update({
       where: { id },
       data: {
         branchId: dto.branchId,
+        visitorGroupId: dto.visitorGroupId,
         firstName: dto.firstName,
         lastName: dto.lastName,
         phone: dto.phone,
@@ -127,28 +136,6 @@ export class VisitorsService {
     });
   }
 
-  async addFollowUp(tenantId: string, visitorId: string, performedByUserId: string | undefined, dto: CreateFollowUpDto): Promise<VisitorFollowUp> {
-    await this.findOneRaw(tenantId, visitorId);
-    return this.prisma.visitorFollowUp.create({
-      data: {
-        tenantId,
-        visitorId,
-        method: dto.method,
-        followUpDate: dto.followUpDate ? new Date(dto.followUpDate) : undefined,
-        outcome: dto.outcome,
-        performedByUserId,
-      },
-    });
-  }
-
-  async listFollowUps(tenantId: string, visitorId: string): Promise<VisitorFollowUp[]> {
-    await this.findOneRaw(tenantId, visitorId);
-    return this.prisma.visitorFollowUp.findMany({
-      where: { tenantId, visitorId },
-      orderBy: { followUpDate: 'desc' },
-    });
-  }
-
   private async findOneRaw(tenantId: string, id: string): Promise<Visitor> {
     const visitor = await this.prisma.visitor.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!visitor) throw new NotFoundException({ code: 'VISITOR_NOT_FOUND', message: 'Visitor not found.' });
@@ -183,5 +170,10 @@ export class VisitorsService {
   private async assertMemberExists(tenantId: string, memberId: string): Promise<void> {
     const member = await this.prisma.member.findFirst({ where: { id: memberId, tenantId, deletedAt: null } });
     if (!member) throw new NotFoundException({ code: 'MEMBER_NOT_FOUND', message: 'Member not found.' });
+  }
+
+  private async assertVisitorGroupExists(tenantId: string, visitorGroupId: string): Promise<void> {
+    const group = await this.prisma.visitorGroup.findFirst({ where: { id: visitorGroupId, tenantId, deletedAt: null } });
+    if (!group) throw new NotFoundException({ code: 'VISITOR_GROUP_NOT_FOUND', message: 'Visitor group not found.' });
   }
 }

@@ -58,7 +58,7 @@ const MODULES = [
   { title: 'Reports & Analytics', href: '/admin/reports', icon: BarChart3, description: 'Trends across giving, attendance, membership, and payroll.' },
   { title: 'Branches', href: '/admin/branches', icon: Building2, description: 'Manage the organizational hierarchy.' },
   { title: 'Members', href: '/admin/members', icon: Users, description: 'Member profiles, families, custom fields.' },
-  { title: 'Visitors', href: '/admin/visitors', icon: UserPlus, description: 'Track first-time visitors through follow-up to joining.' },
+  { title: 'Visitors', href: '/admin/visitors', icon: UserPlus, description: 'Individuals and groups, from first contact to joining.' },
   { title: 'Finance', href: '/admin/finance', icon: Wallet, description: 'Record and review contributions.' },
   { title: 'Attendance', href: '/admin/attendance', icon: CalendarCheck, description: 'Check-ins and head-counts.' },
   { title: 'Ministries', href: '/admin/ministries', icon: HeartHandshake, description: 'Ministries and volunteer rosters.' },

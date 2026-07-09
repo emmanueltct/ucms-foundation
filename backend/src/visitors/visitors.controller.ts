@@ -1,10 +1,11 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { VisitorsService } from './visitors.service';
+import { VisitorActivitiesService } from './visitor-activities.service';
 import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { UpdateVisitorDto } from './dto/update-visitor.dto';
 import { VisitorQueryDto } from './dto/visitor-query.dto';
-import { CreateFollowUpDto } from './dto/create-follow-up.dto';
+import { CreateVisitorActivityDto } from './dto/create-visitor-activity.dto';
 import { ConvertVisitorDto } from './dto/convert-visitor.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -17,7 +18,10 @@ import { AuthenticatedUser } from '../common/interfaces/request-context.interfac
 @ApiSecurity('tenant-slug')
 @Controller('visitors')
 export class VisitorsController {
-  constructor(private readonly visitorsService: VisitorsService) {}
+  constructor(
+    private readonly visitorsService: VisitorsService,
+    private readonly visitorActivitiesService: VisitorActivitiesService,
+  ) {}
 
   @ApiOperation({ summary: 'Record a first-time visitor' })
   @Permissions('visitor.create')
@@ -62,22 +66,24 @@ export class VisitorsController {
     return ok(await this.visitorsService.convertToMember(tenantId, id, dto.memberId));
   }
 
-  @ApiOperation({ summary: 'Log a follow-up interaction (call, message, visit) with this visitor' })
-  @Permissions('visitor.followup.create')
-  @Post(':id/follow-ups')
-  async addFollowUp(
+  @ApiOperation({ summary: 'Log a configurable activity (First Visit, Counseling, Prayer, Follow-up, ...) against this visitor' })
+  @Permissions('visitor.activity.create')
+  @Post(':id/activities')
+  async addActivity(
     @CurrentTenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
-    @Body() dto: CreateFollowUpDto,
+    @Body() dto: CreateVisitorActivityDto,
   ) {
-    return ok(await this.visitorsService.addFollowUp(tenantId, id, user?.userId, dto));
+    await this.visitorActivitiesService.assertVisitorExists(tenantId, id);
+    return ok(await this.visitorActivitiesService.addActivity(tenantId, { visitorId: id }, user?.userId, dto));
   }
 
-  @ApiOperation({ summary: "List a visitor's follow-up history, most recent first" })
-  @Permissions('visitor.followup.read')
-  @Get(':id/follow-ups')
-  async listFollowUps(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
-    return ok(await this.visitorsService.listFollowUps(tenantId, id));
+  @ApiOperation({ summary: "List a visitor's activity history, most recent first" })
+  @Permissions('visitor.activity.read')
+  @Get(':id/activities')
+  async listActivities(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    await this.visitorActivitiesService.assertVisitorExists(tenantId, id);
+    return ok(await this.visitorActivitiesService.listActivities(tenantId, { visitorId: id }));
   }
 }

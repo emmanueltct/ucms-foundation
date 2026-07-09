@@ -15,6 +15,11 @@ export class CreateVisitorDto {
   @IsUUID()
   branchId?: string;
 
+  @ApiPropertyOptional({ description: 'The delegation/family/group this visitor arrived with, if any' })
+  @IsOptional()
+  @IsUUID()
+  visitorGroupId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

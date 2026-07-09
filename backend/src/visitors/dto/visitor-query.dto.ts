@@ -10,6 +10,11 @@ export class VisitorQueryDto extends PaginationQueryDto {
   @IsUUID()
   branchId?: string;
 
+  @ApiPropertyOptional({ description: 'Filter to visitors belonging to this group' })
+  @IsOptional()
+  @IsUUID()
+  visitorGroupId?: string;
+
   @ApiPropertyOptional({ enum: VISITOR_STATUSES })
   @IsOptional()
   @IsIn(VISITOR_STATUSES)
