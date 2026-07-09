@@ -48,28 +48,44 @@ The actor most relevant here:
   concern, so `backend/src/common/constants/file-upload.constants.ts` is the one place that
   answer lives — Documents extends the list slightly (adding spreadsheet and plain-text types,
   since "documents" covers more ground than Assets' narrower "proof of purchase" use case).
-- **Replacing a file leaves the old object in the bucket.** The same reasoning Asset &
-  Facility Management already established (rule #25's neighbor in its own business analysis):
-  a storage lifecycle/cleanup policy is an operational concern, not something this module's
-  API needs to implement.
+- **Replacing a file leaves the old object in the bucket — and now that history is
+  first-class, not just an unreachable orphan.** `replaceFile` snapshots the file being
+  superseded into a `DocumentVersion` row *before* overwriting `Document`'s own fields, so the
+  "leave it in the bucket" behavior any storage system needs (rule #25's neighbor) doubles as
+  version history with no separate bookkeeping step a caller could forget. `DocumentVersion` is
+  append-only — no update or delete — the same "history isn't rewritten" shape
+  `VisitorActivity`/`MemberActivity` already use.
+- **A batch upload is many single uploads sharing metadata, not a new kind of record.**
+  `POST /documents/batch` creates one ordinary `Document` per file (each gets its own id,
+  storage key, and row) rather than introducing a "document group" concept — the same
+  `category`/`description`/`branchId` just gets reused across every file in the request, and an
+  optional `titlePrefix` becomes each document's title prefix (falling back to the filename
+  alone). This keeps every other endpoint (list, download, replace, versions) working
+  identically whether a document arrived alone or as part of a batch.
+- **Image/video/audio preview reuses the same signed-URL download, not a separate preview
+  endpoint.** `GET /documents/:id/download` already returns a time-limited URL; the frontend
+  decides whether `contentType` warrants an inline `<img>`/`<video>`/`<audio>` element or a
+  plain download link. The MIME allowlist (see below) was extended specifically so these
+  content types could reach the platform at all.
 - **Soft delete, always** (rule #4) — a document carries no money or audit-trail obligation
   beyond "who uploaded it," which `uploadedByUserId` already answers.
 
 ## 4. Out of Scope for This Module
 
-- **Version history / rollback to a previous file.** `PATCH /documents/:id/file` replaces the
-  current file's reference; there's no list of prior versions to restore. If version history
-  becomes a real requirement, it's a genuinely different data shape (a `DocumentVersion` child
-  table) worth its own pass, not a speculative addition now.
 - **Per-document access control (only certain roles can see a specific document).** Every
   document in a tenant is visible to anyone with `document.read`, the same uniform-permission
   shape every other module in this platform uses (no row-level ACL anywhere else either).
   Sensitive documents needing a narrower audience is a real future need, but there's no
   existing row-level permission primitive in this platform to build it on yet.
-- **In-browser preview / rendering of the document** — `GET /documents/:id/download` returns
-  a signed URL the same way Asset & Facility Management's document download does; what the
-  frontend does with that URL (open it, embed it, force a download) is a UI concern, not
-  something this module's API needs to distinguish.
 - **Full-text search inside document contents** — `search` matches `title`/`description` only,
   not what's actually written inside a PDF. OCR/content indexing is a substantial feature on
   its own, not a natural extension of a metadata store.
+- **Virus/malware scanning on upload** — the shared MIME allowlist and 25MB size cap
+  (`backend/src/common/constants/file-upload.constants.ts`) are the only upload-time checks;
+  scanning content for malware needs a 3rd-party service this environment has no credentials
+  for, and remains a documented gap consistent with the rest of the platform's file handling.
+- **Restoring a previous version as the current file** — a version can be downloaded, but
+  "make this old version the current one again" isn't wired up; today that means downloading
+  the old version and re-uploading it via `replaceFile`, which itself creates a fresh version
+  from whatever was current. A dedicated "restore" action is a small, real addition if this
+  turns out to matter in practice, not included in this pass.

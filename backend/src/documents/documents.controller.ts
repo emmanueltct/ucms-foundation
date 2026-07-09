@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { CreateDocumentBatchDto } from './dto/create-document-batch.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { DocumentQueryDto } from './dto/document-query.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
@@ -12,6 +13,8 @@ import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { MAX_DOCUMENT_SIZE_BYTES } from '../common/constants/file-upload.constants';
+
+const MAX_BATCH_FILES = 20;
 
 @ApiTags('documents')
 @ApiBearerAuth()
@@ -32,6 +35,20 @@ export class DocumentsController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return ok(await this.documentsService.create(tenantId, user?.userId, dto, file));
+  }
+
+  @ApiOperation({ summary: 'Upload several files at once (drag-and-drop), each becoming its own document sharing category/description/branch' })
+  @ApiConsumes('multipart/form-data')
+  @Permissions('document.create')
+  @Post('batch')
+  @UseInterceptors(FilesInterceptor('files', MAX_BATCH_FILES, { storage: memoryStorage(), limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }))
+  async createBatch(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateDocumentBatchDto,
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
+    return ok(await this.documentsService.createBatch(tenantId, user?.userId, dto, files));
   }
 
   @ApiOperation({ summary: 'List documents (paginated, filterable by branch/category/search)' })
@@ -56,13 +73,18 @@ export class DocumentsController {
     return ok(await this.documentsService.update(tenantId, id, dto));
   }
 
-  @ApiOperation({ summary: 'Replace the stored file behind an existing document record' })
+  @ApiOperation({ summary: 'Replace the stored file behind an existing document record (the previous file becomes a version, see /versions)' })
   @ApiConsumes('multipart/form-data')
   @Permissions('document.update')
   @Patch(':id/file')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }))
-  async replaceFile(@CurrentTenantId() tenantId: string, @Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
-    return ok(await this.documentsService.replaceFile(tenantId, id, file));
+  async replaceFile(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return ok(await this.documentsService.replaceFile(tenantId, id, user?.userId, file));
   }
 
   @ApiOperation({ summary: 'Soft-delete a document' })
@@ -77,5 +99,19 @@ export class DocumentsController {
   @Get(':id/download')
   async download(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
     return ok(await this.documentsService.getDownloadUrl(tenantId, id));
+  }
+
+  @ApiOperation({ summary: "List a document's superseded file versions, most recent first" })
+  @Permissions('document.read')
+  @Get(':id/versions')
+  async listVersions(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.documentsService.listVersions(tenantId, id));
+  }
+
+  @ApiOperation({ summary: 'Get a time-limited download URL for a previous version of this document' })
+  @Permissions('document.read')
+  @Get(':id/versions/:versionId/download')
+  async downloadVersion(@CurrentTenantId() tenantId: string, @Param('id') id: string, @Param('versionId') versionId: string) {
+    return ok(await this.documentsService.getVersionDownloadUrl(tenantId, id, versionId));
   }
 }

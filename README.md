@@ -61,7 +61,8 @@ prisma/
                                 MinistryMembership, Notification, CustomFieldDefinition,
                                 CustomFieldValue, Event, EventRegistration, Staff,
                                 PayrollPayment, Asset, VisitorGroup, Visitor, VisitorActivity,
-                                Document, SmallGroup, SmallGroupMembership, MemberActivity, ...
+                                Document, DocumentVersion, SmallGroup, SmallGroupMembership,
+                                MemberActivity, ...
 
 backend/                       NestJS API
   src/
@@ -153,8 +154,12 @@ backend/                       NestJS API
                                 record, so metadata + file upload happen together in one
                                 POST call; a document's id is pre-generated (`randomUUID`) so
                                 the storage key can be namespaced by it without a second
-                                round trip. Shares its MIME allowlist/size cap with Assets via
-                                `common/constants/file-upload.constants.ts`.
+                                round trip. Shares its MIME allowlist/size cap (now including
+                                image/video/audio, 25MB) with Assets via
+                                `common/constants/file-upload.constants.ts`. POST
+                                /documents/batch uploads several files at once; replaceFile
+                                snapshots the superseded file into a DocumentVersion first,
+                                giving an append-only version history for free
     small-groups/              Home groups, cell groups, Bible studies, and age-graded
                                 Sunday School classes — structurally mirrors Ministry &
                                 Volunteer Management (flat, role-based rosters) but is a
@@ -225,9 +230,10 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   fields dynamically, in-place status changes, a
                                   convert-to-member action for individuals, and a CSV/XLSX/PDF
                                   export of the current filtered Individuals list
-  app/admin/documents/page.tsx    Church Admin UI for documents — upload (title/category/
-                                  branch + file in one form), category/search filtering,
-                                  download, and in-place file replacement
+  app/admin/documents/page.tsx    Church Admin UI for documents — single or multi-file
+                                  upload, category/search filtering, download, in-place file
+                                  replacement, an expand-in-place inline preview for images/
+                                  video/audio, and a per-document version history list
   app/admin/small-groups/page.tsx Church Admin UI for small groups and Sunday School
                                   classes — schedule/location/capacity/age-range in the
                                   create form, master-detail roster management with a
@@ -653,6 +659,16 @@ npm run test:e2e             # requires a migrated + seeded test database
     (`GET /members/export`, `GET /visitors/export`), each capped at 5000
     rows since an export is a one-shot download, not a paginated UI. See
     `docs/reports/business-analysis.md`.
+36. **Version history is a byproduct of the action that needs it, not a
+    parallel bookkeeping step.** `DocumentsService.replaceFile` snapshots the
+    file it's about to overwrite into a `DocumentVersion` row in the same
+    method that performs the replacement — there's no separate "remember to
+    version this" call a future change could forget to make. The same shared
+    MIME allowlist that gates Document uploads was extended to cover image/
+    video/audio (not just office documents) so those types could reach the
+    platform at all and be previewed inline; `POST /documents/batch` is
+    many ordinary `POST /documents` calls sharing metadata, not a new kind of
+    record. See `docs/document-management/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -701,6 +717,12 @@ npm run test:e2e             # requires a migrated + seeded test database
   per-module list views (`GET /members/export`, `GET /visitors/export`). No new query path —
   every export re-serializes what its JSON counterpart already computed. See design decision
   #35 and `docs/reports/business-analysis.md`.
+- **File management polish**: `POST /documents/batch` for multi-file upload, the shared MIME
+  allowlist extended to image/video/audio (25MB cap, up from 10MB) so Document Management can
+  preview them inline, and a `DocumentVersion` model giving an append-only version history
+  every time a file is replaced. (Virus scanning remains out of scope — it needs a 3rd-party
+  service this environment has no credentials for.) See design decision #36 and
+  `docs/document-management/business-analysis.md`.
 
 ## Next module
 
@@ -708,13 +730,9 @@ Modules 0-14 (Foundation through Member Activities & Personal History) plus
 the cross-cutting Custom Fields mechanism are complete, and the hardening
 pass above covers a large chunk of the "everything must be configurable" +
 security requirements named in the platform's expanded requirements list.
-Still in progress from that same list, in priority order:
+Still in progress from that same list:
 
-1. **File management polish** — multi-file upload, image/video/audio
-   previews, and a lightweight version history on Document Management.
-   (Virus scanning is out of scope — it needs a 3rd-party service this
-   environment has no credentials for.)
-2. **Session/device management + login history**, building on the
+1. **Session/device management + login history**, building on the
    `RefreshToken` records already tracked per device.
 
 Whichever is picked up should still follow the established patterns: tenant

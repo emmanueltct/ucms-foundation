@@ -1175,6 +1175,16 @@ export interface ChurchDocument {
   createdAt: string;
 }
 
+export interface DocumentVersion {
+  id: string;
+  documentId: string;
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+  replacedByUserId: string | null;
+  createdAt: string;
+}
+
 export const documentsApi = {
   list: (tenantSlug: string, params: { branchId?: string; category?: string; search?: string } = {}) => {
     const qs = new URLSearchParams();
@@ -1194,6 +1204,16 @@ export const documentsApi = {
     form.append('file', doc.file);
     return multipartRequest<ChurchDocument>('/documents', { tenantSlug, form });
   },
+  /** Uploads several files at once, each becoming its own document sharing category/description/branch. */
+  createBatch: (tenantSlug: string, batch: { category: string; titlePrefix?: string; description?: string; branchId?: string; files: File[] }) => {
+    const form = new FormData();
+    form.append('category', batch.category);
+    if (batch.titlePrefix) form.append('titlePrefix', batch.titlePrefix);
+    if (batch.description) form.append('description', batch.description);
+    if (batch.branchId) form.append('branchId', batch.branchId);
+    batch.files.forEach((file) => form.append('files', file));
+    return multipartRequest<ChurchDocument[]>('/documents/batch', { tenantSlug, form });
+  },
   update: (tenantSlug: string, id: string, body: { title?: string; category?: string; description?: string; branchId?: string }) =>
     apiRequest<ChurchDocument>(`/documents/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   replaceFile: (tenantSlug: string, id: string, file: File) => {
@@ -1205,6 +1225,10 @@ export const documentsApi = {
     apiRequest<ChurchDocument>(`/documents/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
   getDownloadUrl: (tenantSlug: string, id: string) =>
     apiRequest<{ url: string; filename: string }>(`/documents/${id}/download`, { tenantSlug, auth: true }),
+  listVersions: (tenantSlug: string, id: string) =>
+    apiRequest<DocumentVersion[]>(`/documents/${id}/versions`, { tenantSlug, auth: true }),
+  getVersionDownloadUrl: (tenantSlug: string, id: string, versionId: string) =>
+    apiRequest<{ url: string; filename: string }>(`/documents/${id}/versions/${versionId}/download`, { tenantSlug, auth: true }),
 };
 
 export interface SmallGroup {

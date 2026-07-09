@@ -60,6 +60,7 @@ model Tenant {
   visitorActivities      VisitorActivity[]
   memberActivities       MemberActivity[]
   documents              Document[]
+  documentVersions       DocumentVersion[]
   smallGroups            SmallGroup[]
   smallGroupMemberships  SmallGroupMembership[]
 
@@ -103,6 +104,7 @@ model User {
   performedVisitorActivities VisitorActivity[] @relation("VisitorActivityPerformedBy")
   performedMemberActivities MemberActivity[] @relation("MemberActivityPerformedBy")
   uploadedDocuments       Document[]       @relation("DocumentUploadedBy")
+  replacedDocumentVersions DocumentVersion[] @relation("DocumentVersionReplacedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -990,10 +992,37 @@ model Document {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
+  versions DocumentVersion[]
+
   @@index([tenantId])
   @@index([tenantId, branchId])
   @@index([tenantId, category])
   @@map("documents")
+}
+
+/// A snapshot of a Document's file that a later `replaceFile` superseded —
+/// taken *before* overwriting, so it captures what the file used to be, not
+/// what it became. Append-only (no update/delete), the same "history isn't
+/// rewritten" shape VisitorActivity/MemberActivity use, and the previous
+/// object is never deleted from storage — see
+/// docs/document-management/business-analysis.md.
+model DocumentVersion {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  documentId        String   @map("document_id")
+  document          Document @relation(fields: [documentId], references: [id])
+  fileKey           String   @map("file_key")
+  fileName          String   @map("file_name")
+  fileSize          Int      @map("file_size")
+  contentType       String   @map("content_type")
+  replacedByUserId  String?  @map("replaced_by_user_id")
+  replacedByUser    User?    @relation("DocumentVersionReplacedBy", fields: [replacedByUserId], references: [id])
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([tenantId, documentId])
+  @@map("document_versions")
 }
 
 // ----------------------------------------------------------------------------

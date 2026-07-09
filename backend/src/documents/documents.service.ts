@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Document, Prisma } from '@prisma/client';
+import { Document, DocumentVersion, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
+import { CreateDocumentBatchDto } from './dto/create-document-batch.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { DocumentQueryDto } from './dto/document-query.dto';
 import { ALLOWED_DOCUMENT_MIME_TYPES, MAX_DOCUMENT_SIZE_BYTES } from '../common/constants/file-upload.constants';
@@ -17,6 +18,9 @@ export type UploadedFile = { buffer: Buffer; originalname: string; mimetype: str
  * in one `POST /documents` call. The document's id is generated
  * client-side (`randomUUID`) before the row exists so the storage key can
  * be namespaced by it without a separate create-then-update round trip.
+ * `replaceFile` now snapshots the file it's about to overwrite into a
+ * `DocumentVersion` first, giving an append-only history of every file a
+ * Document has ever pointed at.
  */
 @Injectable()
 export class DocumentsService {
@@ -50,6 +54,47 @@ export class DocumentsService {
         uploadedByUserId,
       },
     });
+  }
+
+  /** One Document per file, sharing category/description/branchId — drag-and-drop, multiple-uploads-at-once. */
+  async createBatch(
+    tenantId: string,
+    uploadedByUserId: string | undefined,
+    dto: CreateDocumentBatchDto,
+    files: UploadedFile[] | undefined,
+  ): Promise<Document[]> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException({ code: 'DOCUMENT_FILE_REQUIRED', message: 'At least one file is required.' });
+    }
+    files.forEach((file) => this.assertValidFile(file));
+    if (dto.branchId) {
+      await this.assertBranchExists(tenantId, dto.branchId);
+    }
+
+    const created: Document[] = [];
+    for (const file of files) {
+      const id = randomUUID();
+      const fileKey = this.buildKey(tenantId, id, file.originalname);
+      await this.storageService.uploadObject(fileKey, file.buffer, file.mimetype);
+      created.push(
+        await this.prisma.document.create({
+          data: {
+            id,
+            tenantId,
+            branchId: dto.branchId,
+            title: dto.titlePrefix ? `${dto.titlePrefix} — ${file.originalname}` : file.originalname,
+            description: dto.description,
+            category: dto.category,
+            fileKey,
+            fileName: file.originalname,
+            fileSize: file.size,
+            contentType: file.mimetype,
+            uploadedByUserId,
+          },
+        }),
+      );
+    }
+    return created;
   }
 
   async findAll(tenantId: string, query: DocumentQueryDto) {
@@ -89,10 +134,27 @@ export class DocumentsService {
     });
   }
 
-  /** Replaces the stored file behind an existing Document — the previous object is left in the bucket, not deleted (see business analysis). */
-  async replaceFile(tenantId: string, id: string, file: UploadedFile | undefined): Promise<Document> {
+  /**
+   * Replaces the stored file behind an existing Document. The file being
+   * superseded is snapshotted into a `DocumentVersion` first (and left in
+   * the bucket, never deleted), so version history is a byproduct of this
+   * one method rather than a parallel bookkeeping step callers could forget.
+   */
+  async replaceFile(tenantId: string, id: string, replacedByUserId: string | undefined, file: UploadedFile | undefined): Promise<Document> {
     this.assertValidFile(file);
     const existing = await this.findOneRaw(tenantId, id);
+
+    await this.prisma.documentVersion.create({
+      data: {
+        tenantId,
+        documentId: existing.id,
+        fileKey: existing.fileKey,
+        fileName: existing.fileName,
+        fileSize: existing.fileSize,
+        contentType: existing.contentType,
+        replacedByUserId,
+      },
+    });
 
     const fileKey = this.buildKey(tenantId, existing.id, file!.originalname);
     await this.storageService.uploadObject(fileKey, file!.buffer, file!.mimetype);
@@ -114,6 +176,22 @@ export class DocumentsService {
     return { url, filename: document.fileName };
   }
 
+  async listVersions(tenantId: string, documentId: string): Promise<DocumentVersion[]> {
+    await this.findOneRaw(tenantId, documentId);
+    return this.prisma.documentVersion.findMany({
+      where: { tenantId, documentId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getVersionDownloadUrl(tenantId: string, documentId: string, versionId: string): Promise<{ url: string; filename: string }> {
+    await this.findOneRaw(tenantId, documentId);
+    const version = await this.prisma.documentVersion.findFirst({ where: { id: versionId, tenantId, documentId } });
+    if (!version) throw new NotFoundException({ code: 'DOCUMENT_VERSION_NOT_FOUND', message: 'Document version not found.' });
+    const url = await this.storageService.getSignedDownloadUrl(version.fileKey);
+    return { url, filename: version.fileName };
+  }
+
   private assertValidFile(file: UploadedFile | undefined): void {
     if (!file) {
       throw new BadRequestException({ code: 'DOCUMENT_FILE_REQUIRED', message: 'A file is required.' });
@@ -121,11 +199,11 @@ export class DocumentsService {
     if (!ALLOWED_DOCUMENT_MIME_TYPES.has(file.mimetype)) {
       throw new BadRequestException({
         code: 'DOCUMENT_TYPE_UNSUPPORTED',
-        message: 'Only PDF, JPEG, PNG, DOC, DOCX, XLS, XLSX, or plain text files are accepted.',
+        message: 'Only PDF, JPEG, PNG, GIF, WEBP, DOC, DOCX, XLS, XLSX, plain text, MP4/WEBM/QuickTime video, or MP3/WAV/OGG audio files are accepted.',
       });
     }
     if (file.size > MAX_DOCUMENT_SIZE_BYTES) {
-      throw new BadRequestException({ code: 'DOCUMENT_TOO_LARGE', message: 'Files must be 10MB or smaller.' });
+      throw new BadRequestException({ code: 'DOCUMENT_TOO_LARGE', message: 'Files must be 25MB or smaller.' });
     }
   }
 

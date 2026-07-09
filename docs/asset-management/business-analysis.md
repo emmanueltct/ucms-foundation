@@ -54,9 +54,11 @@ The actor most relevant here:
   the upload, validates `fieldKey` names an active `file`-type field for this asset's
   category, stores the object, and writes the resulting reference as that custom field's
   value — one call, not an upload-then-patch two-step.
-- **Only PDF, JPEG, PNG, DOC, and DOCX are accepted**, capped at 10MB — reasonable formats
-  for "proof of purchase," "insurance certificate," or "title deed," without accepting
-  arbitrary file types.
+- **Only the shared document/image/video/audio allowlist is accepted**, capped at 25MB —
+  reasonable formats for "proof of purchase," "insurance certificate," or "title deed" (and,
+  since the allowlist is shared with Document Management, whatever an `image`/`video`/`audio`
+  custom field on an asset needs too), without accepting arbitrary file types. See
+  `backend/src/common/constants/file-upload.constants.ts`.
 - **Downloading a document never returns the file directly** — `GET
   /assets/:id/documents/:fieldKey/download` returns a time-limited signed URL (via the
   Storage module's existing `getSignedDownloadUrl`), the same pattern already used for tenant

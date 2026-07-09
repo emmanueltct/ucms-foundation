@@ -36,10 +36,11 @@
 - FR-AST-4.2 `fieldKey` must name an active `file`-type `CustomFieldDefinition` for this
   asset's `asset:{assetCategory}` entityType, or the request is rejected with
   `400 ASSET_DOCUMENT_FIELD_INVALID`.
-- FR-AST-4.3 Only `application/pdf`, `image/jpeg`, `image/png`, `application/msword`, and
-  `application/vnd.openxmlformats-officedocument.wordprocessingml.document` are accepted,
-  rejected otherwise with `400 ASSET_DOCUMENT_TYPE_UNSUPPORTED`. Files over 10MB are rejected
-  by the upload interceptor before reaching the handler.
+- FR-AST-4.3 Only the shared document allowlist (PDF, JPEG, PNG, GIF, WEBP, DOC, DOCX, XLS,
+  XLSX, plain text, MP4/WEBM/QuickTime video, MP3/WAV/OGG audio — see
+  `backend/src/common/constants/file-upload.constants.ts`) is accepted, rejected otherwise with
+  `400 ASSET_DOCUMENT_TYPE_UNSUPPORTED`. Files over 25MB are rejected by the upload interceptor
+  before reaching the handler.
 - FR-AST-4.4 On success, the file is stored at
   `tenants/{tenantId}/assets/{assetId}/{fieldKey}/{timestamp}-{originalFilename}` and the
   custom field's value is set to `{ key, filename, size, contentType }` in one call — no
