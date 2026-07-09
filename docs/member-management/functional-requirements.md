@@ -22,6 +22,10 @@
 - FR-MM-1.8 `DELETE /members/:id` soft-deletes the member (`deletedAt` + `isActive=false`); if
   the member was a family's `headOfFamilyId`, that reference is cleared in the same operation
   (FR-MM-3.3).
+- FR-MM-1.9 `GET /members/export` accepts the same filters as FR-MM-1.6 (uncapped, up to 5000
+  rows) plus `format` (`csv` | `xlsx` | `pdf`, default `csv`), and returns a downloadable file
+  rather than the standard JSON envelope — see `docs/reports/functional-requirements.md`
+  FR-RPT-6.3 for the shared export mechanism.
 
 ## FR-MM-2 Transferring a Member
 

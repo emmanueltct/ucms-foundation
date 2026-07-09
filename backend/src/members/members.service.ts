@@ -73,7 +73,34 @@ export class MembersService {
   }
 
   async findAll(tenantId: string, query: MemberQueryDto) {
-    const where = {
+    const where = this.buildWhere(tenantId, query);
+
+    const [items, total] = await Promise.all([
+      this.prisma.member.findMany({
+        where,
+        skip: query.skip,
+        take: query.take,
+        orderBy: query.sortBy ? { [query.sortBy]: query.sortDir } : [{ lastName: 'asc' }, { firstName: 'asc' }],
+      }),
+      this.prisma.member.count({ where }),
+    ]);
+
+    return { items: await this.withCustomFields(tenantId, items), total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
+  }
+
+  /** Same filters as `findAll`, uncapped (up to 5000 rows) — backs the CSV/XLSX/PDF export endpoint. */
+  async findAllForExport(tenantId: string, query: MemberQueryDto): Promise<MemberWithCustomFields[]> {
+    const where = this.buildWhere(tenantId, query);
+    const items = await this.prisma.member.findMany({
+      where,
+      take: 5000,
+      orderBy: query.sortBy ? { [query.sortBy]: query.sortDir } : [{ lastName: 'asc' }, { firstName: 'asc' }],
+    });
+    return this.withCustomFields(tenantId, items);
+  }
+
+  private buildWhere(tenantId: string, query: MemberQueryDto) {
+    return {
       tenantId,
       deletedAt: null,
       ...(query.branchId ? { branchId: query.branchId } : {}),
@@ -91,28 +118,15 @@ export class MembersService {
           }
         : {}),
     };
+  }
 
-    const [items, total] = await Promise.all([
-      this.prisma.member.findMany({
-        where,
-        skip: query.skip,
-        take: query.take,
-        orderBy: query.sortBy ? { [query.sortBy]: query.sortDir } : [{ lastName: 'asc' }, { firstName: 'asc' }],
-      }),
-      this.prisma.member.count({ where }),
-    ]);
-
+  private async withCustomFields(tenantId: string, items: Member[]): Promise<MemberWithCustomFields[]> {
     const customFieldsByMemberId = await this.customFieldsService.getValuesForMany(
       tenantId,
       CUSTOM_FIELD_ENTITY_TYPE,
       items.map((m) => m.id),
     );
-    const itemsWithCustomFields: MemberWithCustomFields[] = items.map((m) => ({
-      ...m,
-      customFields: customFieldsByMemberId[m.id] ?? {},
-    }));
-
-    return { items: itemsWithCustomFields, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
+    return items.map((m) => ({ ...m, customFields: customFieldsByMemberId[m.id] ?? {} }));
   }
 
   async findOne(tenantId: string, id: string): Promise<MemberWithCustomFields> {

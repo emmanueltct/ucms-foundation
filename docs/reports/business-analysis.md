@@ -57,14 +57,22 @@ The actor most relevant here:
   A raw "new members per month" chart alone can't answer "how big is the church now" without
   the reader doing mental arithmetic; `cumulativeActive` on each month's bucket answers both
   questions from one series.
+- **An export re-serializes an existing summary — it never re-queries.** Each of the four
+  summary endpoints has a `.../export` sibling that calls the exact same service method as its
+  JSON counterpart and hands the resulting buckets to `common/exports/export.util.ts` for
+  CSV/XLSX/PDF serialization. This is the one place this module's "no new Prisma models" rule
+  meets a genuinely new dependency: CSV is written by hand, but XLSX (`exceljs`) and PDF
+  (`pdfkit`) would be a much larger undertaking to hand-roll than either library is worth
+  pulling in. See design decision #35 in the root [README.md](../../README.md).
 
 ## 4. Out of Scope for This Module
 
-- **Saved/scheduled reports, exports (PDF/CSV), or emailed report digests** — every endpoint
-  here computes its result live, on request. Persisting a "saved report definition" or wiring
-  a scheduled export through the Communication module (Module 6) is a real, contained future
-  feature, but nothing in the current brief calls for it yet, and adding it now would be
-  building for a hypothetical requirement rather than an actual one.
+- **Saved/scheduled reports or emailed report digests** — every endpoint here computes its
+  result live, on request (including exports, added in this pass — see the business rule
+  above). Persisting a "saved report definition" or wiring a scheduled export through the
+  Communication module (Module 6) is a real, contained future feature, but nothing in the
+  current brief calls for it yet, and adding it now would be building for a hypothetical
+  requirement rather than an actual one.
 - **Cross-tenant / platform-wide analytics** (e.g. "average attendance across all tenants") —
   every query here is scoped to one tenant, same as every other module. A platform-operator
   rollup is a different actor and a different data-access boundary, not a natural extension of

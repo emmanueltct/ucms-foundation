@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { VisitorsService } from './visitors.service';
 import { VisitorActivitiesService } from './visitor-activities.service';
@@ -12,6 +13,17 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
+import { ExportFormat, sendExportFile } from '../common/exports/export.util';
+
+const VISITOR_EXPORT_COLUMNS = [
+  { key: 'firstName', header: 'First Name' },
+  { key: 'lastName', header: 'Last Name' },
+  { key: 'phone', header: 'Phone' },
+  { key: 'email', header: 'Email' },
+  { key: 'visitDate', header: 'Visit Date' },
+  { key: 'source', header: 'Source' },
+  { key: 'status', header: 'Status' },
+];
 
 @ApiTags('visitors')
 @ApiBearerAuth()
@@ -36,6 +48,18 @@ export class VisitorsController {
   async findAll(@CurrentTenantId() tenantId: string, @Query() query: VisitorQueryDto) {
     const { items, total, page, pageSize, totalPages } = await this.visitorsService.findAll(tenantId, query);
     return ok(items, { total, page, pageSize, totalPages });
+  }
+
+  @ApiOperation({ summary: 'Download the visitor list (same filters as the list endpoint) as CSV/XLSX/PDF (?format=), up to 5000 rows' })
+  @Permissions('visitor.read')
+  @Get('export')
+  async exportVisitors(
+    @CurrentTenantId() tenantId: string,
+    @Query() query: VisitorQueryDto & { format?: ExportFormat },
+    @Res() res: Response,
+  ) {
+    const items = await this.visitorsService.findAllForExport(tenantId, query);
+    await sendExportFile(res, query.format ?? 'csv', 'visitors', [{ title: 'Visitors', columns: VISITOR_EXPORT_COLUMNS, rows: items }], 'Visitors');
   }
 
   @ApiOperation({ summary: 'Get one visitor' })

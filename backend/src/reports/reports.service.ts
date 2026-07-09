@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberActivitiesService } from '../members/member-activities.service';
 import { ReportQueryDto } from './dto/report-query.dto';
+import { ExportTable } from '../common/exports/export.util';
 
 export interface TimelineEntry {
   kind: 'ministry' | 'small_group' | 'event' | 'attendance' | 'contribution' | 'activity';
@@ -11,12 +12,14 @@ export interface TimelineEntry {
 }
 
 export interface MonthBucket {
+  [key: string]: unknown;
   month: string;
   total: number;
   count: number;
 }
 
 export interface KeyBucket {
+  [key: string]: unknown;
   key: string;
   total: number;
   count: number;
@@ -261,6 +264,75 @@ export class ReportsService {
       },
       activities,
       timeline,
+    };
+  }
+
+  /**
+   * Turns a summary method's already-computed buckets into the tabular
+   * shape `export.util.ts` writes to CSV/XLSX/PDF — no new query, no new
+   * Prisma model, just a different serialization of the same data the
+   * dashboard charts already render. See docs/reports/business-analysis.md.
+   */
+  async exportFinanceSummary(tenantId: string, query: ReportQueryDto): Promise<ExportTable[]> {
+    const { byMonth, byType } = await this.financeSummary(tenantId, query);
+    return [
+      this.monthBucketsToTable(byMonth, 'Giving by month'),
+      this.keyBucketsToTable(byType, 'Giving by contribution type', 'Contribution Type'),
+    ];
+  }
+
+  async exportAttendanceTrends(tenantId: string, query: ReportQueryDto): Promise<ExportTable[]> {
+    const { byMonth, byServiceType } = await this.attendanceTrends(tenantId, query);
+    return [
+      this.monthBucketsToTable(byMonth, 'Attendance by month'),
+      this.keyBucketsToTable(byServiceType, 'Attendance by service type', 'Service Type'),
+    ];
+  }
+
+  async exportMembershipGrowth(tenantId: string, query: ReportQueryDto): Promise<ExportTable[]> {
+    const { newMembersByMonth } = await this.membershipGrowth(tenantId, query);
+    return [
+      {
+        title: 'New members by month',
+        columns: [
+          { key: 'month', header: 'Month' },
+          { key: 'total', header: 'New Members' },
+          { key: 'cumulativeActive', header: 'Cumulative Active' },
+        ],
+        rows: newMembersByMonth,
+      },
+    ];
+  }
+
+  async exportPayrollSummary(tenantId: string, query: ReportQueryDto): Promise<ExportTable[]> {
+    const { byMonth, byDepartment } = await this.payrollSummary(tenantId, query);
+    return [
+      this.monthBucketsToTable(byMonth, 'Payroll by month'),
+      this.keyBucketsToTable(byDepartment, 'Payroll by department', 'Department'),
+    ];
+  }
+
+  private monthBucketsToTable(buckets: MonthBucket[], title: string): ExportTable {
+    return {
+      title,
+      columns: [
+        { key: 'month', header: 'Month' },
+        { key: 'total', header: 'Total' },
+        { key: 'count', header: 'Count' },
+      ],
+      rows: buckets,
+    };
+  }
+
+  private keyBucketsToTable(buckets: KeyBucket[], title: string, keyLabel: string): ExportTable {
+    return {
+      title,
+      columns: [
+        { key: 'key', header: keyLabel },
+        { key: 'total', header: 'Total' },
+        { key: 'count', header: 'Count' },
+      ],
+      rows: buckets,
     };
   }
 

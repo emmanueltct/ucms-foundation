@@ -66,7 +66,9 @@ prisma/
 backend/                       NestJS API
   src/
     common/                    Tenant middleware, guards, decorators, filters,
-                                AsyncLocalStorage tenant-context store
+                                AsyncLocalStorage tenant-context store, exports/export.util.ts
+                                (CSV by hand; XLSX via exceljs; PDF via pdfkit — one shared
+                                helper every export endpoint calls)
     prisma/                    PrismaService + tenant-scoping Client Extension
                                 (auto-scopes/enforces tenantId on every query)
     queue/                     BullMQ/Redis queue wiring; NotificationsProcessor now
@@ -89,7 +91,8 @@ backend/                       NestJS API
                                 branches (cycle-free, so it's a plain move+validate);
                                 MemberActivitiesService logs a tenant-configurable activity
                                 (sacraments, trainings, certificates, leadership appointments,
-                                ...) per member (member_activity:{type} composed Custom Fields)
+                                ...) per member (member_activity:{type} composed Custom Fields);
+                                GET /members/export downloads the list as CSV/XLSX/PDF
     families/                  Family/household grouping — flat (no hierarchy), head
                                 of family, non-cascading deactivate/delete
     finance/                   Contribution recording against a Branch and (optionally) a
@@ -125,7 +128,10 @@ backend/                       NestJS API
                                 month-bucketed trends are zero-filled, guarded by a single
                                 `reports.view` permission. Also serves the per-member
                                 activity-history timeline, merging Ministries/Small Groups/
-                                Events/Attendance/Contributions/MemberActivity into one list
+                                Events/Attendance/Contributions/MemberActivity into one list.
+                                Each summary has a GET .../export sibling (?format=csv|xlsx|pdf)
+                                that re-serializes the same computed buckets, never a separate
+                                export-specific query
     assets/                    Assets (buildings, vehicles, equipment, ...) under a
                                 tenant-configurable category; Custom Fields is reused with a
                                 composed entityType (`asset:{category}`) so each category gets
@@ -140,7 +146,8 @@ backend/                       NestJS API
                                 for individuals, (optionally) becoming a Member — `status` is
                                 a plain lifecycle field except "joined", which only ever
                                 happens via the dedicated `convert` action that links
-                                `convertedMemberId`
+                                `convertedMemberId`; GET /visitors/export downloads the list
+                                as CSV/XLSX/PDF
     documents/                 Documents (policies, minutes, forms, certificates, ...) —
                                 unlike Assets' `file`-type custom fields, a Document *is* the
                                 record, so metadata + file upload happen together in one
@@ -173,8 +180,9 @@ backend/                       NestJS API
                                 tenant scoping, MFA, branches, families, members, member
                                 activities, tenant profile, finance, attendance, ministries,
                                 notifications, custom fields, events, staff, payroll,
-                                reports, assets, visitors, visitor groups, visitor
-                                activities, documents, small groups) + e2e auth flow
+                                reports, report/list exports, assets, visitors, visitor
+                                groups, visitor activities, documents, small groups) + e2e
+                                auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -189,14 +197,16 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   dismissible "verify your email" banner
   app/admin/page.tsx             Dashboard — live counts + jump-off cards into each module
   app/admin/reports/page.tsx     Reports & Analytics dashboard — recharts-based trend charts
-                                  over Finance/Attendance/Membership/Payroll, computed live
+                                  over Finance/Attendance/Membership/Payroll, computed live,
+                                  plus a CSV/XLSX/PDF download row for each of the four summaries
   app/admin/config/page.tsx      Church Admin UI for the Configuration Engine
   app/admin/branches/page.tsx    Church Admin UI for the organizational hierarchy tree
   app/admin/members/page.tsx     Church Admin UI for members — renders this tenant's
                                   custom fields dynamically alongside the fixed ones, plus a
                                   "History" panel per member merging ministries/small groups/
                                   events/attendance/giving/activities into one timeline, with
-                                  a form to log new tenant-configurable activities
+                                  a form to log new tenant-configurable activities, and a
+                                  CSV/XLSX/PDF export of the current filtered list
   app/admin/finance/page.tsx     Church Admin UI for recording/voiding contributions
   app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
   app/admin/ministries/page.tsx  Church Admin UI for ministries and volunteer rosters
@@ -212,8 +222,9 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/visitors/page.tsx     Church Admin UI for visitors — an Individuals/Groups tab
                                   switch over the same master-detail layout, activity type
                                   (not just "follow-up") selection rendering per-type custom
-                                  fields dynamically, in-place status changes, and a
-                                  convert-to-member action for individuals
+                                  fields dynamically, in-place status changes, a
+                                  convert-to-member action for individuals, and a CSV/XLSX/PDF
+                                  export of the current filtered Individuals list
   app/admin/documents/page.tsx    Church Admin UI for documents — upload (title/category/
                                   branch + file in one form), category/search filtering,
                                   download, and in-place file replacement
@@ -313,7 +324,7 @@ same browser tab/session rather than opening admin pages directly by URL in a fr
 
 ```bash
 cd backend
-npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports, assets, visitors, documents, small groups)
+npm test                     # unit tests (auth/MFA, PBAC guard, config, queue, storage, tenant scoping, branches, families, members, member activities, finance, attendance, ministries, notifications, custom fields, events, staff, payroll, reports, report/list exports, assets, visitors, visitor groups, visitor activities, documents, small groups)
 npm run test:e2e             # requires a migrated + seeded test database
 ```
 
@@ -628,6 +639,20 @@ npm run test:e2e             # requires a migrated + seeded test database
     composed-entityType trick (`member_activity:{activityType}`, after
     `asset:{assetCategory}` and `visitor_activity:{activityType}`) — see
     `docs/member-activities/business-analysis.md`.
+35. **An export re-serializes what a summary method already computed — it
+    never re-queries.** `ReportsController.exportFinanceSummary` (and its
+    three siblings) call the exact same `financeSummary`/`attendanceTrends`/
+    `membershipGrowth`/`payrollSummary` methods the dashboard charts use,
+    then hand the resulting buckets to `common/exports/export.util.ts`. A
+    CSV/XLSX/PDF export can never show different numbers than the chart for
+    the same date range, because there's only one query path, not two.
+    CSV is written by hand (a dependency isn't worth it for string-joining
+    and comma-escaping); XLSX uses `exceljs` and PDF uses `pdfkit`, both
+    genuinely saving real effort over hand-rolling either format. The same
+    `sendExportFile` helper backs the two flagship list-view exports
+    (`GET /members/export`, `GET /visitors/export`), each capped at 5000
+    rows since an export is a one-shot download, not a paginated UI. See
+    `docs/reports/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -671,6 +696,11 @@ npm run test:e2e             # requires a migrated + seeded test database
   one sorted timeline — surfaced on the Members page as a "History" panel
   per member. See design decision #34 and
   `docs/member-activities/business-analysis.md`.
+- **Report exports**: `GET .../export` siblings on all four Reports & Analytics summaries,
+  downloadable as CSV/XLSX/PDF (`?format=`), plus the same pattern applied to two flagship
+  per-module list views (`GET /members/export`, `GET /visitors/export`). No new query path —
+  every export re-serializes what its JSON counterpart already computed. See design decision
+  #35 and `docs/reports/business-analysis.md`.
 
 ## Next module
 
@@ -680,13 +710,11 @@ pass above covers a large chunk of the "everything must be configurable" +
 security requirements named in the platform's expanded requirements list.
 Still in progress from that same list, in priority order:
 
-1. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
-   Reports & Analytics and per-module list views.
-2. **File management polish** — multi-file upload, image/video/audio
+1. **File management polish** — multi-file upload, image/video/audio
    previews, and a lightweight version history on Document Management.
    (Virus scanning is out of scope — it needs a 3rd-party service this
    environment has no credentials for.)
-3. **Session/device management + login history**, building on the
+2. **Session/device management + login history**, building on the
    `RefreshToken` records already tracked per device.
 
 Whichever is picked up should still follow the established patterns: tenant

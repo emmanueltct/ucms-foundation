@@ -586,6 +586,17 @@ export default function VisitorsAdminPage() {
                 ))}
               </select>
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name, phone, email…" className="w-56" />
+              <div className="flex gap-1">
+                {(['csv', 'xlsx', 'pdf'] as const).map((format) => (
+                  <button
+                    key={format}
+                    onClick={() => visitorsApi.export(TENANT_SLUG, format, { status: statusFilter || undefined, search: search || undefined })}
+                    className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-[#1E2A44]/40"
+                  >
+                    {format.toUpperCase()}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

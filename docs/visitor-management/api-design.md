@@ -9,6 +9,7 @@ Foundation module — see [../api-design.md](../api-design.md)).
 |---|---|---|---|
 | POST | `/visitors` | `visitor.create` | Record a first-time visitor (optionally linked to a `VisitorGroup`) |
 | GET | `/visitors` | `visitor.read` | Paginated list (`?branchId=&visitorGroupId=&status=&assignedToUserId=&search=`) |
+| GET | `/visitors/export` | `visitor.read` | Same filters as above, uncapped (5000 rows), as CSV/XLSX/PDF (`?format=`) — see `docs/reports/api-design.md` |
 | GET | `/visitors/:id` | `visitor.read` | Get one visitor |
 | PATCH | `/visitors/:id` | `visitor.update` | Update a visitor (any status except `joined`) |
 | DELETE | `/visitors/:id` | `visitor.delete` | Soft-delete a visitor |

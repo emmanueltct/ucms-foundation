@@ -9,6 +9,7 @@ Foundation module — see [../api-design.md](../api-design.md)).
 |---|---|---|---|
 | POST | `/members` | `member.create` | Create a member profile attached to a branch |
 | GET | `/members` | `member.read` | Paginated/searchable list (`?branchId=&familyId=&membershipStatus=&search=`) |
+| GET | `/members/export` | `member.read` | Same filters as above, uncapped (5000 rows), as CSV/XLSX/PDF (`?format=`) — see `docs/reports/api-design.md` |
 | GET | `/members/:id` | `member.read` | Get one member |
 | PATCH | `/members/:id` | `member.update` | Update profile fields (not `branchId`) |
 | PATCH | `/members/:id/transfer` | `member.transfer` | Move a member to a different branch |

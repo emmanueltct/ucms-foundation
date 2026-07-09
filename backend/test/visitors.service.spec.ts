@@ -133,4 +133,20 @@ describe('VisitorsService', () => {
     });
   });
 
+  describe('findAllForExport', () => {
+    it('applies the same filters as findAll but with no pagination, capped at 5000 rows', async () => {
+      mockPrisma.visitor.findMany.mockResolvedValue([{ id: 'visitor-1' }, { id: 'visitor-2' }]);
+
+      const result = await service.findAllForExport(TENANT_ID, { status: 'new' } as any);
+
+      expect(mockPrisma.visitor.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: TENANT_ID, status: 'new' }),
+          take: 5000,
+        }),
+      );
+      expect(mockPrisma.visitor.findMany.mock.calls[0][0]).not.toHaveProperty('skip');
+      expect(result).toHaveLength(2);
+    });
+  });
 });

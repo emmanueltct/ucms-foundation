@@ -19,6 +19,10 @@
   `visitorGroupId`, `status`, `assignedToUserId`, and `search` (matches first name, last name,
   phone, or email, case-insensitive). Soft-deleted visitors are always excluded.
 - FR-VIS-2.2 `GET /visitors/:id` returns one visitor.
+- FR-VIS-2.3 `GET /visitors/export` accepts the same filters as FR-VIS-2.1 (uncapped, up to
+  5000 rows) plus `format` (`csv` | `xlsx` | `pdf`, default `csv`), and returns a downloadable
+  file rather than the standard JSON envelope — see
+  `docs/reports/functional-requirements.md` FR-RPT-6.3 for the shared export mechanism.
 
 ## FR-VIS-3 Updating & Deleting
 

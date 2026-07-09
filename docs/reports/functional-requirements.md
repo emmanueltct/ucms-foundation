@@ -47,15 +47,36 @@
   unset department groups under the key `"unassigned"`), each with `key`, `total`, `count`,
   sorted by `total` descending.
 
-## FR-RPT-6 Non-Functional
+## FR-RPT-6 Exports
 
-- FR-RPT-6.1 If `dateFrom` is omitted it defaults to the first day of the month 11 months
+- FR-RPT-6.1 Each of `finance-summary`, `attendance-trends`, `membership-growth`, and
+  `payroll-summary` has a sibling `GET .../export` endpoint accepting the same query
+  parameters plus `format` (`csv` | `xlsx` | `pdf`, defaults to `csv`). It re-runs the same
+  summary method and serializes its `byMonth`/`byKey` tables into a downloadable file — no
+  separate export-specific query logic, so an export can never drift from what the dashboard
+  chart shows for the same range.
+- FR-RPT-6.2 The response is a raw file (`Content-Type` matching the format,
+  `Content-Disposition: attachment`), not the standard JSON envelope — the one deliberate
+  exception to FR-6.2 in the Foundation module, since there is no JSON to envelope once the
+  client wants a file on disk.
+- FR-RPT-6.3 Two "flagship" per-module list-view exports exist as the pattern this composes
+  into cleanly elsewhere: `GET /members/export` and `GET /visitors/export`, each accepting the
+  same filters as their respective list endpoint plus `format`, capped at 5000 rows (an
+  uncapped, un-paginated export would defeat the point of a bounded page size elsewhere in the
+  API). See `docs/member-management/functional-requirements.md` and
+  `docs/visitor-management/functional-requirements.md`.
+
+## FR-RPT-7 Non-Functional
+
+- FR-RPT-7.1 If `dateFrom` is omitted it defaults to the first day of the month 11 months
   before `dateTo`; if `dateTo` is omitted it defaults to now. This yields a trailing-12-month
   window by default across every endpoint in this module.
-- FR-RPT-6.2 Every endpoint in this module is guarded by a single permission code,
-  `reports.view` — there is no per-report permission.
-- FR-RPT-6.3 This module adds no new Prisma models and makes no changes to the tenant-scoping
+- FR-RPT-7.2 Every endpoint in this module is guarded by a single permission code,
+  `reports.view` — there is no per-report permission. Exports (FR-RPT-6) reuse the same
+  `reports.view` gate; list-view exports (FR-RPT-6.3) reuse their module's own `.read`
+  permission (`member.read`, `visitor.read`).
+- FR-RPT-7.3 This module adds no new Prisma models and makes no changes to the tenant-scoping
   extension's `TENANT_SCOPED_MODELS` set — every model it reads was already registered by its
   owning module.
-- FR-RPT-6.4 All aggregation is tenant-scoped the same way as every other module — a request
+- FR-RPT-7.4 All aggregation is tenant-scoped the same way as every other module — a request
   can never see another tenant's totals.

@@ -64,6 +64,16 @@ export class VisitorsService {
     return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
   }
 
+  /** Same filters as `findAll`, uncapped (up to 5000 rows) — backs the CSV/XLSX/PDF export endpoint. */
+  async findAllForExport(tenantId: string, query: VisitorQueryDto): Promise<Visitor[]> {
+    const where = this.buildWhere(tenantId, query);
+    return this.prisma.visitor.findMany({
+      where,
+      take: 5000,
+      orderBy: query.sortBy ? { [query.sortBy]: query.sortDir } : { visitDate: 'desc' },
+    });
+  }
+
   async findOne(tenantId: string, id: string): Promise<Visitor> {
     return this.findOneRaw(tenantId, id);
   }

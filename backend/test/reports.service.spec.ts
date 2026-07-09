@@ -207,4 +207,27 @@ describe('ReportsService', () => {
       ]);
     });
   });
+
+  describe('exportFinanceSummary', () => {
+    it('reuses financeSummary and shapes byMonth/byType into export tables', async () => {
+      mockPrisma.contribution.findMany.mockResolvedValue([
+        { amount: 100000, contributionType: 'tithe', contributedAt: new Date('2026-07-05') },
+      ]);
+
+      const tables = await service.exportFinanceSummary(TENANT_ID, { dateFrom: '2026-07-01', dateTo: '2026-07-31' } as any);
+
+      expect(tables).toHaveLength(2);
+      expect(tables[0]).toEqual({
+        title: 'Giving by month',
+        columns: [
+          { key: 'month', header: 'Month' },
+          { key: 'total', header: 'Total' },
+          { key: 'count', header: 'Count' },
+        ],
+        rows: [{ month: '2026-07', total: 100000, count: 1 }],
+      });
+      expect(tables[1].title).toBe('Giving by contribution type');
+      expect(tables[1].rows).toEqual([{ key: 'tithe', total: 100000, count: 1 }]);
+    });
+  });
 });

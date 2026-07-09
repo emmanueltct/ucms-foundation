@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { MembersService } from './members.service';
 import { MemberActivitiesService } from './member-activities.service';
@@ -12,6 +13,17 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
+import { ExportFormat, sendExportFile } from '../common/exports/export.util';
+
+const MEMBER_EXPORT_COLUMNS = [
+  { key: 'membershipNumber', header: 'Membership Number' },
+  { key: 'firstName', header: 'First Name' },
+  { key: 'lastName', header: 'Last Name' },
+  { key: 'phone', header: 'Phone' },
+  { key: 'email', header: 'Email' },
+  { key: 'membershipStatus', header: 'Status' },
+  { key: 'membershipCategory', header: 'Category' },
+];
 
 @ApiTags('members')
 @ApiBearerAuth()
@@ -36,6 +48,18 @@ export class MembersController {
   async findAll(@CurrentTenantId() tenantId: string, @Query() query: MemberQueryDto) {
     const { items, total, page, pageSize, totalPages } = await this.membersService.findAll(tenantId, query);
     return ok(items, { total, page, pageSize, totalPages });
+  }
+
+  @ApiOperation({ summary: 'Download the member list (same filters as the list endpoint) as CSV/XLSX/PDF (?format=), up to 5000 rows' })
+  @Permissions('member.read')
+  @Get('export')
+  async exportMembers(
+    @CurrentTenantId() tenantId: string,
+    @Query() query: MemberQueryDto & { format?: ExportFormat },
+    @Res() res: Response,
+  ) {
+    const items = await this.membersService.findAllForExport(tenantId, query);
+    await sendExportFile(res, query.format ?? 'csv', 'members', [{ title: 'Members', columns: MEMBER_EXPORT_COLUMNS, rows: items }], 'Members');
   }
 
   @ApiOperation({ summary: 'Get one member' })

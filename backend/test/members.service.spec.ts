@@ -222,4 +222,21 @@ describe('MembersService', () => {
       });
     });
   });
+
+  describe('findAllForExport', () => {
+    it('applies the same filters as findAll but with no pagination, capped at 5000 rows', async () => {
+      mockPrisma.member.findMany.mockResolvedValue([{ id: 'mem-1' }, { id: 'mem-2' }]);
+
+      const result = await service.findAllForExport(TENANT_ID, { branchId: 'branch-1' } as any);
+
+      expect(mockPrisma.member.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: TENANT_ID, branchId: 'branch-1' }),
+          take: 5000,
+        }),
+      );
+      expect(mockPrisma.member.findMany.mock.calls[0][0]).not.toHaveProperty('skip');
+      expect(result).toHaveLength(2);
+    });
+  });
 });

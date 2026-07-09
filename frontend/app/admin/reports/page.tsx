@@ -19,18 +19,56 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import { Users, Briefcase, Building2, CalendarDays, Wallet, TrendingUp } from 'lucide-react';
+import { Users, Briefcase, Building2, CalendarDays, Wallet, TrendingUp, Download } from 'lucide-react';
 import {
   reportsApi,
   ReportOverview,
   MonthBucket,
   KeyBucket,
   MembershipGrowthBucket,
+  ExportFormat,
 } from '../../../lib/api';
 
 const TENANT_SLUG = 'demo-church';
 const NAVY = '#1E2A44';
 const GOLD = '#C9A24B';
+
+const EXPORT_FORMATS: ExportFormat[] = ['csv', 'xlsx', 'pdf'];
+
+/** One row of "Download as CSV / XLSX / PDF" buttons for a report section — shared by Finance/Attendance/Membership/Payroll. */
+function ExportRow({ label, onExport }: { label: string; onExport: (format: ExportFormat) => Promise<{ success: boolean; error?: string }> }) {
+  const [pending, setPending] = useState<ExportFormat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleClick(format: ExportFormat) {
+    setPending(format);
+    setError(null);
+    try {
+      const result = await onExport(format);
+      if (!result.success) setError(result.error ?? 'Export failed.');
+    } finally {
+      setPending(null);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 mb-2">
+      <span className="text-xs font-medium text-slate-500 w-28">{label}</span>
+      {EXPORT_FORMATS.map((format) => (
+        <button
+          key={format}
+          onClick={() => handleClick(format)}
+          disabled={pending !== null}
+          className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-[#1E2A44]/40 disabled:opacity-50"
+        >
+          <Download className="h-3 w-3" strokeWidth={2} />
+          {pending === format ? '…' : format.toUpperCase()}
+        </button>
+      ))}
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </div>
+  );
+}
 
 export default function ReportsAdminPage() {
   const [overview, setOverview] = useState<ReportOverview | null>(null);
@@ -116,6 +154,16 @@ export default function ReportsAdminPage() {
                   <p className="text-xs text-slate-400 mt-0.5">{k.label}</p>
                 </div>
               ))}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 mb-6">
+              <h3 className="text-xs uppercase tracking-wide text-slate-400 font-medium mb-3">
+                Export trailing 12-month data
+              </h3>
+              <ExportRow label="Finance" onExport={(format) => reportsApi.exportFinanceSummary(TENANT_SLUG, format)} />
+              <ExportRow label="Attendance" onExport={(format) => reportsApi.exportAttendanceTrends(TENANT_SLUG, format)} />
+              <ExportRow label="Membership" onExport={(format) => reportsApi.exportMembershipGrowth(TENANT_SLUG, format)} />
+              <ExportRow label="Payroll" onExport={(format) => reportsApi.exportPayrollSummary(TENANT_SLUG, format)} />
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

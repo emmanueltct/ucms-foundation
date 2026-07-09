@@ -328,6 +328,17 @@ export default function MembersAdminPage() {
               </option>
             ))}
           </select>
+          <div className="flex gap-1">
+            {(['csv', 'xlsx', 'pdf'] as const).map((format) => (
+              <button
+                key={format}
+                onClick={() => membersApi.export(TENANT_SLUG, format, { search: search || undefined, branchId: branchFilter || undefined })}
+                className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-[#1E2A44]/40"
+              >
+                {format.toUpperCase()}
+              </button>
+            ))}
+          </div>
         </div>
 
         {error && (

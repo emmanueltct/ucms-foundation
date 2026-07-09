@@ -95,6 +95,38 @@ export async function multipartRequest<T>(
   return (await res.json()) as ApiEnvelope<T>;
 }
 
+/**
+ * For export endpoints, which return a raw file (CSV/XLSX/PDF) rather than
+ * the standard JSON envelope. Triggers a normal browser download using the
+ * filename the server set in Content-Disposition, falling back to a
+ * generated one if that header is ever missing.
+ */
+export async function downloadFile(path: string, tenantSlug: string, fallbackFilename: string): Promise<{ success: boolean; error?: string }> {
+  const headers: Record<string, string> = { 'X-Tenant-Slug': tenantSlug };
+  if (inMemoryAccessToken) headers.Authorization = `Bearer ${inMemoryAccessToken}`;
+
+  const res = await fetch(`${API_BASE}${path}`, { headers });
+  if (!res.ok) {
+    return { success: false, error: `Download failed (${res.status}).` };
+  }
+
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+  const filename = filenameMatch?.[1] ?? fallbackFilename;
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  return { success: true };
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -351,6 +383,19 @@ export const membersApi = {
     apiRequest<MemberActivity>(`/members/${memberId}/activities`, { method: 'POST', tenantSlug, auth: true, body: activity }),
   listActivities: (tenantSlug: string, memberId: string) =>
     apiRequest<MemberActivity[]>(`/members/${memberId}/activities`, { tenantSlug, auth: true }),
+  export: (
+    tenantSlug: string,
+    format: ExportFormat,
+    params: { search?: string; branchId?: string; familyId?: string; membershipStatus?: string } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set('search', params.search);
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.familyId) qs.set('familyId', params.familyId);
+    if (params.membershipStatus) qs.set('membershipStatus', params.membershipStatus);
+    qs.set('format', format);
+    return downloadFile(`/members/export?${qs.toString()}`, tenantSlug, `members.${format}`);
+  },
 };
 
 export interface Contribution {
@@ -859,7 +904,17 @@ export const reportsApi = {
     }),
   memberActivityHistory: (tenantSlug: string, memberId: string) =>
     apiRequest<MemberActivityHistory>(`/reports/members/${memberId}/activity-history`, { tenantSlug, auth: true }),
+  exportFinanceSummary: (tenantSlug: string, format: ExportFormat, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
+    downloadFile(`/reports/finance-summary/export?${reportRangeQs(params)}&format=${format}`, tenantSlug, `finance-summary.${format}`),
+  exportAttendanceTrends: (tenantSlug: string, format: ExportFormat, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
+    downloadFile(`/reports/attendance-trends/export?${reportRangeQs(params)}&format=${format}`, tenantSlug, `attendance-trends.${format}`),
+  exportMembershipGrowth: (tenantSlug: string, format: ExportFormat, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
+    downloadFile(`/reports/membership-growth/export?${reportRangeQs(params)}&format=${format}`, tenantSlug, `membership-growth.${format}`),
+  exportPayrollSummary: (tenantSlug: string, format: ExportFormat, params: { dateFrom?: string; dateTo?: string } = {}) =>
+    downloadFile(`/reports/payroll-summary/export?${reportRangeQs(params)}&format=${format}`, tenantSlug, `payroll-summary.${format}`),
 };
+
+export type ExportFormat = 'csv' | 'xlsx' | 'pdf';
 
 function reportRangeQs(params: { dateFrom?: string; dateTo?: string; branchId?: string }): string {
   const qs = new URLSearchParams();
@@ -1066,6 +1121,19 @@ export const visitorsApi = {
     apiRequest<VisitorActivity>(`/visitors/${visitorId}/activities`, { method: 'POST', tenantSlug, auth: true, body: activity }),
   listActivities: (tenantSlug: string, visitorId: string) =>
     apiRequest<VisitorActivity[]>(`/visitors/${visitorId}/activities`, { tenantSlug, auth: true }),
+  export: (
+    tenantSlug: string,
+    format: ExportFormat,
+    params: { branchId?: string; status?: string; assignedToUserId?: string; search?: string } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.branchId) qs.set('branchId', params.branchId);
+    if (params.status) qs.set('status', params.status);
+    if (params.assignedToUserId) qs.set('assignedToUserId', params.assignedToUserId);
+    if (params.search) qs.set('search', params.search);
+    qs.set('format', format);
+    return downloadFile(`/visitors/export?${qs.toString()}`, tenantSlug, `visitors.${format}`);
+  },
 };
 
 export const visitorGroupsApi = {
