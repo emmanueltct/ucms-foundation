@@ -10,6 +10,7 @@ import { VerifyMfaDto } from './dto/verify-mfa.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { SwitchTenantDto } from './dto/switch-tenant.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -94,6 +95,24 @@ export class AuthController {
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto.token, dto.newPassword);
     return ok({ message: 'Password updated. Sign in with your new password.' });
+  }
+
+  @ApiOperation({ summary: 'Confirm an email address using the token from the emailed verification link' })
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('verify-email')
+  async verifyEmail(@Body() dto: VerifyEmailDto) {
+    await this.authService.verifyEmail(dto.token);
+    return ok({ message: 'Email verified.' });
+  }
+
+  @ApiOperation({ summary: 'Resend the email verification link for the current user' })
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @Post('resend-verification')
+  async resendVerification(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
+    await this.authService.sendVerificationEmail(tenantId, user.userId, user.email);
+    return ok({ message: 'Verification email sent.' });
   }
 
   @ApiOperation({ summary: 'Rotate a refresh token for a new access/refresh token pair' })

@@ -84,6 +84,9 @@ export class AppModule implements NestModule {
         // token itself (not a header) resolves the tenant. See AuthService.
         { path: 'auth/forgot-password', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
+        // Same reasoning as password reset — the verification token itself
+        // resolves the tenant, not a header.
+        { path: 'auth/verify-email', method: RequestMethod.POST },
         // Login's X-Tenant-Slug header is optional (see AuthService.login) —
         // it resolves the tenant itself when a slug is given, and routes by
         // email+password across every tenant when it's not.

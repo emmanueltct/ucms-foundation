@@ -28,6 +28,7 @@ const ACCESS_TOKEN_TTL = '15m';
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 7;
 const PASSWORD_RESET_TTL_MINUTES = 30;
+const EMAIL_VERIFICATION_TTL_HOURS = 48;
 
 @Injectable()
 export class AuthService {
@@ -61,7 +62,65 @@ export class AuthService {
 
     await this.audit(tenantId, user.id, 'auth.register', 'User', user.id);
 
+    // Verification is a soft nudge, not a gate — a dispatch failure must never block registration itself.
+    try {
+      await this.sendVerificationEmail(tenantId, user.id, user.email);
+    } catch {
+      // documented stub gateway; see Communication module
+    }
+
     return this.issueSession(tenantId, user.id, user.email, [], []);
+  }
+
+  /**
+   * Not enforced anywhere today — `emailVerifiedAt` is informational only,
+   * shown back to the user, and login/permissions never check it. This is
+   * a deliberate scope decision (see docs/business-analysis.md):
+   * gating login on verification is a real, separate feature (what happens
+   * to an unverified account after N days? does an admin need to see who's
+   * unverified?) that nothing in the current requirement calls for yet.
+   */
+  async sendVerificationEmail(tenantId: string, userId: string, email: string): Promise<void> {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) return;
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TTL_HOURS * 60 * 60 * 1000);
+
+    await this.prisma.emailVerificationToken.create({
+      data: { tenantId, userId, tokenHash: this.hashToken(rawToken), expiresAt },
+    });
+
+    const appUrl = this.config.get<string>('APP_URL', 'http://localhost:3001');
+    const verifyUrl = `${appUrl}/verify-email?token=${rawToken}`;
+
+    await this.notifications.create(tenantId, undefined, {
+      channel: 'email',
+      recipient: email,
+      subject: `Verify your email — ${tenant.name}`,
+      body: `Confirm this is your email address for ${tenant.name}: ${verifyUrl}\nThis link expires in ${EMAIL_VERIFICATION_TTL_HOURS} hours.`,
+    });
+  }
+
+  async verifyEmail(token: string): Promise<void> {
+    const verificationToken = await this.prisma.unscoped.emailVerificationToken.findUnique({
+      where: { tokenHash: this.hashToken(token) },
+    });
+
+    if (!verificationToken || verificationToken.usedAt || verificationToken.expiresAt < new Date()) {
+      throw new BadRequestException({
+        code: 'EMAIL_VERIFICATION_TOKEN_INVALID',
+        message: 'This verification link is invalid or has expired.',
+      });
+    }
+
+    const { tenantId, userId } = verificationToken;
+    await this.prisma.user.update({ where: { id: userId, tenantId }, data: { emailVerifiedAt: new Date() } });
+    await this.prisma.emailVerificationToken.update({
+      where: { id: verificationToken.id, tenantId },
+      data: { usedAt: new Date() },
+    });
+    await this.audit(tenantId, userId, 'auth.email_verified', 'User', userId);
   }
 
   /**
@@ -414,6 +473,7 @@ export class AuthService {
         roles,
         permissions,
         mfaEnabled: user?.mfaEnabled ?? false,
+        emailVerifiedAt: user?.emailVerifiedAt?.toISOString() ?? null,
       },
       tokens: {
         accessToken,

@@ -103,6 +103,7 @@ export interface AuthUser {
   roles: string[];
   permissions: string[];
   mfaEnabled: boolean;
+  emailVerifiedAt: string | null;
 }
 
 export interface AuthTenant {
@@ -155,6 +156,11 @@ export const authApi = {
     }),
   listWorkspaces: (currentTenantSlug: string) =>
     apiRequest<WorkspaceOption[]>('/auth/workspaces', { tenantSlug: currentTenantSlug, auth: true }),
+  // Not tenant-scoped — the verification token itself resolves the tenant.
+  verifyEmail: (token: string) =>
+    apiRequest<{ message: string }>('/auth/verify-email', { method: 'POST', tenantSlug: '', body: { token } }),
+  resendVerification: (tenantSlug: string) =>
+    apiRequest<{ message: string }>('/auth/resend-verification', { method: 'POST', tenantSlug, auth: true }),
 };
 
 export interface MfaSetupResult {

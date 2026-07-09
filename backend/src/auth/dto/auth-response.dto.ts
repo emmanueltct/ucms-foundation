@@ -32,6 +32,9 @@ export class AuthUserDto {
 
   @ApiProperty()
   mfaEnabled: boolean;
+
+  @ApiProperty({ nullable: true, description: 'When this email was confirmed — null if not yet verified. Informational only, not enforced.' })
+  emailVerifiedAt: string | null;
 }
 
 export class AuthTenantDto {

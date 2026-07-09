@@ -180,9 +180,13 @@ async function main() {
       passwordHash,
       firstName: 'Demo',
       lastName: 'Admin',
+      // Pre-verified: the email gateway is a documented stub (see Communication
+      // module), so a real verification link never actually arrives for the demo
+      // account — this avoids a permanent, unactionable "verify your email" nudge.
+      emailVerifiedAt: new Date(),
       userRoles: { create: [{ roleId: adminRole.id }] },
     },
-    update: {},
+    update: { emailVerifiedAt: new Date() },
   });
 
   console.log('Seeding example configuration items (contribution types)...');

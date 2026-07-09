@@ -38,6 +38,7 @@ model Tenant {
   featureToggles FeatureToggle[]
   refreshTokens  RefreshToken[]
   passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
   auditLogs      AuditLog[]
   branches           Branch[]
   members            Member[]
@@ -78,6 +79,7 @@ model User {
   isActive     Boolean   @default(true) @map("is_active")
   mfaEnabled   Boolean   @default(false) @map("mfa_enabled")
   mfaSecret    String?   @map("mfa_secret")
+  emailVerifiedAt DateTime? @map("email_verified_at")
   lastLoginAt  DateTime? @map("last_login_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -86,6 +88,7 @@ model User {
   userRoles             UserRole[]
   refreshTokens         RefreshToken[]
   passwordResetTokens   PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
   auditLogs             AuditLog[]
   recordedContributions Contribution[]     @relation("ContributionRecordedBy")
   voidedContributions   Contribution[]     @relation("ContributionVoidedBy")
@@ -198,6 +201,27 @@ model PasswordResetToken {
   @@index([tenantId])
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+/// A one-time-use token confirming a user's email address on registration.
+/// Mirrors PasswordResetToken's shape exactly (separate table rather than
+/// a shared generic one, since the two purposes have no fields in common
+/// beyond "a hashed token with an expiry" and keeping them separate means
+/// a bug in one flow's queries can't touch the other's rows).
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([userId])
+  @@map("email_verification_tokens")
 }
 
 // ----------------------------------------------------------------------------

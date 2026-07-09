@@ -18,8 +18,14 @@ or on failure:
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| POST | `/auth/register` | Public (tenant-scoped) | Create a member/user account within the resolved tenant |
-| POST | `/auth/login` | Public (tenant-scoped, rate-limited 5/min) | Returns access + refresh token pair |
+| POST | `/auth/register` | Public (tenant-scoped) | Create a member/user account within the resolved tenant; also dispatches a verification email |
+| POST | `/auth/login` | Public (`X-Tenant-Slug` optional, rate-limited 5/min) | Returns access + refresh token pair, or a workspace list to disambiguate |
+| POST | `/auth/switch-tenant` | Access token | Re-issues a session for a different workspace the same email has an account in — no password |
+| GET | `/auth/workspaces` | Access token | Lists every workspace the current user's email has an active account in |
+| POST | `/auth/forgot-password` | Public (not tenant-scoped, rate-limited 5/min) | Always returns a generic success message |
+| POST | `/auth/reset-password` | Public (not tenant-scoped) | Completes a reset using the emailed token |
+| POST | `/auth/verify-email` | Public (not tenant-scoped) | Confirms an email using the emailed token |
+| POST | `/auth/resend-verification` | Access token | Re-sends the verification email |
 | POST | `/auth/refresh` | Refresh token (body) | Rotates refresh token, returns new pair |
 | POST | `/auth/logout` | Access token | Revokes the presented refresh token |
 | POST | `/auth/logout-all` | Access token | Revokes every refresh token for the user |
@@ -28,7 +34,9 @@ or on failure:
 | POST | `/auth/mfa/disable` | Access token | Disables MFA (requires a valid current code) |
 
 `login` accepts an optional `mfaCode` field; once MFA is enabled for an account it becomes
-required (see `MFA_REQUIRED`/`MFA_INVALID` below).
+required (see `MFA_REQUIRED`/`MFA_INVALID` below). When the same email+password matches more
+than one workspace, `login` returns `{ "requiresWorkspaceSelection": true, "workspaces": [{
+"slug", "name" }] }` instead of a session — resubmit with `X-Tenant-Slug` set to proceed.
 
 ## Platform Admin — Tenants
 
@@ -106,11 +114,14 @@ required (see `MFA_REQUIRED`/`MFA_INVALID` below).
 | `TENANT_MISMATCH` | 401 | Access token's tenant doesn't match the resolved tenant |
 | `MFA_REQUIRED` | 401 | Account has MFA enabled but `login` was called without `mfaCode` |
 | `MFA_INVALID` | 401 / 400 | `mfaCode` (login) or `code` (`/mfa/enable`, `/mfa/disable`) failed verification |
+| `NOT_A_MEMBER` | 403 | `switch-tenant` target workspace doesn't have an account for this email |
+| `PASSWORD_RESET_TOKEN_INVALID` | 400 | Reset token is unknown, already used, or expired |
+| `EMAIL_VERIFICATION_TOKEN_INVALID` | 400 | Verification token is unknown, already used, or expired |
 | `ROLE_FORBIDDEN` / `PERMISSION_FORBIDDEN` | 403 | RBAC/PBAC check failed |
 | `SYSTEM_ROLE_LOCKED` | 403 | Attempted to edit/delete a system role |
 | `SLUG_TAKEN` / `ROLE_NAME_TAKEN` / `CONFIG_KEY_TAKEN` | 409 | Uniqueness violation |
 | `UNKNOWN_PERMISSION` | 400 | Role references a permission code that doesn't exist |
 
-Full OpenAPI/Swagger generation (via `@nestjs/swagger` decorators on every DTO
-and controller) is planned as a hardening pass once the module set stabilizes,
-so the spec doesn't need re-annotating repeatedly during active development.
+Every controller and DTO across every module is annotated with `@nestjs/swagger`
+decorators, so the full OpenAPI spec (served at `/api/docs`) stays accurate as
+new modules ship rather than needing a separate annotation pass.

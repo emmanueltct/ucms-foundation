@@ -22,10 +22,12 @@ describe('AuthService', () => {
     tenant: { findFirst: jest.fn(), findUnique: jest.fn() },
     refreshToken: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     passwordResetToken: { create: jest.fn(), update: jest.fn() },
+    emailVerificationToken: { create: jest.fn(), update: jest.fn() },
     auditLog: { create: jest.fn() },
     unscoped: {
       user: { findMany: jest.fn() },
       passwordResetToken: { findUnique: jest.fn() },
+      emailVerificationToken: { findUnique: jest.fn() },
     },
   };
 
@@ -96,6 +98,72 @@ describe('AuthService', () => {
       expect(createArgs.data.passwordHash).not.toBe('Password1'); // never store plaintext
       expect(await bcrypt.compare('Password1', createArgs.data.passwordHash)).toBe(true);
       expect(result.tokens.accessToken).toBe('signed.jwt.token');
+    });
+
+    it('sends a verification email after creating the user, without blocking registration on a dispatch failure', async () => {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'new-user', firstName: 'John', lastName: 'Doe' });
+      mockPrisma.user.create.mockResolvedValue({ id: 'new-user' });
+      mockPrisma.tenant.findUnique.mockResolvedValue({ id: TENANT_ID, name: 'Demo Church' });
+      mockNotifications.create.mockRejectedValue(new Error('gateway is a stub'));
+
+      const result = await service.register(TENANT_ID, {
+        email: 'pastor@church.rw',
+        password: 'Password1',
+        firstName: 'John',
+        lastName: 'Doe',
+      });
+
+      expect(mockPrisma.emailVerificationToken.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ tenantId: TENANT_ID, userId: 'new-user' }) }),
+      );
+      expect(mockNotifications.create).toHaveBeenCalled();
+      expect(result.tokens.accessToken).toBe('signed.jwt.token'); // registration still succeeds
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('rejects an unknown, already-used, or expired token', async () => {
+      mockPrisma.unscoped.emailVerificationToken.findUnique.mockResolvedValueOnce(null);
+      await expect(service.verifyEmail('bad-token')).rejects.toThrow(BadRequestException);
+
+      mockPrisma.unscoped.emailVerificationToken.findUnique.mockResolvedValueOnce({
+        id: 'evt-1',
+        tenantId: TENANT_ID,
+        userId: 'user-1',
+        usedAt: new Date(),
+        expiresAt: new Date(Date.now() + 10_000),
+      });
+      await expect(service.verifyEmail('used-token')).rejects.toThrow(BadRequestException);
+
+      mockPrisma.unscoped.emailVerificationToken.findUnique.mockResolvedValueOnce({
+        id: 'evt-2',
+        tenantId: TENANT_ID,
+        userId: 'user-1',
+        usedAt: null,
+        expiresAt: new Date(Date.now() - 10_000),
+      });
+      await expect(service.verifyEmail('expired-token')).rejects.toThrow(BadRequestException);
+    });
+
+    it('marks the email verified and the token used on success', async () => {
+      mockPrisma.unscoped.emailVerificationToken.findUnique.mockResolvedValue({
+        id: 'evt-3',
+        tenantId: TENANT_ID,
+        userId: 'user-1',
+        usedAt: null,
+        expiresAt: new Date(Date.now() + 10_000),
+      });
+
+      await service.verifyEmail('good-token');
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1', tenantId: TENANT_ID },
+        data: { emailVerifiedAt: expect.any(Date) },
+      });
+      expect(mockPrisma.emailVerificationToken.update).toHaveBeenCalledWith({
+        where: { id: 'evt-3', tenantId: TENANT_ID },
+        data: { usedAt: expect.any(Date) },
+      });
     });
   });
 

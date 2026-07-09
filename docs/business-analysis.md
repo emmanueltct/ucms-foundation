@@ -32,9 +32,13 @@ new one each time.
 
 ## 3. Key Business Rules
 
-- A user account belongs to exactly **one tenant**. (Cross-tenant "super users" are modeled
-  separately as Platform Admins, outside the tenant-scoped `User` table concerns — a Platform
-  Admin flag, not a tenant membership.)
+- A `User` **row** belongs to exactly **one tenant** — but the same **person** (identified by
+  email) may have a separate `User` row, with its own password and roles, in more than one
+  tenant. Nothing links these rows together beyond the shared email; there's no cross-tenant
+  "account" entity. Login can route by email alone across every tenant that has a matching row
+  (see the Authentication rules below), and an already-authenticated session can switch to a
+  different one of those rows without a password prompt. (Platform Admins are still modeled
+  separately, outside tenant-scoped `User` concerns entirely — a flag, not a tenant membership.)
 - Every table that stores tenant-owned data carries a `tenantId` column and every query is
   automatically scoped to it — enforced at the guard/middleware level so a developer *cannot
   forget* to filter by tenant.
@@ -49,11 +53,36 @@ new one each time.
   `FeatureToggle`) with a `namespace` discriminator, so the same generic engine serves every
   future module without new tables.
 - Refresh tokens are stored hashed, tenant-scoped, and revocable (logout / logout-all-devices).
+- **Login doesn't require knowing a tenant slug up front.** `POST /auth/login`'s `X-Tenant-Slug`
+  header is optional — omitted, it routes by email+password alone across every active tenant via
+  `PrismaService.unscoped` (a second, deliberately un-extended Prisma client reserved for this
+  one legitimate cross-tenant identity lookup; never used to read or write tenant-owned business
+  data). Zero matches and a wrong password produce the identical generic `INVALID_CREDENTIALS`
+  either way — the flow never reveals whether an email exists anywhere. Exactly one match logs
+  straight in; more than one (the same email+password registered at more than one church) returns
+  a workspace list instead of a session, so the caller can disambiguate and resubmit with the
+  header set. An already-authenticated session can switch to a different workspace the same
+  person has an account in via `POST /auth/switch-tenant`, without a password prompt, since a
+  valid token for the current tenant already proved identity.
+- **Password reset and email verification are both deliberately cross-tenant** for the same
+  reason login can be: a person may not remember which church they're registered under. Both use
+  single-use, hashed, expiring tokens (`PasswordResetToken` — 30 minutes; `EmailVerificationToken`
+  — 48 hours) looked up by token hash alone, never by tenant. A successful password reset revokes
+  every refresh token for that user (forces re-login everywhere). Email verification is
+  informational only — `User.emailVerifiedAt` is returned to the frontend and shown as a nudge,
+  but nothing in the platform gates on it; see rule below.
+- Two-factor authentication (TOTP) is enroll-then-confirm: `POST /auth/mfa/setup` issues a secret
+  that isn't enforced until confirmed via `POST /auth/mfa/enable` with a real code from the
+  authenticator app, so an abandoned setup can never lock someone out. Once enabled, login
+  without a code returns `MFA_REQUIRED` rather than failing outright, and the frontend prompts
+  for one as a second step.
 
 ## 4. Out of Scope for This Module
 
-- MFA enrollment UI (schema field `mfaEnabled`/`mfaSecret` is reserved; flow ships with User
-  Management module).
+- **Gating login (or anything else) on `emailVerifiedAt`.** Verification is a nudge today, not
+  an enforcement mechanism — deciding what happens to an unverified account after some grace
+  period, or whether a Church Administrator needs visibility into who hasn't verified, is a real,
+  separate feature nothing in the current requirement calls for yet.
 - Billing/subscription enforcement logic (the `subscriptionPlan` field exists on `Tenant` now;
   enforcement middleware ships with the Subscription & Billing module).
 - Any business-domain configuration values themselves (e.g. actually seeding "Tithe" as a

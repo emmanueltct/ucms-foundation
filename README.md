@@ -13,12 +13,22 @@ Module 6 (Communication), Module 7 (Events), Module 8 (HR & Payroll), Module 9
 (Visitor & Follow-up Management), Module 12 (Document Management), and
 Module 13 (Small Groups & Children's Ministry) are complete — what's left is
 the optional/AI-assisted feature set explicitly deferred to the end of the
-original roadmap.
+original roadmap, plus a set of cross-cutting hardening passes described below.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
-cross-cutting mechanism, wired into Member & Family Management today, that lets a
-Church Administrator add entirely new fields to a form (not just new dropdown
-values) with zero code changes. See design decision #17 below.
+cross-cutting mechanism, wired into Member & Family Management (and, per-category,
+Assets) today, that lets a Church Administrator add entirely new fields to a form
+(not just new dropdown values) with zero code changes. It has since grown into a
+small form-builder: fields can be grouped into sections, ordered, restricted to
+certain roles, given validation rules, and now come in 19 types (including
+richtext, image/video/audio/signature uploads, and cross-record lookups). See
+design decisions #17 and #30 below.
+
+Authentication has also grown past the original single-tenant login: the same
+email can have an account in more than one church, login can route by
+email+password alone without knowing which one up front, an authenticated
+session can switch between them, and password reset / email verification are
+both handled as cross-tenant flows for the same reason. See design decision #31.
 
 ## What's included
 
@@ -62,7 +72,10 @@ backend/                       NestJS API
     storage/                   S3-compatible object storage (logos, photos,
                                 receipts, asset docs)
     auth/                      register/login/refresh/logout, JWT strategies,
-                                TOTP MFA enroll/verify
+                                TOTP MFA enroll/verify, email-first/multi-workspace
+                                login + switch-tenant, forgot/reset-password, email
+                                verification — all via `PrismaService.unscoped` where
+                                the tenant genuinely isn't known yet
     tenants/                   Platform-admin tenant provisioning (+ optional admin-user
                                 bootstrap), and the tenant's own profile/onboarding-complete
                                 endpoints
@@ -153,8 +166,15 @@ backend/                       NestJS API
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
-  app/login/page.tsx            Tenant-aware sign-in
-  app/admin/layout.tsx           Shared sidebar shell for every /admin/* page
+  app/login/page.tsx            Email + password sign-in — no workspace field; a second
+                                  step asks which workspace (if ambiguous) or for an
+                                  authenticator code (if MFA is enabled)
+  app/forgot-password/page.tsx  Request a password reset link (not tenant-scoped)
+  app/reset-password/page.tsx   Complete a reset using the emailed token
+  app/verify-email/page.tsx     Confirm an email using the emailed token
+  app/admin/settings/security/page.tsx  Enroll in / disable TOTP 2FA
+  app/admin/layout.tsx           Shared sidebar shell for every /admin/* page + a
+                                  dismissible "verify your email" banner
   app/admin/page.tsx             Dashboard — live counts + jump-off cards into each module
   app/admin/reports/page.tsx     Reports & Analytics dashboard — recharts-based trend charts
                                   over Finance/Attendance/Membership/Payroll, computed live
@@ -189,10 +209,18 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   categories appear here automatically as `asset:{category}`
                                   entity types, sourced from the asset_category ConfigItems
   app/onboarding/page.tsx        First-run wizard (headquarters name -> complete onboarding)
-  components/admin-nav.tsx       The sidebar nav consumed by app/admin/layout.tsx
+  components/admin-nav.tsx       The sidebar nav consumed by app/admin/layout.tsx —
+                                  now also a workspace switcher when a user has more
+                                  than one church
+  components/email-verification-banner.tsx  Dismissible nudge shown when the
+                                  current user's email isn't verified yet
   components/dynamic-custom-fields.tsx  Renders whatever fields GET
-                                  /custom-field-definitions returns — the form-side half
-                                  of the Custom Fields mechanism
+                                  /custom-field-definitions returns, grouped into
+                                  sections and filtered by role — the form-side half
+                                  of the Custom Fields mechanism, covering all 19
+                                  field types
+  components/rich-text-editor.tsx  Dependency-free bold/italic/lists/links editor
+                                  backing the `richtext` custom field type
   components/ui/                shadcn/ui components (button, input, label, card)
   lib/api.ts                     Typed fetch client (standard envelope + tenant header)
   lib/utils.ts                   shadcn's `cn()` class-merging helper
@@ -525,6 +553,30 @@ npm run test:e2e             # requires a migrated + seeded test database
     from the Events business analysis) — because a small group filling up
     is exactly the same shape as an event filling up. Three separate
     "reuse or don't" calls in one module, each made on its own merits.
+30. **A cross-cutting mechanism can grow a new axis without becoming a
+    different mechanism.** Custom Fields' `CustomFieldDefinition` gained
+    `section` (grouping), `visibleToRoleNames` (role-scoped visibility),
+    `validationRules` (generic minLength/maxLength/min/max/pattern), and
+    `lookupEntityType`, plus 13 new field types on top of the original 6 —
+    but every one of these plugs into the same `getDefinitions`/`setValues`/
+    `assertRequiredFieldsProvided` contract every integrating module
+    already calls. No integrating module (Members, Assets) needed to
+    change for this to ship. The one genuinely new component,
+    `RichTextEditor`, is deliberately scoped to what a `richtext` field
+    needs (bold/italic/lists/links) and not to embeds/mentions/tables —
+    see `docs/custom-fields/business-analysis.md`.
+31. **The same escape hatch that makes tenant scoping structural also has
+    to allow the handful of places tenant scoping is genuinely wrong.**
+    `PrismaService.unscoped` is a second, deliberately un-extended Prisma
+    client — routing a login by email across every tenant, and resolving a
+    password-reset/email-verification token, are cases where the tenant
+    isn't known yet; it's *what's being discovered*. Every other query in
+    the codebase still goes through the tenant-scoping extension (rule
+    #5/#31 of the original FR-6.4) exactly as before. `unscoped` is named
+    and commented as narrowly as possible on purpose: it must never be
+    used for tenant-owned business data, only identity-routing rows
+    (`User`, `PasswordResetToken`, `EmailVerificationToken`). See
+    `docs/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -537,15 +589,47 @@ npm run test:e2e             # requires a migrated + seeded test database
   highlighting) instead of a set of pages only reachable by typing a URL.
   `app/admin/page.tsx` is a new dashboard landing spot with live counts and
   jump-off cards into every module.
+- **Authentication hardening**: email-first login with multi-workspace
+  disambiguation and switching, password reset, email verification, and a
+  frontend for the TOTP 2FA endpoints that already existed on the backend.
+  See design decision #31 and `docs/business-analysis.md`.
+- **Custom Fields form-builder extension**: sections, role-based visibility,
+  validation rules, and 13 new field types (richtext, radio, multiselect,
+  email, phone, address, time, gps, image, video, audio, signature, lookup),
+  backed by a new dependency-free `RichTextEditor` component. See design
+  decision #30 and `docs/custom-fields/business-analysis.md`.
 
 ## Next module
 
 Modules 0-13 (Foundation through Small Groups & Children's Ministry) plus the
-cross-cutting Custom Fields mechanism are complete. What's left is the
-optional/AI-assisted feature set explicitly deferred to the end of the
-original roadmap (things like AI-assisted sermon/content tools, predictive
-analytics, or other non-core enhancements named there) — whichever of those
-is picked up first should still follow the same established patterns: tenant
+cross-cutting Custom Fields mechanism are complete, and the hardening pass
+above covers a large chunk of the "everything must be configurable" +
+security requirements named in the platform's expanded requirements list.
+Still in progress from that same list, in priority order:
+
+1. **Dynamic, admin-defined organizational hierarchy levels** — `Branch`
+   already supports an arbitrary-depth tree; what's missing is letting a
+   tenant *name* its own levels (Province/Diocese/District/Parish, or
+   whatever fits) and walk through creating them during onboarding, rather
+   than only offering a flat "parent branch" picker.
+2. **Visitor groups + configurable visitor activities** — extending
+   `Visitor` to represent a group/delegation, not just an individual, and
+   replacing `VisitorFollowUp`'s fixed shape with tenant-defined activity
+   types (own Custom Fields per type, the same `entityType` composition
+   trick Assets already uses).
+3. **A generalized Member Activities module** with a per-member activity
+   history report aggregating ministries, small groups, events, attendance,
+   and the new activities module into one timeline.
+4. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
+   Reports & Analytics and per-module list views.
+5. **File management polish** — multi-file upload, image/video/audio
+   previews, and a lightweight version history on Document Management.
+   (Virus scanning is out of scope — it needs a 3rd-party service this
+   environment has no credentials for.)
+6. **Session/device management + login history**, building on the
+   `RefreshToken` records already tracked per device.
+
+Whichever is picked up should still follow the established patterns: tenant
 scoping structural not optional, `ConfigItem` for tenant-specific "types,"
 permission-guarded controllers, soft delete or the stricter void/status
 pattern where money or an audit trail is involved, Custom Fields'
