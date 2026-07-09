@@ -32,11 +32,42 @@ or on failure:
 | POST | `/auth/mfa/setup` | Access token | Generates a new TOTP secret + QR code (not enforced until confirmed) |
 | POST | `/auth/mfa/enable` | Access token | Confirms setup with a code; MFA is enforced on login from then on |
 | POST | `/auth/mfa/disable` | Access token | Disables MFA (requires a valid current code) |
+| GET | `/auth/sessions` | Access token | Lists the current user's own active device sessions |
+| DELETE | `/auth/sessions/:id` | Access token | Revokes one of the current user's own sessions by id |
+| GET | `/auth/login-history` | Access token | Last 50 login-related events for the current user |
 
 `login` accepts an optional `mfaCode` field; once MFA is enabled for an account it becomes
 required (see `MFA_REQUIRED`/`MFA_INVALID` below). When the same email+password matches more
 than one workspace, `login` returns `{ "requiresWorkspaceSelection": true, "workspaces": [{
 "slug", "name" }] }` instead of a session — resubmit with `X-Tenant-Slug` set to proceed.
+
+`GET /auth/sessions` response (`data`):
+
+```json
+[
+  {
+    "id": "uuid",
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ... Chrome/126.0",
+    "ipAddress": "41.203.12.9",
+    "createdAt": "2026-07-08T09:00:00.000Z",
+    "expiresAt": "2026-07-15T09:00:00.000Z"
+  }
+]
+```
+
+`GET /auth/login-history` response (`data`):
+
+```json
+[
+  {
+    "id": "uuid",
+    "action": "auth.login_failed",
+    "ipAddress": "41.203.12.9",
+    "metadata": { "reason": "invalid_password" },
+    "createdAt": "2026-07-09T14:02:00.000Z"
+  }
+]
+```
 
 ## Platform Admin — Tenants
 
@@ -117,6 +148,7 @@ than one workspace, `login` returns `{ "requiresWorkspaceSelection": true, "work
 | `NOT_A_MEMBER` | 403 | `switch-tenant` target workspace doesn't have an account for this email |
 | `PASSWORD_RESET_TOKEN_INVALID` | 400 | Reset token is unknown, already used, or expired |
 | `EMAIL_VERIFICATION_TOKEN_INVALID` | 400 | Verification token is unknown, already used, or expired |
+| `SESSION_NOT_FOUND` | 404 | `DELETE /auth/sessions/:id` doesn't resolve to an active session owned by the caller |
 | `ROLE_FORBIDDEN` / `PERMISSION_FORBIDDEN` | 403 | RBAC/PBAC check failed |
 | `SYSTEM_ROLE_LOCKED` | 403 | Attempted to edit/delete a system role |
 | `SLUG_TAKEN` / `ROLE_NAME_TAKEN` / `CONFIG_KEY_TAKEN` | 409 | Uniqueness violation |

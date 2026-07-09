@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { BadRequestException, ConflictException, ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from '../src/auth/auth.service';
 import { MfaService } from '../src/auth/mfa.service';
@@ -20,10 +20,10 @@ describe('AuthService', () => {
   const mockPrisma = {
     user: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
     tenant: { findFirst: jest.fn(), findUnique: jest.fn() },
-    refreshToken: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+    refreshToken: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
     passwordResetToken: { create: jest.fn(), update: jest.fn() },
     emailVerificationToken: { create: jest.fn(), update: jest.fn() },
-    auditLog: { create: jest.fn() },
+    auditLog: { create: jest.fn(), findMany: jest.fn() },
     unscoped: {
       user: { findMany: jest.fn() },
       passwordResetToken: { findUnique: jest.fn() },
@@ -661,6 +661,91 @@ describe('AuthService', () => {
         where: { userId: 'user-1', tenantId: TENANT_ID, revokedAt: null },
         data: { revokedAt: expect.any(Date) },
       });
+    });
+  });
+
+  describe('listSessions', () => {
+    it('returns only active, non-expired sessions, most recent first', async () => {
+      mockPrisma.refreshToken.findMany.mockResolvedValue([
+        { id: 'rt-2', userAgent: 'Chrome', ipAddress: '1.2.3.4', createdAt: new Date(), expiresAt: new Date() },
+      ]);
+
+      const result = await service.listSessions(TENANT_ID, 'user-1');
+
+      expect(mockPrisma.refreshToken.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { tenantId: TENANT_ID, userId: 'user-1', revokedAt: null, expiresAt: { gt: expect.any(Date) } },
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('revokeSession', () => {
+    it('rejects when the session does not exist, already revoked, or belongs to a different user/tenant', async () => {
+      mockPrisma.refreshToken.findFirst.mockResolvedValue(null);
+
+      await expect(service.revokeSession(TENANT_ID, 'user-1', 'rt-1')).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.refreshToken.update).not.toHaveBeenCalled();
+    });
+
+    it('revokes the named session', async () => {
+      mockPrisma.refreshToken.findFirst.mockResolvedValue({ id: 'rt-1' });
+
+      await service.revokeSession(TENANT_ID, 'user-1', 'rt-1');
+
+      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'rt-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('loginHistory', () => {
+    it('queries AuditLog filtered to login-related actions for this user, most recent first', async () => {
+      mockPrisma.auditLog.findMany.mockResolvedValue([
+        { id: 'log-1', action: 'auth.login', ipAddress: '1.2.3.4', metadata: null, createdAt: new Date() },
+      ]);
+
+      const result = await service.loginHistory(TENANT_ID, 'user-1');
+
+      expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            tenantId: TENANT_ID,
+            userId: 'user-1',
+            action: { in: ['auth.login', 'auth.login_failed', 'auth.logout', 'auth.switch_tenant'] },
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        }),
+      );
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('completeLogin (via login) — failed-attempt auditing', () => {
+    it('audits a wrong-password attempt with a reason, before rejecting', async () => {
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: TENANT_ID, isActive: true, deletedAt: null });
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        isActive: true,
+        deletedAt: null,
+        mfaEnabled: false,
+        passwordHash: await bcrypt.hash('CorrectPass1', 12),
+        userRoles: [],
+      });
+
+      await expect(
+        service.login(TENANT_SLUG, { email: 'user@test.com', password: 'WrongPass1' } as any),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'auth.login_failed', metadata: { reason: 'invalid_password' } }),
+        }),
+      );
     });
   });
 });

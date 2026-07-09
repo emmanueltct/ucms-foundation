@@ -53,6 +53,21 @@ new one each time.
   `FeatureToggle`) with a `namespace` discriminator, so the same generic engine serves every
   future module without new tables.
 - Refresh tokens are stored hashed, tenant-scoped, and revocable (logout / logout-all-devices).
+  Each row also carries the `User-Agent`/IP address the issuing request reported, turning the
+  table doubly into a *device session* store: `GET /auth/sessions` lists a user's own active
+  sessions and `DELETE /auth/sessions/:id` revokes exactly one, without needing that device's
+  own token the way plain `logout` does. Rotation (`POST /auth/refresh`) sets the old row's
+  `replacedBy` to the new row's id and carries the *current* request's device/IP forward, so a
+  continuous session's identity in that list reflects reality rather than freezing at whatever
+  the original login saw.
+- **A failed login against a real account is audited; a failed login against a made-up email is
+  not.** `auth.login_failed` (wrong password, or an invalid MFA code) is written to `AuditLog`
+  with a `reason` and the request's IP, because there's a specific `User` row someone is
+  attempting to reach. An unresolved email has no row to attach an audit entry to and no owner
+  who'd act on "someone tried admin@example.com" — logging every guess would be noise, not
+  signal. `GET /auth/login-history` (self-service, not admin-facing — see Out of Scope) surfaces
+  the last 50 of these events plus successful logins/logouts/workspace switches for the calling
+  user only.
 - **Login doesn't require knowing a tenant slug up front.** `POST /auth/login`'s `X-Tenant-Slug`
   header is optional — omitted, it routes by email+password alone across every active tenant via
   `PrismaService.unscoped` (a second, deliberately un-extended Prisma client reserved for this
@@ -83,6 +98,20 @@ new one each time.
   an enforcement mechanism — deciding what happens to an unverified account after some grace
   period, or whether a Church Administrator needs visibility into who hasn't verified, is a real,
   separate feature nothing in the current requirement calls for yet.
+- **An admin-facing view of *other users'* sessions or login history.** `GET /auth/sessions` and
+  `GET /auth/login-history` are strictly self-service — a person managing their own account, the
+  same access level `GET /auth/workspaces` already has. A Church Administrator being able to see
+  or revoke *another* user's sessions (useful for offboarding, incident response) is a real,
+  separate feature that would need its own permission code and audit trail around who looked at
+  whom, not a speculative addition now.
+- **Geolocation from IP address** (city/country display in the sessions/history UI) — only the
+  raw IP is stored; resolving it to a place needs a 3rd-party geolocation service this
+  environment has no credentials for, the same category of gap as virus scanning elsewhere in
+  this platform.
+- **Alerting on suspicious login patterns** (new device, new country, impossible travel) — this
+  pass makes the underlying data (device, IP, history) available to look at; deciding what
+  "suspicious" means and wiring a notification through the Communication module is a distinct,
+  larger feature.
 - Billing/subscription enforcement logic (the `subscriptionPlan` field exists on `Tenant` now;
   enforcement middleware ships with the Subscription & Billing module).
 - Any business-domain configuration values themselves (e.g. actually seeding "Tithe" as a

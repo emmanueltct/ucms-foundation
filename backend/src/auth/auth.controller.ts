@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Request } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthGuard } from '@nestjs/passport';
-import { AuthService } from './auth.service';
+import { AuthService, SessionContext } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -16,6 +17,10 @@ import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { ok } from '../common/interfaces/api-response.interface';
+
+function sessionContextFrom(req: Request): SessionContext {
+  return { userAgent: req.headers['user-agent'], ipAddress: req.ip };
+}
 
 @ApiTags('auth')
 @ApiSecurity('tenant-slug')
@@ -42,8 +47,8 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  async login(@Headers('x-tenant-slug') tenantSlug: string | undefined, @Body() dto: LoginDto) {
-    const result = await this.authService.login(tenantSlug, dto);
+  async login(@Headers('x-tenant-slug') tenantSlug: string | undefined, @Body() dto: LoginDto, @Req() req: Request) {
+    const result = await this.authService.login(tenantSlug, dto, sessionContextFrom(req));
     return ok(result);
   }
 
@@ -60,8 +65,9 @@ export class AuthController {
     @CurrentTenantId() tenantId: string,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SwitchTenantDto,
+    @Req() req: Request,
   ) {
-    const result = await this.authService.switchTenant(tenantId, user.userId, dto.tenantSlug);
+    const result = await this.authService.switchTenant(tenantId, user.userId, dto.tenantSlug, sessionContextFrom(req));
     return ok(result);
   }
 
@@ -120,8 +126,8 @@ export class AuthController {
   @UseGuards(AuthGuard('jwt-refresh'))
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
-  async refresh(@CurrentTenantId() tenantId: string, @Body() dto: RefreshTokenDto, @CurrentUser() user: any) {
-    const result = await this.authService.refresh(tenantId, user.sub, dto.refreshToken);
+  async refresh(@CurrentTenantId() tenantId: string, @Body() dto: RefreshTokenDto, @CurrentUser() user: any, @Req() req: Request) {
+    const result = await this.authService.refresh(tenantId, user.sub, dto.refreshToken, sessionContextFrom(req));
     return ok(result);
   }
 
@@ -141,6 +147,31 @@ export class AuthController {
   async logoutAll(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
     await this.authService.logoutAll(tenantId, user.userId);
     return ok({ message: 'Logged out of all devices.' });
+  }
+
+  @ApiOperation({ summary: 'List the current user\'s active signed-in devices/sessions' })
+  @ApiBearerAuth()
+  @Get('sessions')
+  async listSessions(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
+    const result = await this.authService.listSessions(tenantId, user.userId);
+    return ok(result);
+  }
+
+  @ApiOperation({ summary: 'Sign out one specific device/session, without needing that device\'s own refresh token' })
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @Delete('sessions/:id')
+  async revokeSession(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    await this.authService.revokeSession(tenantId, user.userId, id);
+    return ok({ message: 'Session revoked.' });
+  }
+
+  @ApiOperation({ summary: 'Recent login-related activity for the current user (login, failed login, logout, workspace switch)' })
+  @ApiBearerAuth()
+  @Get('login-history')
+  async loginHistory(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser) {
+    const result = await this.authService.loginHistory(tenantId, user.userId);
+    return ok(result);
   }
 
   @ApiOperation({ summary: 'Generate a new TOTP secret + QR code (not yet enforced until confirmed via /mfa/enable)' })

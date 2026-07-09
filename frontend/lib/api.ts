@@ -193,7 +193,29 @@ export const authApi = {
     apiRequest<{ message: string }>('/auth/verify-email', { method: 'POST', tenantSlug: '', body: { token } }),
   resendVerification: (tenantSlug: string) =>
     apiRequest<{ message: string }>('/auth/resend-verification', { method: 'POST', tenantSlug, auth: true }),
+  listSessions: (tenantSlug: string) =>
+    apiRequest<AuthSession[]>('/auth/sessions', { tenantSlug, auth: true }),
+  revokeSession: (tenantSlug: string, id: string) =>
+    apiRequest<{ message: string }>(`/auth/sessions/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  loginHistory: (tenantSlug: string) =>
+    apiRequest<LoginHistoryEntry[]>('/auth/login-history', { tenantSlug, auth: true }),
 };
+
+export interface AuthSession {
+  id: string;
+  userAgent: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface LoginHistoryEntry {
+  id: string;
+  action: 'auth.login' | 'auth.login_failed' | 'auth.logout' | 'auth.switch_tenant';
+  ipAddress: string | null;
+  metadata: { userAgent?: string; reason?: string } | null;
+  createdAt: string;
+}
 
 export interface MfaSetupResult {
   secret: string;

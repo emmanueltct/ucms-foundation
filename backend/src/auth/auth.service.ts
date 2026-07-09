@@ -23,6 +23,15 @@ type UserWithRoles = Prisma.UserGetPayload<{
   include: { userRoles: { include: { role: { include: { rolePermissions: { include: { permission: true } } } } } } };
 }>;
 
+/** Captured from the request at the auth controller and threaded through to `issueSession`/`audit` — never trusted beyond "what this HTTP request reported." */
+export interface SessionContext {
+  userAgent?: string;
+  ipAddress?: string;
+}
+
+const LOGIN_HISTORY_ACTIONS = ['auth.login', 'auth.login_failed', 'auth.logout', 'auth.switch_tenant'];
+const LOGIN_HISTORY_LIMIT = 50;
+
 const BCRYPT_ROUNDS = 12;
 const ACCESS_TOKEN_TTL = '15m';
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -40,7 +49,7 @@ export class AuthService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  async register(tenantId: string, dto: RegisterDto): Promise<AuthResponseDto> {
+  async register(tenantId: string, dto: RegisterDto, context: SessionContext = {}): Promise<AuthResponseDto> {
     const existing = await this.prisma.user.findUnique({
       where: { tenantId_email: { tenantId, email: dto.email.toLowerCase() } },
     });
@@ -69,7 +78,7 @@ export class AuthService {
       // documented stub gateway; see Communication module
     }
 
-    return this.issueSession(tenantId, user.id, user.email, [], []);
+    return this.issueSession(tenantId, user.id, user.email, [], [], context);
   }
 
   /**
@@ -136,11 +145,15 @@ export class AuthService {
    * frontend can ask which workspace and resubmit with `tenantSlug` set —
    * closing the loop back to the normal single-tenant path.
    */
-  async login(tenantSlug: string | undefined, dto: LoginDto): Promise<AuthResponseDto | WorkspaceSelectionResponseDto> {
+  async login(
+    tenantSlug: string | undefined,
+    dto: LoginDto,
+    context: SessionContext = {},
+  ): Promise<AuthResponseDto | WorkspaceSelectionResponseDto> {
     if (tenantSlug) {
       const tenantId = await this.resolveTenantIdBySlug(tenantSlug);
       const user = await this.findUserWithRoles(tenantId, dto.email);
-      return this.completeLogin(tenantId, user, dto);
+      return this.completeLogin(tenantId, user, dto, context);
     }
 
     const emailMatches = await this.prisma.unscoped.user.findMany({
@@ -156,7 +169,7 @@ export class AuthService {
     if (activeMatches.length === 1) {
       const only = activeMatches[0];
       const user = await this.findUserWithRoles(only.tenantId, dto.email);
-      return this.completeLogin(only.tenantId, user, dto);
+      return this.completeLogin(only.tenantId, user, dto, context);
     }
 
     // The same email exists in more than one workspace — verify the password before disambiguating,
@@ -173,7 +186,7 @@ export class AuthService {
     if (passwordMatches.length === 1) {
       const only = passwordMatches[0];
       const user = await this.findUserWithRoles(only.tenantId, dto.email);
-      return this.completeLogin(only.tenantId, user, dto);
+      return this.completeLogin(only.tenantId, user, dto, context);
     }
 
     const workspaces: WorkspaceOptionDto[] = passwordMatches.map((m) => ({ slug: m.tenant.slug, name: m.tenant.name }));
@@ -186,7 +199,12 @@ export class AuthService {
    * no password re-entry, since the caller already proved their identity
    * with a valid token for `currentTenantId`.
    */
-  async switchTenant(currentTenantId: string, userId: string, targetTenantSlug: string): Promise<AuthResponseDto> {
+  async switchTenant(
+    currentTenantId: string,
+    userId: string,
+    targetTenantSlug: string,
+    context: SessionContext = {},
+  ): Promise<AuthResponseDto> {
     const currentUser = await this.prisma.user.findFirst({ where: { id: userId, tenantId: currentTenantId } });
     if (!currentUser || !currentUser.isActive) {
       throw new UnauthorizedException({ code: 'USER_INACTIVE', message: 'Account is inactive.' });
@@ -204,9 +222,9 @@ export class AuthService {
     );
 
     await this.prisma.user.update({ where: { id: targetUser.id, tenantId: targetTenantId }, data: { lastLoginAt: new Date() } });
-    await this.audit(targetTenantId, targetUser.id, 'auth.switch_tenant', 'User', targetUser.id);
+    await this.audit(targetTenantId, targetUser.id, 'auth.switch_tenant', 'User', targetUser.id, context);
 
-    return this.issueSession(targetTenantId, targetUser.id, targetUser.email, roles, permissions);
+    return this.issueSession(targetTenantId, targetUser.id, targetUser.email, roles, permissions, context);
   }
 
   /** Every church workspace this email has an active account in — powers a workspace switcher in the UI. */
@@ -225,7 +243,12 @@ export class AuthService {
    * access/refresh pair is issued. Rejects if the token is unknown, expired,
    * or already revoked (protects against replay of a stolen token).
    */
-  async refresh(tenantId: string, userId: string, presentedToken: string): Promise<AuthResponseDto> {
+  async refresh(
+    tenantId: string,
+    userId: string,
+    presentedToken: string,
+    context: SessionContext = {},
+  ): Promise<AuthResponseDto> {
     const tokenHash = this.hashToken(presentedToken);
 
     const stored = await this.prisma.refreshToken.findFirst({
@@ -245,14 +268,24 @@ export class AuthService {
       throw new UnauthorizedException({ code: 'USER_INACTIVE', message: 'Account is inactive.' });
     }
 
-    await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
-
     const roles = user.userRoles.map((ur) => ur.role.name);
     const permissions = Array.from(
       new Set(user.userRoles.flatMap((ur) => ur.role.rolePermissions.map((rp) => rp.permission.code))),
     );
 
-    return this.issueSession(tenantId, user.id, user.email, roles, permissions);
+    // Reuses the device/IP the rotating request actually reported, so a
+    // session's identity in `GET /auth/sessions` stays accurate across
+    // rotations rather than freezing at whatever the original login saw.
+    const result = await this.issueSession(tenantId, user.id, user.email, roles, permissions, context);
+    const newTokenHash = this.hashToken(result.tokens.refreshToken);
+    const newToken = await this.prisma.refreshToken.findFirst({ where: { tenantId, userId, tokenHash: newTokenHash } });
+
+    await this.prisma.refreshToken.update({
+      where: { id: stored.id },
+      data: { revokedAt: new Date(), replacedBy: newToken?.id },
+    });
+
+    return result;
   }
 
   async logout(tenantId: string, userId: string, presentedToken: string): Promise<void> {
@@ -399,13 +432,19 @@ export class AuthService {
     });
   }
 
-  private async completeLogin(tenantId: string, user: UserWithRoles | null, dto: LoginDto): Promise<AuthResponseDto> {
+  private async completeLogin(
+    tenantId: string,
+    user: UserWithRoles | null,
+    dto: LoginDto,
+    context: SessionContext = {},
+  ): Promise<AuthResponseDto> {
     if (!user || !user.isActive || user.deletedAt) {
       throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
     }
 
     const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatches) {
+      await this.audit(tenantId, user.id, 'auth.login_failed', 'User', user.id, context, { reason: 'invalid_password' });
       throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
     }
 
@@ -414,6 +453,7 @@ export class AuthService {
         throw new UnauthorizedException({ code: 'MFA_REQUIRED', message: 'A 6-digit authenticator code is required.' });
       }
       if (!user.mfaSecret || !(await this.mfa.verifyToken(dto.mfaCode, user.mfaSecret))) {
+        await this.audit(tenantId, user.id, 'auth.login_failed', 'User', user.id, context, { reason: 'invalid_mfa_code' });
         throw new UnauthorizedException({ code: 'MFA_INVALID', message: 'Invalid authenticator code.' });
       }
     }
@@ -424,9 +464,9 @@ export class AuthService {
     );
 
     await this.prisma.user.update({ where: { id: user.id, tenantId }, data: { lastLoginAt: new Date() } });
-    await this.audit(tenantId, user.id, 'auth.login', 'User', user.id);
+    await this.audit(tenantId, user.id, 'auth.login', 'User', user.id, context);
 
-    return this.issueSession(tenantId, user.id, user.email, roles, permissions);
+    return this.issueSession(tenantId, user.id, user.email, roles, permissions, context);
   }
 
   private async issueSession(
@@ -435,6 +475,7 @@ export class AuthService {
     email: string,
     roles: string[],
     permissions: string[],
+    context: SessionContext = {},
   ): Promise<AuthResponseDto> {
     const accessToken = this.jwt.sign(
       { sub: userId, tenantId },
@@ -455,6 +496,8 @@ export class AuthService {
         tenantId,
         userId,
         tokenHash: this.hashToken(refreshToken),
+        userAgent: context.userAgent,
+        ipAddress: context.ipAddress,
         expiresAt,
       },
     });
@@ -487,13 +530,60 @@ export class AuthService {
     };
   }
 
+  /** Active (non-revoked, non-expired) device sessions for the current user — powers a "sign out this device" UI. */
+  async listSessions(tenantId: string, userId: string) {
+    return this.prisma.refreshToken.findMany({
+      where: { tenantId, userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      select: { id: true, userAgent: true, ipAddress: true, createdAt: true, expiresAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Revokes one specific session by id — the device-management counterpart to `logout` (which needs the token itself) and `logoutAll` (which revokes every session). */
+  async revokeSession(tenantId: string, userId: string, sessionId: string): Promise<void> {
+    const session = await this.prisma.refreshToken.findFirst({
+      where: { id: sessionId, tenantId, userId, revokedAt: null },
+    });
+    if (!session) {
+      throw new NotFoundException({ code: 'SESSION_NOT_FOUND', message: 'Session not found.' });
+    }
+    await this.prisma.refreshToken.update({ where: { id: sessionId }, data: { revokedAt: new Date() } });
+  }
+
+  /** Recent login-related activity for the current user — reuses AuditLog rather than a dedicated table (see FR-AUTH-9). */
+  async loginHistory(tenantId: string, userId: string) {
+    return this.prisma.auditLog.findMany({
+      where: { tenantId, userId, action: { in: LOGIN_HISTORY_ACTIONS } },
+      select: { id: true, action: true, ipAddress: true, metadata: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+      take: LOGIN_HISTORY_LIMIT,
+    });
+  }
+
   private hashToken(token: string): string {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 
-  private async audit(tenantId: string, userId: string, action: string, entityType: string, entityId: string) {
+  private async audit(
+    tenantId: string,
+    userId: string,
+    action: string,
+    entityType: string,
+    entityId: string,
+    context: SessionContext = {},
+    extraMetadata?: Record<string, unknown>,
+  ) {
+    const metadata = { ...(context.userAgent ? { userAgent: context.userAgent } : {}), ...extraMetadata };
     await this.prisma.auditLog.create({
-      data: { tenantId, userId, action, entityType, entityId },
+      data: {
+        tenantId,
+        userId,
+        action,
+        entityType,
+        entityId,
+        ipAddress: context.ipAddress,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+      },
     });
   }
 }

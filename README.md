@@ -81,7 +81,12 @@ backend/                       NestJS API
                                 TOTP MFA enroll/verify, email-first/multi-workspace
                                 login + switch-tenant, forgot/reset-password, email
                                 verification — all via `PrismaService.unscoped` where
-                                the tenant genuinely isn't known yet
+                                the tenant genuinely isn't known yet. Every issued
+                                RefreshToken now carries the request's User-Agent/IP;
+                                GET /auth/sessions + DELETE /auth/sessions/:id give
+                                self-service device management, GET /auth/login-history
+                                surfaces recent login/failed-login/logout/switch-tenant
+                                events from AuditLog
     tenants/                   Platform-admin tenant provisioning (+ optional admin-user
                                 bootstrap), and the tenant's own profile/onboarding-complete
                                 endpoints
@@ -197,7 +202,9 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/forgot-password/page.tsx  Request a password reset link (not tenant-scoped)
   app/reset-password/page.tsx   Complete a reset using the emailed token
   app/verify-email/page.tsx     Confirm an email using the emailed token
-  app/admin/settings/security/page.tsx  Enroll in / disable TOTP 2FA
+  app/admin/settings/security/page.tsx  Enroll in / disable TOTP 2FA, an "Active
+                                  sessions" list with a per-device "Sign out" action, and
+                                  a "Recent login activity" feed
   app/admin/layout.tsx           Shared sidebar shell for every /admin/* page + a
                                   dismissible "verify your email" banner
   app/admin/page.tsx             Dashboard — live counts + jump-off cards into each module
@@ -669,6 +676,18 @@ npm run test:e2e             # requires a migrated + seeded test database
     platform at all and be previewed inline; `POST /documents/batch` is
     many ordinary `POST /documents` calls sharing metadata, not a new kind of
     record. See `docs/document-management/business-analysis.md`.
+37. **A field already earmarked but never wired up (`replacedBy`) is finished,
+    not left decorative.** `RefreshToken.replacedBy` existed in the schema
+    since the Foundation module but nothing ever set it. Rather than leaving
+    it dead or removing it, `refresh()` now sets it on rotation and forwards
+    the rotating request's device/IP to the new row, turning what was a flat
+    table of tokens into an actual chain of *device sessions* — the same
+    session, reflected accurately, across every rotation. Failed-login
+    auditing is deliberately narrower than "log every attempt": only
+    attempts against a resolved `User` row are audited
+    (`auth.login_failed` + reason), because an unresolved email has no
+    owner who could act on the entry — logging it would be noise wearing
+    the shape of a security feature. See `docs/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -723,17 +742,32 @@ npm run test:e2e             # requires a migrated + seeded test database
   every time a file is replaced. (Virus scanning remains out of scope — it needs a 3rd-party
   service this environment has no credentials for.) See design decision #36 and
   `docs/document-management/business-analysis.md`.
+- **Session/device management + login history**: every issued `RefreshToken` now records the
+  request's `User-Agent`/IP and carries that identity forward across rotation
+  (`replacedBy`, previously an unused column). `GET /auth/sessions` +
+  `DELETE /auth/sessions/:id` give self-service "see and sign out my other devices";
+  `GET /auth/login-history` surfaces the last 50 login/failed-login/logout/switch-tenant
+  events for the calling user, reusing `AuditLog` rather than a new table. See design
+  decision #37 and `docs/business-analysis.md`.
 
 ## Next module
 
-Modules 0-14 (Foundation through Member Activities & Personal History) plus
-the cross-cutting Custom Fields mechanism are complete, and the hardening
-pass above covers a large chunk of the "everything must be configurable" +
-security requirements named in the platform's expanded requirements list.
-Still in progress from that same list:
+Modules 0-14 (Foundation through Member Activities & Personal History) plus the
+cross-cutting Custom Fields mechanism are complete, and every item on this pass's working
+list (Tasks 1-12: form-builder Custom Fields, password reset, email verification, MFA UI,
+multi-workspace login, dynamic hierarchy onboarding, visitor groups/activities, member
+activities + personal history, report/list exports, file management polish, and
+session/login-history) is now done.
 
-1. **Session/device management + login history**, building on the
-   `RefreshToken` records already tracked per device.
+What's left is everything each module's own "Out of Scope" section already names
+explicitly and for a stated reason — not a hidden gap, but a deliberate line drawn under
+time/dependency constraints this environment has (no credentials for virus scanning, IP
+geolocation, or a real email/SMS gateway; no admin-facing "see other users' sessions" view;
+no configurable report builder; no full rich-text mentions/tables/embeds; no barcode/QR
+generation or GPS map picker widget for Custom Fields' `gps`/`barcode`-flavored fields
+beyond their current plain-value storage). Any of these is a reasonable next module to pick
+up — each one's business-analysis doc explains the specific reason it was deferred and what
+building it for real would require.
 
 Whichever is picked up should still follow the established patterns: tenant
 scoping structural not optional, `ConfigItem` for tenant-specific "types,"

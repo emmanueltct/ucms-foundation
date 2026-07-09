@@ -171,6 +171,12 @@ model UserRole {
 // ----------------------------------------------------------------------------
 // AUTH SESSIONS
 // ----------------------------------------------------------------------------
+/// Each row is one "device session" — issued at login/switch-tenant, rotated
+/// (old revoked, `replacedBy` set) on every `/auth/refresh` call, so the
+/// same continuous session carries its `userAgent`/`ipAddress` forward
+/// across rotations. `GET /auth/sessions` lists a user's active (non-revoked,
+/// non-expired) rows as their signed-in devices; `DELETE /auth/sessions/:id`
+/// revokes one without needing the token itself, the way `logout` does.
 model RefreshToken {
   id         String    @id @default(uuid())
   tenantId   String    @map("tenant_id")
@@ -178,6 +184,8 @@ model RefreshToken {
   userId     String    @map("user_id")
   user       User      @relation(fields: [userId], references: [id])
   tokenHash  String    @map("token_hash")
+  userAgent  String?   @map("user_agent")
+  ipAddress  String?   @map("ip_address")
   expiresAt  DateTime  @map("expires_at")
   revokedAt  DateTime? @map("revoked_at")
   replacedBy String?   @map("replaced_by")

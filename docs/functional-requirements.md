@@ -46,6 +46,13 @@
   until confirmed via `POST /auth/mfa/enable` with a valid current code. Once `mfaEnabled` is
   true, login without an `mfaCode` is rejected with `401 MFA_REQUIRED`; an invalid code is
   rejected with `401 MFA_INVALID`. `POST /auth/mfa/disable` also requires a valid current code.
+- FR-2.13 Every issued `RefreshToken` (login, switch-tenant, and each refresh rotation) records
+  the request's `User-Agent` and IP address. `GET /auth/sessions` (authenticated) lists the
+  caller's own active (non-revoked, non-expired) sessions; `DELETE /auth/sessions/:id`
+  (authenticated) revokes one by id, rejecting with `404 SESSION_NOT_FOUND` if it doesn't belong
+  to the caller. On `POST /auth/refresh`, the rotated-out token's `replacedBy` is set to the new
+  token's id, so a continuous session's device/IP metadata carries forward across rotations
+  instead of resetting to whatever the original login saw.
 
 ## FR-3 Authorization (RBAC + PBAC)
 - FR-3.1 Roles are created per tenant with a name, description, and a set of permission codes.
@@ -72,6 +79,17 @@
 ## FR-5 Audit
 - FR-5.1 Login, logout, role changes, and config changes are written to `AuditLog` with
   tenant, user, action, entity type/id, and metadata.
+- FR-5.2 A failed login attempt against a *resolved, existing* account (wrong password, or an
+  invalid MFA code once MFA is enabled) is written to `AuditLog` as `auth.login_failed` with a
+  `reason` (`invalid_password` | `invalid_mfa_code`) in `metadata`, and the request's IP
+  address. Login attempts that never resolve to an account (unknown email) are **not**
+  audited — there is no `User` row to attach the entry to, and auditing every guessed email
+  would itself be a minor information/noise surface with no actionable owner to review it.
+- FR-5.3 `GET /auth/login-history` (authenticated) returns the caller's own most recent 50
+  `AuditLog` rows where `action` is one of `auth.login`, `auth.login_failed`, `auth.logout`,
+  `auth.switch_tenant`, most recent first — a self-service "has anyone signed in as me"
+  view, not an admin-facing audit browser (which doesn't exist yet — see Out of Scope in
+  `docs/business-analysis.md`).
 
 ## FR-6 Non-Functional
 - FR-6.1 All list endpoints support pagination (`page`, `pageSize`), filtering, and sorting via
