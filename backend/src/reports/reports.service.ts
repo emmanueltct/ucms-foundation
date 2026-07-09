@@ -1,6 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MemberActivitiesService } from '../members/member-activities.service';
 import { ReportQueryDto } from './dto/report-query.dto';
+
+export interface TimelineEntry {
+  kind: 'ministry' | 'small_group' | 'event' | 'attendance' | 'contribution' | 'activity';
+  date: string;
+  label: string;
+  detail?: string;
+}
 
 export interface MonthBucket {
   month: string;
@@ -26,7 +34,10 @@ export interface KeyBucket {
  */
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly memberActivitiesService: MemberActivitiesService,
+  ) {}
 
   async overview(tenantId: string) {
     const now = new Date();
@@ -136,6 +147,120 @@ export class ReportsService {
     return {
       byMonth: this.bucketByMonth(rows, start, end, (r) => r.paidAt as Date, (r) => Number(r.netAmount)),
       byDepartment: this.bucketByKey(rows, (r) => r.staff.department ?? 'unassigned', (r) => Number(r.netAmount)),
+    };
+  }
+
+  /**
+   * A member's whole personal history in one place — ministries served,
+   * small groups/programs attended, events attended, attendance and giving
+   * summaries, and every logged MemberActivity (sacraments, trainings,
+   * certificates, leadership appointments, ...), merged into one
+   * chronological `timeline`. See docs/member-activities/business-analysis.md
+   * for why this composes five modules' existing data plus one new model
+   * rather than introducing a single denormalized "activity" table for
+   * everything (ministries/small groups/events/attendance/giving already
+   * have their own, richer, dedicated tracking).
+   */
+  async memberActivityHistory(tenantId: string, memberId: string) {
+    const member = await this.prisma.member.findFirst({
+      where: { id: memberId, tenantId, deletedAt: null },
+      select: { id: true, firstName: true, lastName: true, membershipNumber: true },
+    });
+    if (!member) throw new NotFoundException({ code: 'MEMBER_NOT_FOUND', message: 'Member not found.' });
+
+    const [ministries, smallGroups, eventRegistrations, attendanceRecords, contributions, activities] =
+      await Promise.all([
+        this.prisma.ministryMembership.findMany({
+          where: { tenantId, memberId },
+          include: { ministry: { select: { name: true } } },
+          orderBy: { joinedAt: 'desc' },
+        }),
+        this.prisma.smallGroupMembership.findMany({
+          where: { tenantId, memberId },
+          include: { smallGroup: { select: { name: true } } },
+          orderBy: { joinedAt: 'desc' },
+        }),
+        this.prisma.eventRegistration.findMany({
+          where: { tenantId, memberId },
+          include: { event: { select: { name: true, startsAt: true } } },
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.attendanceRecord.findMany({
+          where: { tenantId, memberId, deletedAt: null },
+          select: { serviceType: true, attendedAt: true, headcount: true },
+          orderBy: { attendedAt: 'desc' },
+          take: 50,
+        }),
+        this.prisma.contribution.findMany({
+          where: { tenantId, memberId, isVoided: false },
+          select: { contributionType: true, amount: true, currency: true, contributedAt: true },
+          orderBy: { contributedAt: 'desc' },
+          take: 50,
+        }),
+        this.memberActivitiesService.listActivitiesRaw(tenantId, memberId),
+      ]);
+
+    const attendanceTotal = await this.prisma.attendanceRecord.aggregate({
+      where: { tenantId, memberId, deletedAt: null },
+      _count: { _all: true },
+    });
+    const contributionsTotal = await this.prisma.contribution.aggregate({
+      where: { tenantId, memberId, isVoided: false },
+      _sum: { amount: true },
+      _count: { _all: true },
+    });
+
+    const timeline: TimelineEntry[] = [
+      ...ministries.map((m) => ({
+        kind: 'ministry' as const,
+        date: (m.joinedAt ?? m.createdAt).toISOString(),
+        label: `Joined ${m.ministry.name}`,
+        detail: m.role,
+      })),
+      ...smallGroups.map((g) => ({
+        kind: 'small_group' as const,
+        date: (g.joinedAt ?? g.createdAt).toISOString(),
+        label: `Joined ${g.smallGroup.name}`,
+        detail: g.role,
+      })),
+      ...eventRegistrations.map((r) => ({
+        kind: 'event' as const,
+        date: r.event.startsAt.toISOString(),
+        label: r.event.name,
+        detail: r.status,
+      })),
+      ...attendanceRecords.map((a) => ({
+        kind: 'attendance' as const,
+        date: a.attendedAt.toISOString(),
+        label: `Attended ${a.serviceType}`,
+      })),
+      ...contributions.map((c) => ({
+        kind: 'contribution' as const,
+        date: c.contributedAt.toISOString(),
+        label: `Gave (${c.contributionType})`,
+        detail: `${c.amount} ${c.currency}`,
+      })),
+      ...activities.map((a) => ({
+        kind: 'activity' as const,
+        date: a.activityDate.toISOString(),
+        label: a.activityType,
+        detail: a.outcome ?? undefined,
+      })),
+    ].sort((a, b) => b.date.localeCompare(a.date));
+
+    return {
+      member,
+      ministries,
+      smallGroups,
+      eventsAttended: eventRegistrations,
+      attendance: { totalCount: attendanceTotal._count._all, recent: attendanceRecords },
+      contributions: {
+        totalAmount: contributionsTotal._sum.amount ?? 0,
+        totalCount: contributionsTotal._count._all,
+        recent: contributions,
+      },
+      activities,
+      timeline,
     };
   }
 

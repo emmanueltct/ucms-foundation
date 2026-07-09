@@ -305,6 +305,26 @@ export interface CreateMemberInput {
   customFields?: Record<string, unknown>;
 }
 
+export interface MemberActivity {
+  id: string;
+  memberId: string;
+  activityType: string;
+  activityDate: string;
+  outcome: string | null;
+  notes: string | null;
+  performedByUserId: string | null;
+  createdAt: string;
+  customFields: Record<string, unknown>;
+}
+
+export interface CreateMemberActivityInput {
+  activityType: string;
+  activityDate?: string;
+  outcome?: string;
+  notes?: string;
+  customFields?: Record<string, unknown>;
+}
+
 export const membersApi = {
   list: (
     tenantSlug: string,
@@ -327,6 +347,10 @@ export const membersApi = {
     apiRequest<Member>(`/members/${id}/transfer`, { method: 'PATCH', tenantSlug, auth: true, body: { branchId } }),
   remove: (tenantSlug: string, id: string) =>
     apiRequest<Member>(`/members/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  addActivity: (tenantSlug: string, memberId: string, activity: CreateMemberActivityInput) =>
+    apiRequest<MemberActivity>(`/members/${memberId}/activities`, { method: 'POST', tenantSlug, auth: true, body: activity }),
+  listActivities: (tenantSlug: string, memberId: string) =>
+    apiRequest<MemberActivity[]>(`/members/${memberId}/activities`, { tenantSlug, auth: true }),
 };
 
 export interface Contribution {
@@ -789,6 +813,28 @@ export interface MembershipGrowthBucket extends MonthBucket {
   cumulativeActive: number;
 }
 
+export interface MemberActivityTimelineEntry {
+  kind: 'ministry' | 'small_group' | 'event' | 'attendance' | 'contribution' | 'activity';
+  date: string;
+  label: string;
+  detail?: string;
+}
+
+export interface MemberActivityHistory {
+  member: { id: string; firstName: string; lastName: string; membershipNumber: string | null };
+  ministries: { ministryId: string; role: string; joinedAt: string | null; ministry: { name: string } }[];
+  smallGroups: { smallGroupId: string; role: string; joinedAt: string | null; smallGroup: { name: string } }[];
+  eventsAttended: { eventId: string; status: string; event: { name: string; startsAt: string } }[];
+  attendance: { totalCount: number; recent: { serviceType: string; attendedAt: string; headcount: number }[] };
+  contributions: {
+    totalAmount: number;
+    totalCount: number;
+    recent: { contributionType: string; amount: number; currency: string; contributedAt: string }[];
+  };
+  activities: MemberActivity[];
+  timeline: MemberActivityTimelineEntry[];
+}
+
 export const reportsApi = {
   overview: (tenantSlug: string) => apiRequest<ReportOverview>('/reports/overview', { tenantSlug, auth: true }),
   financeSummary: (tenantSlug: string, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
@@ -811,6 +857,8 @@ export const reportsApi = {
       tenantSlug,
       auth: true,
     }),
+  memberActivityHistory: (tenantSlug: string, memberId: string) =>
+    apiRequest<MemberActivityHistory>(`/reports/members/${memberId}/activity-history`, { tenantSlug, auth: true }),
 };
 
 function reportRangeQs(params: { dateFrom?: string; dateTo?: string; branchId?: string }): string {

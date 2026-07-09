@@ -34,6 +34,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'VisitorGroup',
   'Visitor',
   'VisitorActivity',
+  'MemberActivity',
   'Document',
   'SmallGroup',
   'SmallGroupMembership',

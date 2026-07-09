@@ -110,7 +110,7 @@ export const knowledgeBaseModules: KnowledgeBaseModule[] = [
       'A ConfigItem has a namespace, a key, and a display label, scoped to one tenant',
       'Items can be deactivated ("retired") and reactivated without ever being deleted',
       'Every other module reads its dropdown options from here at request time — adding an item requires zero code changes',
-      '16 namespaces exist today: branch_type, membership_category, contribution_type, service_type, attendance_method, ministry_type, small_group_type, event_type, staff_position, department, asset_category, asset_condition, visitor_source, visitor_group_type, visitor_activity_type, document_category',
+      '17 namespaces exist today: branch_type, membership_category, member_activity_type, contribution_type, service_type, attendance_method, ministry_type, small_group_type, event_type, staff_position, department, asset_category, asset_condition, visitor_source, visitor_group_type, visitor_activity_type, document_category',
     ],
     scenarios: [
       {

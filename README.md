@@ -1,19 +1,21 @@
-# UCMS — Foundation through Small Groups & Children's Ministry (Modules 0-13) + Custom Fields
+# UCMS — Foundation through Member Activities (Modules 0-14) + Custom Fields
 
 Multi-tenancy, Authentication (RBAC + PBAC), the Configuration Engine, Church &
 Hierarchy Management, Member & Family Management, Finance, Attendance, Ministry &
 Volunteer Management, Communication, Events, HR & Payroll, Reports & Analytics,
 Asset & Facility Management, Visitor & Follow-up Management, Document
-Management, Small Groups & Children's Ministry, and a cross-cutting Custom
-Fields module for the Unified Church Management System. Module 0 (Foundation),
-Module 1 (Church & Hierarchy), Module 2 (Member & Family Management), Module 3
-(Finance), Module 4 (Attendance), Module 5 (Ministry & Volunteer Management),
-Module 6 (Communication), Module 7 (Events), Module 8 (HR & Payroll), Module 9
+Management, Small Groups & Children's Ministry, Member Activities & Personal
+History, and a cross-cutting Custom Fields module for the Unified Church
+Management System. Module 0 (Foundation), Module 1 (Church & Hierarchy),
+Module 2 (Member & Family Management), Module 3 (Finance), Module 4
+(Attendance), Module 5 (Ministry & Volunteer Management), Module 6
+(Communication), Module 7 (Events), Module 8 (HR & Payroll), Module 9
 (Reports & Analytics), Module 10 (Asset & Facility Management), Module 11
-(Visitor & Follow-up Management), Module 12 (Document Management), and
-Module 13 (Small Groups & Children's Ministry) are complete — what's left is
-the optional/AI-assisted feature set explicitly deferred to the end of the
-original roadmap, plus a set of cross-cutting hardening passes described below.
+(Visitor & Follow-up Management), Module 12 (Document Management), Module 13
+(Small Groups & Children's Ministry), and Module 14 (Member Activities &
+Personal History) are complete — what's left is the optional/AI-assisted
+feature set explicitly deferred to the end of the original roadmap, plus a
+set of cross-cutting hardening passes described below.
 
 Custom Fields (`docs/custom-fields/`) is not numbered as its own module — it's a
 cross-cutting mechanism, wired into Member & Family Management (and, per-category,
@@ -50,6 +52,7 @@ docs/
   visitor-management/          Module 11 docs (business analysis, FRs, API design)
   document-management/         Module 12 docs (business analysis, FRs, API design)
   small-groups/                Module 13 docs (business analysis, FRs, API design)
+  member-activities/           Module 14 docs (business analysis, FRs, API design)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -58,7 +61,7 @@ prisma/
                                 MinistryMembership, Notification, CustomFieldDefinition,
                                 CustomFieldValue, Event, EventRegistration, Staff,
                                 PayrollPayment, Asset, VisitorGroup, Visitor, VisitorActivity,
-                                Document, SmallGroup, SmallGroupMembership, ...
+                                Document, SmallGroup, SmallGroupMembership, MemberActivity, ...
 
 backend/                       NestJS API
   src/
@@ -83,7 +86,10 @@ backend/                       NestJS API
                                 tree, ancestors/descendants, move (cycle-checked),
                                 cascading deactivate
     members/                   Member profiles attached to a Branch; transfer between
-                                branches (cycle-free, so it's a plain move+validate)
+                                branches (cycle-free, so it's a plain move+validate);
+                                MemberActivitiesService logs a tenant-configurable activity
+                                (sacraments, trainings, certificates, leadership appointments,
+                                ...) per member (member_activity:{type} composed Custom Fields)
     families/                  Family/household grouping — flat (no hierarchy), head
                                 of family, non-cascading deactivate/delete
     finance/                   Contribution recording against a Branch and (optionally) a
@@ -117,7 +123,9 @@ backend/                       NestJS API
     reports/                   Cross-cutting, read-only aggregation over Finance/Attendance/
                                 Member/Event/HR & Payroll data — no Prisma models of its own;
                                 month-bucketed trends are zero-filled, guarded by a single
-                                `reports.view` permission
+                                `reports.view` permission. Also serves the per-member
+                                activity-history timeline, merging Ministries/Small Groups/
+                                Events/Attendance/Contributions/MemberActivity into one list
     assets/                    Assets (buildings, vehicles, equipment, ...) under a
                                 tenant-configurable category; Custom Fields is reused with a
                                 composed entityType (`asset:{category}`) so each category gets
@@ -153,20 +161,20 @@ backend/                       NestJS API
                                 contribution types, ceremony names, membership
                                 categories, feature toggles — all as data)
   prisma/seed.ts                Seeds the permission catalog, a demo tenant, branch
-                                types, membership categories, contribution types, service
-                                types, attendance methods, ministry types, event types,
-                                staff positions, departments, asset categories, asset
-                                conditions, visitor sources, visitor group types, visitor
-                                activity types, document categories, small group types, example asset:vehicle/
-                                asset:building custom fields (including two file-upload
-                                fields), two example member custom fields, and a
-                                headquarters branch
+                                types, membership categories, member activity types,
+                                contribution types, service types, attendance methods,
+                                ministry types, event types, staff positions, departments,
+                                asset categories, asset conditions, visitor sources, visitor
+                                group types, visitor activity types, document categories,
+                                small group types, example asset:vehicle/asset:building
+                                custom fields (including two file-upload fields), two
+                                example member custom fields, and a headquarters branch
   test/                         Unit tests (auth, guards, config, queue, storage,
-                                tenant scoping, MFA, branches, families, members,
-                                tenant profile, finance, attendance, ministries,
+                                tenant scoping, MFA, branches, families, members, member
+                                activities, tenant profile, finance, attendance, ministries,
                                 notifications, custom fields, events, staff, payroll,
-                                reports, assets, visitors, documents, small groups) + e2e
-                                auth flow
+                                reports, assets, visitors, visitor groups, visitor
+                                activities, documents, small groups) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -185,7 +193,10 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/config/page.tsx      Church Admin UI for the Configuration Engine
   app/admin/branches/page.tsx    Church Admin UI for the organizational hierarchy tree
   app/admin/members/page.tsx     Church Admin UI for members — renders this tenant's
-                                  custom fields dynamically alongside the fixed ones
+                                  custom fields dynamically alongside the fixed ones, plus a
+                                  "History" panel per member merging ministries/small groups/
+                                  events/attendance/giving/activities into one timeline, with
+                                  a form to log new tenant-configurable activities
   app/admin/finance/page.tsx     Church Admin UI for recording/voiding contributions
   app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
   app/admin/ministries/page.tsx  Church Admin UI for ministries and volunteer rosters
@@ -606,6 +617,17 @@ npm run test:e2e             # requires a migrated + seeded test database
     `asset:{assetCategory}`) — a Baptism Class activity and a Prayer
     activity can require completely different extra fields with zero code
     changes. See `docs/visitor-management/business-analysis.md`.
+34. **A per-member report belongs next to the tenant-wide ones, not inside
+    the module it reports on.** `GET /reports/members/:id/activity-history`
+    lives in `ReportsService`, not `MembersService`, even though it's
+    scoped to a single record — it's still a cross-module read (Ministries,
+    Small Groups, Events, Attendance, Contributions, and the new
+    `MemberActivity`) with no new Prisma models of its own, the exact
+    discipline every other report in that module already follows (design
+    decision #22). `MemberActivity` itself is the third model to use the
+    composed-entityType trick (`member_activity:{activityType}`, after
+    `asset:{assetCategory}` and `visitor_activity:{activityType}`) — see
+    `docs/member-activities/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -641,25 +663,30 @@ npm run test:e2e             # requires a migrated + seeded test database
   with its own Custom Fields per type, loggable against either an
   individual or a whole group. See design decision #33 and
   `docs/visitor-management/business-analysis.md`.
+- **Member Activities & Personal History (new Module 14)**: a new
+  `MemberActivity` model logs sacraments/trainings/certificates/leadership
+  appointments/volunteer work per member (`member_activity:{type}` composed
+  Custom Fields), and `GET /reports/members/:id/activity-history` merges it
+  with Ministry, Small Group, Event, Attendance, and Contribution data into
+  one sorted timeline — surfaced on the Members page as a "History" panel
+  per member. See design decision #34 and
+  `docs/member-activities/business-analysis.md`.
 
 ## Next module
 
-Modules 0-13 (Foundation through Small Groups & Children's Ministry) plus the
-cross-cutting Custom Fields mechanism are complete, and the hardening pass
-above covers a large chunk of the "everything must be configurable" +
+Modules 0-14 (Foundation through Member Activities & Personal History) plus
+the cross-cutting Custom Fields mechanism are complete, and the hardening
+pass above covers a large chunk of the "everything must be configurable" +
 security requirements named in the platform's expanded requirements list.
 Still in progress from that same list, in priority order:
 
-1. **A generalized Member Activities module** with a per-member activity
-   history report aggregating ministries, small groups, events, attendance,
-   and the new activities module into one timeline.
-2. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
+1. **Report exports** (CSV native; PDF/Excel via a lightweight library) for
    Reports & Analytics and per-module list views.
-3. **File management polish** — multi-file upload, image/video/audio
+2. **File management polish** — multi-file upload, image/video/audio
    previews, and a lightweight version history on Document Management.
    (Virus scanning is out of scope — it needs a 3rd-party service this
    environment has no credentials for.)
-4. **Session/device management + login history**, building on the
+3. **Session/device management + login history**, building on the
    `RefreshToken` records already tracked per device.
 
 Whichever is picked up should still follow the established patterns: tenant

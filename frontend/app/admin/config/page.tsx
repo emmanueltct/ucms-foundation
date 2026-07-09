@@ -11,6 +11,7 @@ import { configApi } from '../../../lib/api';
 const NAMESPACES = [
   { value: 'branch_type', label: 'Branch Types' },
   { value: 'membership_category', label: 'Membership Categories' },
+  { value: 'member_activity_type', label: 'Member Activity Types' },
   { value: 'contribution_type', label: 'Contribution Types' },
   { value: 'service_type', label: 'Service Types' },
   { value: 'attendance_method', label: 'Attendance Methods' },

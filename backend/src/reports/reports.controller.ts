@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto } from './dto/report-query.dto';
@@ -46,5 +46,15 @@ export class ReportsController {
   @Get('payroll-summary')
   async payrollSummary(@CurrentTenantId() tenantId: string, @Query() query: ReportQueryDto) {
     return ok(await this.reportsService.payrollSummary(tenantId, query));
+  }
+
+  @ApiOperation({
+    summary:
+      "A member's full personal history: ministries, small groups, events, attendance, giving, and logged activities merged into one timeline",
+  })
+  @Permissions('reports.view')
+  @Get('members/:id/activity-history')
+  async memberActivityHistory(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.reportsService.memberActivityHistory(tenantId, id));
   }
 }

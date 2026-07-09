@@ -58,6 +58,7 @@ model Tenant {
   visitors               Visitor[]
   visitorGroups          VisitorGroup[]
   visitorActivities      VisitorActivity[]
+  memberActivities       MemberActivity[]
   documents              Document[]
   smallGroups            SmallGroup[]
   smallGroupMemberships  SmallGroupMembership[]
@@ -100,6 +101,7 @@ model User {
   assignedVisitors        Visitor[]        @relation("VisitorAssignedTo")
   assignedVisitorGroups   VisitorGroup[]   @relation("VisitorGroupAssignedTo")
   performedVisitorActivities VisitorActivity[] @relation("VisitorActivityPerformedBy")
+  performedMemberActivities MemberActivity[] @relation("MemberActivityPerformedBy")
   uploadedDocuments       Document[]       @relation("DocumentUploadedBy")
 
   @@unique([tenantId, email])
@@ -381,12 +383,45 @@ model Member {
   invitedVisitors     Visitor[]            @relation("VisitorInvitedBy")
   convertedFromVisitor Visitor?            @relation("VisitorConvertedTo")
   smallGroupMemberships SmallGroupMembership[]
+  memberActivities     MemberActivity[]
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
   @@index([tenantId, branchId])
   @@index([tenantId, familyId])
   @@map("members")
+}
+
+/// One logged, tenant-configurable activity against a Member that isn't
+/// already captured by a dedicated module — a sacrament received, a
+/// training completed, a certificate earned, a leadership appointment, a
+/// one-off volunteer contribution. Ministries, small groups, events,
+/// attendance, and giving already have their own tracking (MinistryMembership,
+/// SmallGroupMembership, EventRegistration, AttendanceRecord, Contribution);
+/// this model exists for everything else in a member's personal history,
+/// and `GET /reports/members/:id/activity-history` merges all of them into
+/// one timeline. `activityType` composes into Custom Fields exactly the way
+/// VisitorActivity's does (`member_activity:{activityType}`, mirroring
+/// `visitor_activity:{activityType}`) — see
+/// docs/member-activities/business-analysis.md.
+model MemberActivity {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  memberId          String    @map("member_id")
+  member            Member    @relation(fields: [memberId], references: [id])
+  activityType      String    @map("activity_type") // ConfigItem key, namespace "member_activity_type"
+  activityDate      DateTime  @default(now()) @map("activity_date")
+  outcome           String?
+  notes             String?
+  performedByUserId String?   @map("performed_by_user_id")
+  performedByUser   User?     @relation("MemberActivityPerformedBy", fields: [performedByUserId], references: [id])
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([tenantId, memberId])
+  @@index([tenantId, activityType])
+  @@map("member_activities")
 }
 
 // ----------------------------------------------------------------------------

@@ -6,7 +6,19 @@
 // Family Management module.
 
 import { useEffect, useState } from 'react';
-import { membersApi, branchesApi, familiesApi, customFieldDefinitionsApi, Member, Branch, Family, CustomFieldDefinition } from '../../../lib/api';
+import {
+  membersApi,
+  branchesApi,
+  familiesApi,
+  configApi,
+  customFieldDefinitionsApi,
+  reportsApi,
+  Member,
+  Branch,
+  Family,
+  CustomFieldDefinition,
+  MemberActivityHistory,
+} from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
@@ -19,6 +31,15 @@ const STATUS_STYLES: Record<string, string> = {
   inactive: 'text-slate-500 bg-slate-100 border-slate-200',
   transferred: 'text-amber-700 bg-amber-50 border-amber-200',
   deceased: 'text-slate-400 bg-slate-50 border-slate-200',
+};
+
+const TIMELINE_KIND_LABELS: Record<string, string> = {
+  ministry: 'Ministry',
+  small_group: 'Small Group',
+  event: 'Event',
+  attendance: 'Attendance',
+  contribution: 'Giving',
+  activity: 'Activity',
 };
 
 export default function MembersAdminPage() {
@@ -41,21 +62,32 @@ export default function MembersAdminPage() {
   const [customFieldDefs, setCustomFieldDefs] = useState<CustomFieldDefinition[]>([]);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
+  const [activityTypes, setActivityTypes] = useState<{ key: string; label: string }[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [history, setHistory] = useState<MemberActivityHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [activityType, setActivityType] = useState('');
+  const [activityOutcome, setActivityOutcome] = useState('');
+  const [activityCustomFieldDefs, setActivityCustomFieldDefs] = useState<CustomFieldDefinition[]>([]);
+  const [activityCustomFieldValues, setActivityCustomFieldValues] = useState<Record<string, unknown>>({});
+
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [membersRes, branchesRes, familiesRes, customFieldsRes] = await Promise.all([
+      const [membersRes, branchesRes, familiesRes, customFieldsRes, activityTypesRes] = await Promise.all([
         membersApi.list(TENANT_SLUG, { search: search || undefined, branchId: branchFilter || undefined }),
         branchesApi.list(TENANT_SLUG),
         familiesApi.list(TENANT_SLUG),
         customFieldDefinitionsApi.list(TENANT_SLUG, { entityType: 'member' }),
+        configApi.listByNamespace(TENANT_SLUG, 'member_activity_type'),
       ]);
       if (membersRes.success && membersRes.data) setMembers(membersRes.data);
       else setError(membersRes.error?.message ?? 'Could not load members.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
       if (familiesRes.success && familiesRes.data) setFamilies(familiesRes.data);
       if (customFieldsRes.success && customFieldsRes.data) setCustomFieldDefs(customFieldsRes.data);
+      if (activityTypesRes.success && activityTypesRes.data) setActivityTypes(activityTypesRes.data as { key: string; label: string }[]);
     } catch {
       setError('Could not reach the server. Check the API is running.');
     } finally {
@@ -67,6 +99,54 @@ export default function MembersAdminPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, branchFilter]);
+
+  useEffect(() => {
+    if (!activityType) {
+      setActivityCustomFieldDefs([]);
+      return;
+    }
+    customFieldDefinitionsApi.list(TENANT_SLUG, { entityType: `member_activity:${activityType}` }).then((res) => {
+      if (res.success && res.data) setActivityCustomFieldDefs(res.data);
+    });
+    setActivityCustomFieldValues({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activityType]);
+
+  async function loadHistory(memberId: string) {
+    setSelectedMemberId(memberId);
+    setHistoryLoading(true);
+    try {
+      const res = await reportsApi.memberActivityHistory(TENANT_SLUG, memberId);
+      if (res.success && res.data) setHistory(res.data);
+      else setError(res.error?.message ?? "Could not load this member's activity history.");
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function handleAddActivity(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedMemberId || !activityType) return;
+    try {
+      const res = await membersApi.addActivity(TENANT_SLUG, selectedMemberId, {
+        activityType,
+        outcome: activityOutcome.trim() || undefined,
+        customFields: Object.keys(activityCustomFieldValues).length > 0 ? activityCustomFieldValues : undefined,
+      });
+      if (res.success) {
+        setActivityType('');
+        setActivityOutcome('');
+        setActivityCustomFieldValues({});
+        loadHistory(selectedMemberId);
+      } else {
+        setError(res.error?.message ?? 'Could not log the activity.');
+      }
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -310,7 +390,17 @@ export default function MembersAdminPage() {
                         {m.phone && <div>{m.phone}</div>}
                         {m.email && <div>{m.email}</div>}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                        <button
+                          onClick={() => loadHistory(m.id)}
+                          className={`text-xs font-medium px-3 py-1 rounded-full border ${
+                            selectedMemberId === m.id
+                              ? 'bg-[#1E2A44] text-white border-[#1E2A44]'
+                              : 'border-slate-200 text-slate-600 hover:border-[#1E2A44]/40'
+                          }`}
+                        >
+                          History
+                        </button>
                         <button
                           onClick={() => handleRemove(m)}
                           className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
@@ -326,6 +416,78 @@ export default function MembersAdminPage() {
           )}
         </div>
         <p className="mt-2 text-xs text-slate-400">Branch is shown as an editable dropdown — changing it transfers the member.</p>
+
+        {selectedMemberId && (
+          <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+            {historyLoading ? (
+              <div className="py-8 text-center text-sm text-slate-400">Loading…</div>
+            ) : !history ? (
+              <div className="py-8 text-center text-sm text-slate-400">Could not load activity history.</div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <h2 className="font-serif text-lg text-[#1E2A44] mb-1">
+                    {history.member.firstName} {history.member.lastName}&rsquo;s activity history
+                  </h2>
+                  <p className="text-xs text-slate-400 mb-4">
+                    {history.ministries.length} ministr{history.ministries.length === 1 ? 'y' : 'ies'} ·{' '}
+                    {history.smallGroups.length} small group{history.smallGroups.length === 1 ? '' : 's'} ·{' '}
+                    {history.eventsAttended.length} event{history.eventsAttended.length === 1 ? '' : 's'} ·{' '}
+                    {history.attendance.totalCount} attendance record{history.attendance.totalCount === 1 ? '' : 's'} ·{' '}
+                    {history.contributions.totalCount} contribution{history.contributions.totalCount === 1 ? '' : 's'}
+                  </p>
+                  <div className="divide-y divide-slate-50 max-h-96 overflow-y-auto">
+                    {history.timeline.length === 0 ? (
+                      <p className="text-sm text-slate-400 py-4">No activity recorded yet.</p>
+                    ) : (
+                      history.timeline.map((t, i) => (
+                        <div key={i} className="py-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-full border border-slate-200 text-slate-500">
+                              {TIMELINE_KIND_LABELS[t.kind] ?? t.kind}
+                            </span>
+                            <span className="text-xs text-slate-400">{t.date.slice(0, 10)}</span>
+                          </div>
+                          <p className="text-sm text-slate-800 mt-1">{t.label}</p>
+                          {t.detail && <p className="text-xs text-slate-500">{t.detail}</p>}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="mb-1 text-slate-600">Log a new activity</Label>
+                  <form onSubmit={handleAddActivity} className="space-y-2">
+                    <select
+                      value={activityType}
+                      onChange={(e) => setActivityType(e.target.value)}
+                      className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                    >
+                      <option value="">— Activity type —</option>
+                      {activityTypes.map((t) => (
+                        <option key={t.key} value={t.key}>{t.label}</option>
+                      ))}
+                    </select>
+                    <Input value={activityOutcome} onChange={(e) => setActivityOutcome(e.target.value)} placeholder="Outcome (optional)" />
+                    {activityCustomFieldDefs.length > 0 && (
+                      <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                        <DynamicCustomFields
+                          definitions={activityCustomFieldDefs}
+                          values={activityCustomFieldValues}
+                          onChange={(key, value) => setActivityCustomFieldValues((prev) => ({ ...prev, [key]: value }))}
+                        />
+                      </div>
+                    )}
+                    <Button type="submit" size="sm" disabled={!activityType} style={{ backgroundColor: '#1E2A44' }}>
+                      Log activity
+                    </Button>
+                  </form>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

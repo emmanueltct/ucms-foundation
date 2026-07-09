@@ -43,6 +43,8 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'member.update', module: 'member', description: 'Edit member profiles' },
   { code: 'member.delete', module: 'member', description: 'Soft-delete a member profile' },
   { code: 'member.transfer', module: 'member', description: 'Move a member to a different branch' },
+  { code: 'member.activity.create', module: 'member', description: 'Log an activity (sacrament, training, certificate, leadership appointment, ...) against a member' },
+  { code: 'member.activity.read', module: 'member', description: "View a member's logged activity history" },
 
   { code: 'family.create', module: 'family', description: 'Create families/households' },
   { code: 'family.read', module: 'family', description: 'View families and their members' },
@@ -232,6 +234,26 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'membership_category', key: mc.key } },
       create: { tenantId: tenant.id, namespace: 'membership_category', key: mc.key, label: mc.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (member activity types)...');
+  const memberActivityTypes = [
+    { key: 'baptism', label: 'Baptism' },
+    { key: 'communion', label: 'First Communion' },
+    { key: 'confirmation', label: 'Confirmation' },
+    { key: 'marriage', label: 'Marriage' },
+    { key: 'training_completed', label: 'Training Completed' },
+    { key: 'certificate_earned', label: 'Certificate Earned' },
+    { key: 'leadership_appointment', label: 'Leadership Appointment' },
+    { key: 'volunteer_work', label: 'Volunteer Work' },
+    { key: 'counseling', label: 'Counseling' },
+  ];
+  for (const [i, a] of memberActivityTypes.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'member_activity_type', key: a.key } },
+      create: { tenantId: tenant.id, namespace: 'member_activity_type', key: a.key, label: a.label, value: {}, sortOrder: i },
       update: {},
     });
   }

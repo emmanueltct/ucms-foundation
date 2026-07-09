@@ -10,9 +10,16 @@ payroll cost us last month, by department?". This module is a read-only reportin
 data that already exists in those modules — it introduces no new system of record of its own.
 
 This is Module 9 — it depends on Finance (Module 3), Attendance (Module 4), Member & Family
-Management (Module 2), Events (Module 7), and HR & Payroll (Module 8) as data sources, but
-none of those modules depend on it. Deleting this module entirely would not affect any other
-module's correctness; it only reads.
+Management (Module 2), Events (Module 7), HR & Payroll (Module 8), Ministry & Volunteer
+Management (Module 5), Small Groups (Module 13), and Member Activities (Module 14) as data
+sources, but none of those modules depend on it. Deleting this module entirely would not
+affect any other module's correctness; it only reads.
+
+`GET /reports/members/:id/activity-history` (added alongside Module 14) is the one endpoint
+here that reports on a single record rather than a tenant-wide trend — see
+[../member-activities/business-analysis.md](../member-activities/business-analysis.md) for why
+it still belongs in this module rather than Member & Family Management: it's a cross-module
+read exactly like every other report, just scoped to one member instead of the whole tenant.
 
 ## 2. Actors
 

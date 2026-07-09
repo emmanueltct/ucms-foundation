@@ -1,20 +1,27 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { MembersService } from './members.service';
+import { MemberActivitiesService } from './member-activities.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { TransferMemberDto } from './dto/transfer-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
+import { CreateMemberActivityDto } from './dto/create-member-activity.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
+import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 
 @ApiTags('members')
 @ApiBearerAuth()
 @ApiSecurity('tenant-slug')
 @Controller('members')
 export class MembersController {
-  constructor(private readonly membersService: MembersService) {}
+  constructor(
+    private readonly membersService: MembersService,
+    private readonly memberActivitiesService: MemberActivitiesService,
+  ) {}
 
   @ApiOperation({ summary: 'Create a member profile attached to a branch' })
   @Permissions('member.create')
@@ -57,5 +64,24 @@ export class MembersController {
   @Delete(':id')
   async remove(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
     return ok(await this.membersService.softDelete(tenantId, id));
+  }
+
+  @ApiOperation({ summary: 'Log a configurable activity (sacrament, training, certificate, leadership appointment, ...) against this member' })
+  @Permissions('member.activity.create')
+  @Post(':id/activities')
+  async addActivity(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: CreateMemberActivityDto,
+  ) {
+    return ok(await this.memberActivitiesService.addActivity(tenantId, id, user?.userId, dto));
+  }
+
+  @ApiOperation({ summary: "List a member's logged activity history, most recent first" })
+  @Permissions('member.activity.read')
+  @Get(':id/activities')
+  async listActivities(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.memberActivitiesService.listActivities(tenantId, id));
   }
 }
