@@ -17,21 +17,54 @@ export interface ApiEnvelope<T> {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000/api/v1';
 
-// NOTE: browser storage (localStorage) is intentionally NOT used here so this
-// file behaves the same whether it's copied into a real Next.js app (fine
-// there) or previewed as an artifact (where storage APIs are unsupported).
-// A real app should persist tokens in an httpOnly cookie set by a
-// server action / route handler, not in client-readable storage at all.
-let inMemoryAccessToken: string | null = null;
-let inMemoryRefreshToken: string | null = null;
-let currentTenant: { slug: string; name: string } | null = null;
-let currentUser: AuthUser | null = null;
+// Session is persisted to localStorage (in addition to the in-memory copies
+// below) so a page refresh, direct URL navigation, or new tab doesn't lose
+// an otherwise-still-valid session. This trades a small XSS exposure risk
+// for a real app being usable at all across reloads — a real production
+// deployment handling sensitive church data should instead persist tokens
+// in an httpOnly cookie set by a server action / route handler, which no
+// page JS (malicious or not) can ever read.
+const STORAGE_KEY = 'ucms.session';
+
+interface StoredSession {
+  accessToken: string;
+  refreshToken: string;
+  tenant: { slug: string; name: string } | null;
+  user: AuthUser | null;
+}
+
+function readStoredSession(): StoredSession | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as StoredSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSession(session: StoredSession | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (session) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+    else window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage unavailable (private browsing, artifact preview, ...) — session just won't survive a reload there.
+  }
+}
+
+const stored = readStoredSession();
+let inMemoryAccessToken: string | null = stored?.accessToken ?? null;
+let inMemoryRefreshToken: string | null = stored?.refreshToken ?? null;
+let currentTenant: { slug: string; name: string } | null = stored?.tenant ?? null;
+let currentUser: AuthUser | null = stored?.user ?? null;
 
 export function setSession(accessToken: string, refreshToken: string, tenant?: { slug: string; name: string }, user?: AuthUser) {
   inMemoryAccessToken = accessToken;
   inMemoryRefreshToken = refreshToken;
   if (tenant) currentTenant = tenant;
   if (user) currentUser = user;
+  writeStoredSession({ accessToken: inMemoryAccessToken, refreshToken: inMemoryRefreshToken, tenant: currentTenant, user: currentUser });
 }
 
 export function clearSession() {
@@ -39,6 +72,7 @@ export function clearSession() {
   inMemoryRefreshToken = null;
   currentTenant = null;
   currentUser = null;
+  writeStoredSession(null);
 }
 
 /** Which church workspace the current session is scoped to — set by login/switch-tenant. */
@@ -53,7 +87,11 @@ export function getCurrentUser(): AuthUser | null {
 
 /** Lets a page update just the MFA flag after enroll/disable, without a full re-login. */
 export function updateCurrentUserMfaStatus(mfaEnabled: boolean) {
-  if (currentUser) currentUser = { ...currentUser, mfaEnabled };
+  if (!currentUser) return;
+  currentUser = { ...currentUser, mfaEnabled };
+  if (inMemoryAccessToken && inMemoryRefreshToken) {
+    writeStoredSession({ accessToken: inMemoryAccessToken, refreshToken: inMemoryRefreshToken, tenant: currentTenant, user: currentUser });
+  }
 }
 
 interface RequestOptions {
