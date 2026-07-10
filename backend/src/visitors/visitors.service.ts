@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { UpdateVisitorDto } from './dto/update-visitor.dto';
 import { VisitorQueryDto } from './dto/visitor-query.dto';
+import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
 
 /**
  * Visitors — see docs/visitor-management/business-analysis.md. `status` is a
@@ -48,8 +49,8 @@ export class VisitorsService {
     });
   }
 
-  async findAll(tenantId: string, query: VisitorQueryDto) {
-    const where = this.buildWhere(tenantId, query);
+  async findAll(tenantId: string, query: VisitorQueryDto, visibleBranchIds: string[] | null = null) {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
 
     const [items, total] = await Promise.all([
       this.prisma.visitor.findMany({
@@ -65,8 +66,8 @@ export class VisitorsService {
   }
 
   /** Same filters as `findAll`, uncapped (up to 5000 rows) — backs the CSV/XLSX/PDF export endpoint. */
-  async findAllForExport(tenantId: string, query: VisitorQueryDto): Promise<Visitor[]> {
-    const where = this.buildWhere(tenantId, query);
+  async findAllForExport(tenantId: string, query: VisitorQueryDto, visibleBranchIds: string[] | null = null): Promise<Visitor[]> {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
     return this.prisma.visitor.findMany({
       where,
       take: 5000,
@@ -152,11 +153,11 @@ export class VisitorsService {
     return visitor;
   }
 
-  private buildWhere(tenantId: string, query: VisitorQueryDto): Prisma.VisitorWhereInput {
+  private buildWhere(tenantId: string, query: VisitorQueryDto, visibleBranchIds: string[] | null = null): Prisma.VisitorWhereInput {
     return {
       tenantId,
       deletedAt: null,
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...resolveBranchFilter(query.branchId, visibleBranchIds),
       ...(query.status ? { status: query.status } : {}),
       ...(query.assignedToUserId ? { assignedToUserId: query.assignedToUserId } : {}),
       ...(query.search

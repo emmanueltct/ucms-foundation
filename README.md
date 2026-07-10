@@ -61,6 +61,8 @@ docs/
                                 the no-code Dynamic Module Builder
   entity-memberships/          Module 18 docs (business analysis, FRs, API design) —
                                 generic membership for Dynamic Module entities
+  organizational-visibility/   Cross-cutting hardening docs (business analysis, FRs) —
+                                branch-scoped visibility roll-up across 7 list endpoints
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -83,7 +85,11 @@ backend/                       NestJS API
                                 (CSV by hand; XLSX via exceljs; PDF via pdfkit — one shared
                                 helper every export endpoint calls); branch-scope/
                                 (BranchScopeService — organizational visibility roll-up,
-                                reusing BranchesService.findDescendants);
+                                reusing BranchesService.findDescendants;
+                                branch-visibility.util.ts — resolveBranchFilter /
+                                resolveBranchFilterIncludingChurchWide, the pure
+                                WHERE-clause merge functions Members/Visitors/Finance/
+                                Attendance/Ministries/Events/Documents' buildWhere call);
                                 guards/requires-audit-reason.guard.ts +
                                 decorators/requires-audit-reason.decorator.ts (mandatory-
                                 comment enforcement, same metadata+guard shape as
@@ -245,7 +251,7 @@ backend/                       NestJS API
                                 groups, visitor activities, documents, small groups, audit,
                                 approval workflows, deadlines, branch scope, hierarchy
                                 requirements, dynamic module definitions, dynamic module
-                                records, entity memberships) + e2e auth flow
+                                records, entity memberships, branch visibility) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -808,6 +814,26 @@ npm run test:e2e             # requires a migrated + seeded test database
     membership panel, left out of the two existing hand-rolled roster screens since
     neither needed to change for this module to ship. See
     `docs/entity-memberships/business-analysis.md`.
+42. **Organizational visibility roll-up is two pure functions, not a method on
+    `BranchScopeService`.** `resolveBranchFilter` (Member/Visitor/Contribution/
+    AttendanceRecord — always exactly one branch) and
+    `resolveBranchFilterIncludingChurchWide` (Ministry/Event/Document — may be
+    church-wide, nullable `branchId`) live in `branch-visibility.util.ts`, DI-free, so
+    every touched service's existing `buildWhere` calls them directly and they're
+    unit-tested without Prisma/Nest at all. They're two functions, not one with a
+    boolean option, because their return types genuinely differ: Prisma's generated
+    `WhereInput` type for a `NOT NULL` `branchId` column rejects `null` outright, so a
+    shared "maybe includes null" return type would force an unsound cast at every
+    non-nullable call site. The church-wide variant composes its condition under
+    `AND: [{ OR: [...] }]` rather than a bare `OR` key specifically so it can be spread
+    into `where` alongside a caller's own `OR` clause (Documents' title/description
+    search) without either silently overwriting the other — `AND` and `OR` are
+    different object keys, so no collision, whereas two bare `OR` keys spread into the
+    same object would collide with whichever is spread last winning. Every touched
+    service method takes `visibleBranchIds: string[] | null = null`, defaulted so every
+    pre-existing call site (including every existing test) keeps compiling and
+    behaving identically unless a controller actually resolves and passes a real value.
+    See `docs/organizational-visibility/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -903,6 +929,14 @@ npm run test:e2e             # requires a migrated + seeded test database
   correct shape for entities that have no dedicated membership table of their own; the two
   existing tables are untouched. See design decision #41 and
   `docs/entity-memberships/business-analysis.md`.
+- **Organizational visibility roll-up (Requirement #4)**: a user assigned to a Branch
+  (`User.assignedBranchId`, unset by default) now automatically sees every record at and
+  beneath it — no separate per-branch grants — on Members, Visitors, Contributions,
+  Attendance, Ministries, Events, and Documents' list/export/summary endpoints. Unset
+  `assignedBranchId` (the default for every user on every tenant) is fully unrestricted,
+  identical to behavior before this pass; Reports & Analytics is explicitly deferred (no
+  single shared `buildWhere` to hook into today). See design decision #42 and
+  `docs/organizational-visibility/business-analysis.md`.
 
 ## Next module
 

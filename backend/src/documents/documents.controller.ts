@@ -13,6 +13,7 @@ import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { MAX_DOCUMENT_SIZE_BYTES } from '../common/constants/file-upload.constants';
+import { BranchScopeService } from '../common/branch-scope/branch-scope.service';
 
 const MAX_BATCH_FILES = 20;
 
@@ -21,7 +22,10 @@ const MAX_BATCH_FILES = 20;
 @ApiSecurity('tenant-slug')
 @Controller('documents')
 export class DocumentsController {
-  constructor(private readonly documentsService: DocumentsService) {}
+  constructor(
+    private readonly documentsService: DocumentsService,
+    private readonly branchScopeService: BranchScopeService,
+  ) {}
 
   @ApiOperation({ summary: 'Upload a document (title/category/description/branch + file, in one call)' })
   @ApiConsumes('multipart/form-data')
@@ -51,11 +55,12 @@ export class DocumentsController {
     return ok(await this.documentsService.createBatch(tenantId, user?.userId, dto, files));
   }
 
-  @ApiOperation({ summary: 'List documents (paginated, filterable by branch/category/search)' })
+  @ApiOperation({ summary: 'List documents (paginated, filterable by branch/category/search) — a branch-scoped caller also sees church-wide documents' })
   @Permissions('document.read')
   @Get()
-  async findAll(@CurrentTenantId() tenantId: string, @Query() query: DocumentQueryDto) {
-    const { items, total, page, pageSize, totalPages } = await this.documentsService.findAll(tenantId, query);
+  async findAll(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Query() query: DocumentQueryDto) {
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    const { items, total, page, pageSize, totalPages } = await this.documentsService.findAll(tenantId, query, visibleBranchIds);
     return ok(items, { total, page, pageSize, totalPages });
   }
 

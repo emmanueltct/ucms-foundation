@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateMinistryDto } from './dto/create-ministry.dto';
 import { UpdateMinistryDto } from './dto/update-ministry.dto';
 import { MinistryQueryDto } from './dto/ministry-query.dto';
+import { resolveBranchFilterIncludingChurchWide } from '../common/branch-scope/branch-visibility.util';
 
 /**
  * Ministry & Volunteer Management — see docs/ministry/business-analysis.md.
@@ -31,11 +32,11 @@ export class MinistriesService {
     });
   }
 
-  async findAll(tenantId: string, query: MinistryQueryDto) {
+  async findAll(tenantId: string, query: MinistryQueryDto, visibleBranchIds: string[] | null = null) {
     const where = {
       tenantId,
       deletedAt: null,
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...resolveBranchFilterIncludingChurchWide(query.branchId, visibleBranchIds),
       ...(query.ministryType ? { ministryType: query.ministryType } : {}),
       ...(query.search ? { name: { contains: query.search, mode: 'insensitive' as const } } : {}),
     };

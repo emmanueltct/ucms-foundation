@@ -8,6 +8,7 @@ import { CreateDocumentBatchDto } from './dto/create-document-batch.dto';
 import { UpdateDocumentDto } from './dto/update-document.dto';
 import { DocumentQueryDto } from './dto/document-query.dto';
 import { ALLOWED_DOCUMENT_MIME_TYPES, MAX_DOCUMENT_SIZE_BYTES } from '../common/constants/file-upload.constants';
+import { resolveBranchFilterIncludingChurchWide } from '../common/branch-scope/branch-visibility.util';
 
 export type UploadedFile = { buffer: Buffer; originalname: string; mimetype: string; size: number };
 
@@ -97,8 +98,8 @@ export class DocumentsService {
     return created;
   }
 
-  async findAll(tenantId: string, query: DocumentQueryDto) {
-    const where = this.buildWhere(tenantId, query);
+  async findAll(tenantId: string, query: DocumentQueryDto, visibleBranchIds: string[] | null = null) {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
 
     const [items, total] = await Promise.all([
       this.prisma.document.findMany({
@@ -217,11 +218,11 @@ export class DocumentsService {
     return document;
   }
 
-  private buildWhere(tenantId: string, query: DocumentQueryDto): Prisma.DocumentWhereInput {
+  private buildWhere(tenantId: string, query: DocumentQueryDto, visibleBranchIds: string[] | null = null): Prisma.DocumentWhereInput {
     return {
       tenantId,
       deletedAt: null,
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...resolveBranchFilterIncludingChurchWide(query.branchId, visibleBranchIds),
       ...(query.category ? { category: query.category } : {}),
       ...(query.search
         ? {

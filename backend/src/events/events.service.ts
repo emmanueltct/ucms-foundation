@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { EventQueryDto } from './dto/event-query.dto';
+import { resolveBranchFilterIncludingChurchWide } from '../common/branch-scope/branch-visibility.util';
 
 /**
  * Events — see docs/events/business-analysis.md. Flat like Ministry (no
@@ -33,11 +34,11 @@ export class EventsService {
     });
   }
 
-  async findAll(tenantId: string, query: EventQueryDto) {
+  async findAll(tenantId: string, query: EventQueryDto, visibleBranchIds: string[] | null = null) {
     const where = {
       tenantId,
       deletedAt: null,
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...resolveBranchFilterIncludingChurchWide(query.branchId, visibleBranchIds),
       ...(query.eventType ? { eventType: query.eventType } : {}),
       ...(query.dateFrom || query.dateTo
         ? {

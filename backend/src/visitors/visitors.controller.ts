@@ -14,6 +14,7 @@ import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { ExportFormat, sendExportFile } from '../common/exports/export.util';
+import { BranchScopeService } from '../common/branch-scope/branch-scope.service';
 
 const VISITOR_EXPORT_COLUMNS = [
   { key: 'firstName', header: 'First Name' },
@@ -33,6 +34,7 @@ export class VisitorsController {
   constructor(
     private readonly visitorsService: VisitorsService,
     private readonly visitorActivitiesService: VisitorActivitiesService,
+    private readonly branchScopeService: BranchScopeService,
   ) {}
 
   @ApiOperation({ summary: 'Record a first-time visitor' })
@@ -42,11 +44,12 @@ export class VisitorsController {
     return ok(await this.visitorsService.create(tenantId, dto));
   }
 
-  @ApiOperation({ summary: 'List visitors (paginated, filterable by branch/status/assignee/search)' })
+  @ApiOperation({ summary: 'List visitors (paginated, filterable by branch/status/assignee/search) — scoped to the caller\'s assigned branch and its descendants, if any' })
   @Permissions('visitor.read')
   @Get()
-  async findAll(@CurrentTenantId() tenantId: string, @Query() query: VisitorQueryDto) {
-    const { items, total, page, pageSize, totalPages } = await this.visitorsService.findAll(tenantId, query);
+  async findAll(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Query() query: VisitorQueryDto) {
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    const { items, total, page, pageSize, totalPages } = await this.visitorsService.findAll(tenantId, query, visibleBranchIds);
     return ok(items, { total, page, pageSize, totalPages });
   }
 
@@ -55,10 +58,12 @@ export class VisitorsController {
   @Get('export')
   async exportVisitors(
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: VisitorQueryDto & { format?: ExportFormat },
     @Res() res: Response,
   ) {
-    const items = await this.visitorsService.findAllForExport(tenantId, query);
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    const items = await this.visitorsService.findAllForExport(tenantId, query, visibleBranchIds);
     await sendExportFile(res, query.format ?? 'csv', 'visitors', [{ title: 'Visitors', columns: VISITOR_EXPORT_COLUMNS, rows: items }], 'Visitors');
   }
 

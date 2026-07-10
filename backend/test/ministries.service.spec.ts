@@ -73,6 +73,34 @@ describe('MinistriesService', () => {
     });
   });
 
+  describe('findAll', () => {
+    it('scopes to the visible branch set but still includes church-wide ministries when the caller is branch-restricted', async () => {
+      mockPrisma.ministry.findMany.mockResolvedValue([]);
+      mockPrisma.ministry.count.mockResolvedValue(0);
+
+      await service.findAll(TENANT_ID, {} as any, ['branch-1', 'branch-2']);
+
+      expect(mockPrisma.ministry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            AND: [{ OR: [{ branchId: { in: ['branch-1', 'branch-2'] } }, { branchId: null }] }],
+          }),
+        }),
+      );
+    });
+
+    it('is unrestricted when visibleBranchIds is null (the default)', async () => {
+      mockPrisma.ministry.findMany.mockResolvedValue([]);
+      mockPrisma.ministry.count.mockResolvedValue(0);
+
+      await service.findAll(TENANT_ID, {} as any);
+
+      expect(mockPrisma.ministry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.not.objectContaining({ AND: expect.anything() }) }),
+      );
+    });
+  });
+
   describe('softDelete', () => {
     it('deactivates the ministry and every one of its memberships', async () => {
       mockPrisma.ministry.findFirst.mockResolvedValue({ id: 'min-1' });

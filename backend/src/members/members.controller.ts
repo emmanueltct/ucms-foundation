@@ -14,6 +14,7 @@ import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { ExportFormat, sendExportFile } from '../common/exports/export.util';
+import { BranchScopeService } from '../common/branch-scope/branch-scope.service';
 
 const MEMBER_EXPORT_COLUMNS = [
   { key: 'membershipNumber', header: 'Membership Number' },
@@ -33,6 +34,7 @@ export class MembersController {
   constructor(
     private readonly membersService: MembersService,
     private readonly memberActivitiesService: MemberActivitiesService,
+    private readonly branchScopeService: BranchScopeService,
   ) {}
 
   @ApiOperation({ summary: 'Create a member profile attached to a branch' })
@@ -42,11 +44,12 @@ export class MembersController {
     return ok(await this.membersService.create(tenantId, dto));
   }
 
-  @ApiOperation({ summary: 'List members (paginated, searchable, filterable by branch/family/status)' })
+  @ApiOperation({ summary: 'List members (paginated, searchable, filterable by branch/family/status) — scoped to the caller\'s assigned branch and its descendants, if any' })
   @Permissions('member.read')
   @Get()
-  async findAll(@CurrentTenantId() tenantId: string, @Query() query: MemberQueryDto) {
-    const { items, total, page, pageSize, totalPages } = await this.membersService.findAll(tenantId, query);
+  async findAll(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Query() query: MemberQueryDto) {
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    const { items, total, page, pageSize, totalPages } = await this.membersService.findAll(tenantId, query, visibleBranchIds);
     return ok(items, { total, page, pageSize, totalPages });
   }
 
@@ -55,10 +58,12 @@ export class MembersController {
   @Get('export')
   async exportMembers(
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: MemberQueryDto & { format?: ExportFormat },
     @Res() res: Response,
   ) {
-    const items = await this.membersService.findAllForExport(tenantId, query);
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    const items = await this.membersService.findAllForExport(tenantId, query, visibleBranchIds);
     await sendExportFile(res, query.format ?? 'csv', 'members', [{ title: 'Members', columns: MEMBER_EXPORT_COLUMNS, rows: items }], 'Members');
   }
 

@@ -187,6 +187,28 @@ describe('MembersService', () => {
       expect(result.items[0].customFields).toEqual({ confirmation_date: '2020-06-01' });
       expect(result.items[1].customFields).toEqual({});
     });
+
+    it('scopes to the visible branch set when the caller is branch-restricted', async () => {
+      mockPrisma.member.findMany.mockResolvedValue([]);
+      mockPrisma.member.count.mockResolvedValue(0);
+
+      await service.findAll(TENANT_ID, { page: 1, pageSize: 20 } as any, ['branch-1', 'branch-2']);
+
+      expect(mockPrisma.member.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ branchId: { in: ['branch-1', 'branch-2'] } }) }),
+      );
+    });
+
+    it('is unrestricted when visibleBranchIds is null (the default)', async () => {
+      mockPrisma.member.findMany.mockResolvedValue([]);
+      mockPrisma.member.count.mockResolvedValue(0);
+
+      await service.findAll(TENANT_ID, { page: 1, pageSize: 20 } as any);
+
+      expect(mockPrisma.member.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.not.objectContaining({ branchId: expect.anything() }) }),
+      );
+    });
   });
 
   describe('transfer', () => {

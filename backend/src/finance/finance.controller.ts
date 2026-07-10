@@ -10,13 +10,17 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
+import { BranchScopeService } from '../common/branch-scope/branch-scope.service';
 
 @ApiTags('finance')
 @ApiBearerAuth()
 @ApiSecurity('tenant-slug')
 @Controller('contributions')
 export class FinanceController {
-  constructor(private readonly financeService: FinanceService) {}
+  constructor(
+    private readonly financeService: FinanceService,
+    private readonly branchScopeService: BranchScopeService,
+  ) {}
 
   @ApiOperation({ summary: 'Record a contribution' })
   @Permissions('finance.contribution.create')
@@ -25,19 +29,21 @@ export class FinanceController {
     return ok(await this.financeService.create(tenantId, user?.userId, dto));
   }
 
-  @ApiOperation({ summary: 'List contributions (paginated, filterable by branch/member/type/method/date range)' })
+  @ApiOperation({ summary: 'List contributions (paginated, filterable by branch/member/type/method/date range) — scoped to the caller\'s assigned branch and its descendants, if any' })
   @Permissions('finance.contribution.read')
   @Get()
-  async findAll(@CurrentTenantId() tenantId: string, @Query() query: ContributionQueryDto) {
-    const { items, total, page, pageSize, totalPages } = await this.financeService.findAll(tenantId, query);
+  async findAll(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Query() query: ContributionQueryDto) {
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    const { items, total, page, pageSize, totalPages } = await this.financeService.findAll(tenantId, query, visibleBranchIds);
     return ok(items, { total, page, pageSize, totalPages });
   }
 
   @ApiOperation({ summary: 'Totals grouped by contribution type, for the same filters as the list endpoint' })
   @Permissions('finance.contribution.read')
   @Get('summary')
-  async summary(@CurrentTenantId() tenantId: string, @Query() query: ContributionQueryDto) {
-    return ok(await this.financeService.summary(tenantId, query));
+  async summary(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Query() query: ContributionQueryDto) {
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    return ok(await this.financeService.summary(tenantId, query, visibleBranchIds));
   }
 
   @ApiOperation({ summary: 'Get one contribution (voided or not)' })

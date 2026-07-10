@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateContributionDto } from './dto/create-contribution.dto';
 import { UpdateContributionDto } from './dto/update-contribution.dto';
 import { ContributionQueryDto } from './dto/contribution-query.dto';
+import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
 
 /**
  * Contribution recording — see docs/finance/business-analysis.md. Unlike
@@ -44,8 +45,8 @@ export class FinanceService {
     });
   }
 
-  async findAll(tenantId: string, query: ContributionQueryDto) {
-    const where = this.buildWhere(tenantId, query);
+  async findAll(tenantId: string, query: ContributionQueryDto, visibleBranchIds: string[] | null = null) {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
 
     const [items, total] = await Promise.all([
       this.prisma.contribution.findMany({
@@ -97,8 +98,8 @@ export class FinanceService {
   }
 
   /** Totals grouped by contribution type, for the same filters as findAll (FR-FIN-2.3). */
-  async summary(tenantId: string, query: ContributionQueryDto) {
-    const where = this.buildWhere(tenantId, query);
+  async summary(tenantId: string, query: ContributionQueryDto, visibleBranchIds: string[] | null = null) {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
 
     const grouped = await this.prisma.contribution.groupBy({
       by: ['contributionType'],
@@ -115,11 +116,11 @@ export class FinanceService {
     }));
   }
 
-  private buildWhere(tenantId: string, query: ContributionQueryDto): Prisma.ContributionWhereInput {
+  private buildWhere(tenantId: string, query: ContributionQueryDto, visibleBranchIds: string[] | null = null): Prisma.ContributionWhereInput {
     return {
       tenantId,
       ...(query.includeVoided ? {} : { isVoided: false }),
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...resolveBranchFilter(query.branchId, visibleBranchIds),
       ...(query.memberId ? { memberId: query.memberId } : {}),
       ...(query.contributionType ? { contributionType: query.contributionType } : {}),
       ...(query.paymentMethod ? { paymentMethod: query.paymentMethod } : {}),

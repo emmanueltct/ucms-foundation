@@ -9,13 +9,17 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
+import { BranchScopeService } from '../common/branch-scope/branch-scope.service';
 
 @ApiTags('attendance')
 @ApiBearerAuth()
 @ApiSecurity('tenant-slug')
 @Controller('attendance-records')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly branchScopeService: BranchScopeService,
+  ) {}
 
   @ApiOperation({ summary: 'Record attendance — an individual check-in (memberId) or an anonymous head-count' })
   @Permissions('attendance.record.create')
@@ -28,19 +32,21 @@ export class AttendanceController {
     return ok(await this.attendanceService.create(tenantId, user?.userId, dto));
   }
 
-  @ApiOperation({ summary: 'List attendance records (paginated, filterable by branch/member/service type/date range)' })
+  @ApiOperation({ summary: 'List attendance records (paginated, filterable by branch/member/service type/date range) — scoped to the caller\'s assigned branch and its descendants, if any' })
   @Permissions('attendance.record.read')
   @Get()
-  async findAll(@CurrentTenantId() tenantId: string, @Query() query: AttendanceQueryDto) {
-    const { items, total, page, pageSize, totalPages } = await this.attendanceService.findAll(tenantId, query);
+  async findAll(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Query() query: AttendanceQueryDto) {
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    const { items, total, page, pageSize, totalPages } = await this.attendanceService.findAll(tenantId, query, visibleBranchIds);
     return ok(items, { total, page, pageSize, totalPages });
   }
 
   @ApiOperation({ summary: 'Totals grouped by service type, for the same filters as the list endpoint' })
   @Permissions('attendance.record.read')
   @Get('summary')
-  async summary(@CurrentTenantId() tenantId: string, @Query() query: AttendanceQueryDto) {
-    return ok(await this.attendanceService.summary(tenantId, query));
+  async summary(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Query() query: AttendanceQueryDto) {
+    const visibleBranchIds = await this.branchScopeService.resolveVisibleBranchIds(tenantId, user.userId);
+    return ok(await this.attendanceService.summary(tenantId, query, visibleBranchIds));
   }
 
   @ApiOperation({ summary: 'Get one attendance record' })

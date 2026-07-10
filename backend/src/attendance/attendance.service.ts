@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateAttendanceRecordDto } from './dto/create-attendance-record.dto';
 import { UpdateAttendanceRecordDto } from './dto/update-attendance-record.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
+import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
 
 /**
  * Attendance recording — see docs/attendance/business-analysis.md. An
@@ -46,8 +47,8 @@ export class AttendanceService {
     });
   }
 
-  async findAll(tenantId: string, query: AttendanceQueryDto) {
-    const where = this.buildWhere(tenantId, query);
+  async findAll(tenantId: string, query: AttendanceQueryDto, visibleBranchIds: string[] | null = null) {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
 
     const [items, total] = await Promise.all([
       this.prisma.attendanceRecord.findMany({
@@ -115,8 +116,8 @@ export class AttendanceService {
   }
 
   /** Totals grouped by service type, for the same filters as findAll. */
-  async summary(tenantId: string, query: AttendanceQueryDto) {
-    const where = this.buildWhere(tenantId, query);
+  async summary(tenantId: string, query: AttendanceQueryDto, visibleBranchIds: string[] | null = null) {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
 
     const grouped = await this.prisma.attendanceRecord.groupBy({
       by: ['serviceType'],
@@ -150,11 +151,11 @@ export class AttendanceService {
     return headcount;
   }
 
-  private buildWhere(tenantId: string, query: AttendanceQueryDto): Prisma.AttendanceRecordWhereInput {
+  private buildWhere(tenantId: string, query: AttendanceQueryDto, visibleBranchIds: string[] | null = null): Prisma.AttendanceRecordWhereInput {
     return {
       tenantId,
       deletedAt: null,
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...resolveBranchFilter(query.branchId, visibleBranchIds),
       ...(query.memberId ? { memberId: query.memberId } : {}),
       ...(query.serviceType ? { serviceType: query.serviceType } : {}),
       ...(query.dateFrom || query.dateTo

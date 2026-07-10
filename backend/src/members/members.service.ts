@@ -6,6 +6,7 @@ import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
+import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
 
 export type MemberWithCustomFields = Member & { customFields: Record<string, unknown> };
 
@@ -72,8 +73,8 @@ export class MembersService {
     return { ...member, customFields: dto.customFields ?? {} };
   }
 
-  async findAll(tenantId: string, query: MemberQueryDto) {
-    const where = this.buildWhere(tenantId, query);
+  async findAll(tenantId: string, query: MemberQueryDto, visibleBranchIds: string[] | null = null) {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
 
     const [items, total] = await Promise.all([
       this.prisma.member.findMany({
@@ -89,8 +90,8 @@ export class MembersService {
   }
 
   /** Same filters as `findAll`, uncapped (up to 5000 rows) — backs the CSV/XLSX/PDF export endpoint. */
-  async findAllForExport(tenantId: string, query: MemberQueryDto): Promise<MemberWithCustomFields[]> {
-    const where = this.buildWhere(tenantId, query);
+  async findAllForExport(tenantId: string, query: MemberQueryDto, visibleBranchIds: string[] | null = null): Promise<MemberWithCustomFields[]> {
+    const where = this.buildWhere(tenantId, query, visibleBranchIds);
     const items = await this.prisma.member.findMany({
       where,
       take: 5000,
@@ -99,11 +100,17 @@ export class MembersService {
     return this.withCustomFields(tenantId, items);
   }
 
-  private buildWhere(tenantId: string, query: MemberQueryDto) {
+  /**
+   * `visibleBranchIds` (from `BranchScopeService.resolveVisibleBranchIds`) is
+   * `null` for unrestricted/church-wide callers — the default for every
+   * tenant that hasn't assigned `User.assignedBranchId`, so this is a no-op
+   * unless a tenant actively opts into per-user branch assignment.
+   */
+  private buildWhere(tenantId: string, query: MemberQueryDto, visibleBranchIds: string[] | null = null) {
     return {
       tenantId,
       deletedAt: null,
-      ...(query.branchId ? { branchId: query.branchId } : {}),
+      ...resolveBranchFilter(query.branchId, visibleBranchIds),
       ...(query.familyId ? { familyId: query.familyId } : {}),
       ...(query.membershipStatus ? { membershipStatus: query.membershipStatus } : {}),
       ...(query.search

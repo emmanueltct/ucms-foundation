@@ -4,9 +4,10 @@ import { MemberActivitiesService } from './member-activities.service';
 import { MembersController } from './members.controller';
 import { FamiliesModule } from '../families/families.module';
 import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
+import { BranchScopeModule } from '../common/branch-scope/branch-scope.module';
 
 @Module({
-  imports: [FamiliesModule, CustomFieldsModule],
+  imports: [FamiliesModule, CustomFieldsModule, BranchScopeModule],
   controllers: [MembersController],
   providers: [MembersService, MemberActivitiesService],
   exports: [MembersService, MemberActivitiesService],
