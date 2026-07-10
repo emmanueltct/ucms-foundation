@@ -92,23 +92,27 @@ import { EntityMembershipsModule } from './entity-memberships/entity-memberships
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
+    // RouteInfo needs an explicit `version` here — `enableVersioning({ defaultVersion: '1' })`
+    // in main.ts puts every route under /v1 implicitly, and MiddlewareConsumer#exclude only
+    // matches a route if its RouteInfo's version lines up; without it, none of these excludes
+    // ever matched and every "public"/cross-tenant auth route below 400'd with TENANT_NOT_RESOLVED.
     consumer
       .apply(TenantContextMiddleware)
       .exclude(
-        { path: 'health', method: RequestMethod.GET },
-        { path: 'platform/tenants*', method: RequestMethod.ALL }, // platform-admin routes aren't tenant-scoped
+        { path: 'health', method: RequestMethod.GET, version: '1' },
+        { path: 'platform/tenants*', method: RequestMethod.ALL, version: '1' }, // platform-admin routes aren't tenant-scoped
         // Password reset is deliberately cross-tenant — the person resetting a
         // password may not remember which church workspace they're in; the
         // token itself (not a header) resolves the tenant. See AuthService.
-        { path: 'auth/forgot-password', method: RequestMethod.POST },
-        { path: 'auth/reset-password', method: RequestMethod.POST },
+        { path: 'auth/forgot-password', method: RequestMethod.POST, version: '1' },
+        { path: 'auth/reset-password', method: RequestMethod.POST, version: '1' },
         // Same reasoning as password reset — the verification token itself
         // resolves the tenant, not a header.
-        { path: 'auth/verify-email', method: RequestMethod.POST },
+        { path: 'auth/verify-email', method: RequestMethod.POST, version: '1' },
         // Login's X-Tenant-Slug header is optional (see AuthService.login) —
         // it resolves the tenant itself when a slug is given, and routes by
         // email+password across every tenant when it's not.
-        { path: 'auth/login', method: RequestMethod.POST },
+        { path: 'auth/login', method: RequestMethod.POST, version: '1' },
       )
       .forRoutes('*');
   }

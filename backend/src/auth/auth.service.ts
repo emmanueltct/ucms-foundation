@@ -52,7 +52,11 @@ export class AuthService {
   ) {}
 
   async register(tenantId: string, dto: RegisterDto, context: SessionContext = {}): Promise<AuthResponseDto> {
-    const existing = await this.prisma.user.findUnique({
+    // .unscoped for the same reason as findUserWithRoles below — a compound
+    // unique key (tenantId_email) isn't recognized by the tenant-scoping
+    // extension's flat `where.tenantId` check, so this must supply tenantId
+    // explicitly rather than depend on an active tenant context existing.
+    const existing = await this.prisma.unscoped.user.findUnique({
       where: { tenantId_email: { tenantId, email: dto.email.toLowerCase() } },
     });
     if (existing) {
@@ -262,7 +266,7 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findUnique({
-      where: { id: userId },
+      where: { id: userId, tenantId },
       include: { userRoles: { include: { role: { include: { rolePermissions: { include: { permission: true } } } } } } },
     });
 
@@ -426,7 +430,12 @@ export class AuthService {
   }
 
   private async findUserWithRoles(tenantId: string, email: string): Promise<UserWithRoles | null> {
-    return this.prisma.user.findUnique({
+    // .unscoped — this runs during login, before any tenant context is
+    // guaranteed active (auth/login is excluded from TenantContextMiddleware
+    // precisely so it can resolve the tenant itself). tenantId is already an
+    // explicit, caller-supplied filter here, so this is exactly the
+    // "cross-tenant identity lookup" case PrismaService.unscoped exists for.
+    return this.prisma.unscoped.user.findUnique({
       where: { tenantId_email: { tenantId, email: email.toLowerCase() } },
       include: {
         userRoles: { include: { role: { include: { rolePermissions: { include: { permission: true } } } } } },
