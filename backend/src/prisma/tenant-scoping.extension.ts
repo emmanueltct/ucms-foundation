@@ -39,6 +39,10 @@ const TENANT_SCOPED_MODELS = new Set([
   'DocumentVersion',
   'SmallGroup',
   'SmallGroupMembership',
+  'ApprovalWorkflow',
+  'ApprovalStep',
+  'ApprovalRequest',
+  'Deadline',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

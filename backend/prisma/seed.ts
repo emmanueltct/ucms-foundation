@@ -130,6 +130,16 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'small_group.membership.read', module: 'small_group', description: 'View small group rosters' },
   { code: 'small_group.membership.update', module: 'small_group', description: "Change a member's role within a small group" },
   { code: 'small_group.membership.delete', module: 'small_group', description: 'Remove a member from a small group' },
+
+  { code: 'approval_workflow.create', module: 'governance', description: 'Define an approval workflow' },
+  { code: 'approval_workflow.read', module: 'governance', description: 'View approval workflows and requests' },
+  { code: 'approval_workflow.update', module: 'governance', description: 'Rename or activate/deactivate an approval workflow' },
+  { code: 'approval_workflow.decide', module: 'governance', description: 'Approve or reject a pending approval request' },
+  { code: 'deadline.create', module: 'governance', description: 'Set a deadline against a record' },
+  { code: 'deadline.read', module: 'governance', description: 'View a deadline and its status' },
+  { code: 'deadline.extend', module: 'governance', description: 'Push a locked (overdue) deadline forward' },
+  { code: 'deadline.close', module: 'governance', description: 'Close a deadline, preventing further edits' },
+  { code: 'deadline.reopen', module: 'governance', description: 'Reopen a closed deadline — a more sensitive action than close' },
 ];
 
 async function main() {

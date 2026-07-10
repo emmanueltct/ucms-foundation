@@ -7,6 +7,7 @@ import { AuthService } from '../src/auth/auth.service';
 import { MfaService } from '../src/auth/mfa.service';
 import { NotificationsService } from '../src/communication/notifications.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuditService } from '../src/audit/audit.service';
 import { AuthResponseDto, WorkspaceSelectionResponseDto } from '../src/auth/dto/auth-response.dto';
 
 describe('AuthService', () => {
@@ -59,6 +60,7 @@ describe('AuthService', () => {
         },
         { provide: MfaService, useValue: mockMfa },
         { provide: NotificationsService, useValue: mockNotifications },
+        AuditService, // real instance around the same mocked PrismaService, so existing auditLog.create assertions keep working unchanged
       ],
     }).compile();
 

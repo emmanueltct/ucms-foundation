@@ -13,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../communication/notifications.service';
+import { AuditService } from '../audit/audit.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto, WorkspaceOptionDto, WorkspaceSelectionResponseDto } from './dto/auth-response.dto';
@@ -47,6 +48,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly mfa: MfaService,
     private readonly notifications: NotificationsService,
+    private readonly auditService: AuditService,
   ) {}
 
   async register(tenantId: string, dto: RegisterDto, context: SessionContext = {}): Promise<AuthResponseDto> {
@@ -564,6 +566,7 @@ export class AuthService {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 
+  /** Thin wrapper kept so none of this file's ~11 call sites had to change — delegates to the shared, injectable `AuditService` (backend/src/audit/audit.service.ts). */
   private async audit(
     tenantId: string,
     userId: string,
@@ -573,17 +576,10 @@ export class AuthService {
     context: SessionContext = {},
     extraMetadata?: Record<string, unknown>,
   ) {
-    const metadata = { ...(context.userAgent ? { userAgent: context.userAgent } : {}), ...extraMetadata };
-    await this.prisma.auditLog.create({
-      data: {
-        tenantId,
-        userId,
-        action,
-        entityType,
-        entityId,
-        ipAddress: context.ipAddress,
-        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-      },
+    await this.auditService.record(tenantId, userId, action, entityType, entityId, {
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      metadata: extraMetadata,
     });
   }
 }

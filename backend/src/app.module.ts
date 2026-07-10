@@ -32,7 +32,12 @@ import { TenantContextMiddleware } from './common/middleware/tenant-context.midd
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { RequiresAuditReasonGuard } from './common/guards/requires-audit-reason.guard';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { AuditModule } from './audit/audit.module';
+import { ApprovalWorkflowsModule } from './approval-workflows/approval-workflows.module';
+import { DeadlinesModule } from './deadlines/deadlines.module';
+import { BranchScopeModule } from './common/branch-scope/branch-scope.module';
 
 @Module({
   imports: [
@@ -62,13 +67,20 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     VisitorsModule,
     DocumentsModule,
     SmallGroupsModule,
+    AuditModule,
+    ApprovalWorkflowsModule,
+    DeadlinesModule,
+    BranchScopeModule,
   ],
   providers: [
-    // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC.
+    // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,
+    // then the mandatory-reason check (which only matters once we already
+    // know the caller is authorized to attempt the action at all).
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: RequiresAuditReasonGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
   ],
 })

@@ -63,6 +63,10 @@ model Tenant {
   documentVersions       DocumentVersion[]
   smallGroups            SmallGroup[]
   smallGroupMemberships  SmallGroupMembership[]
+  approvalWorkflows      ApprovalWorkflow[]
+  approvalSteps          ApprovalStep[]
+  approvalRequests       ApprovalRequest[]
+  deadlines              Deadline[]
 
   @@map("tenants")
 }
@@ -84,6 +88,13 @@ model User {
   mfaSecret    String?   @map("mfa_secret")
   emailVerifiedAt DateTime? @map("email_verified_at")
   lastLoginAt  DateTime? @map("last_login_at")
+  /// Which branch/level this user is assigned to for organizational-visibility
+  /// roll-up (see BranchScopeService) — null means unrestricted (church-wide
+  /// staff/admin), the default and the only behavior for every tenant that
+  /// doesn't opt into per-branch user assignment, so existing single-branch
+  /// or flat churches are entirely unaffected.
+  assignedBranchId String? @map("assigned_branch_id")
+  assignedBranch   Branch? @relation("UserAssignedBranch", fields: [assignedBranchId], references: [id])
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
@@ -105,6 +116,7 @@ model User {
   performedMemberActivities MemberActivity[] @relation("MemberActivityPerformedBy")
   uploadedDocuments       Document[]       @relation("DocumentUploadedBy")
   replacedDocumentVersions DocumentVersion[] @relation("DocumentVersionReplacedBy")
+  extendedDeadlines       Deadline[]       @relation("DeadlineExtendedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -313,6 +325,7 @@ model Branch {
   visitorGroups     VisitorGroup[]
   documents         Document[]
   smallGroups       SmallGroup[]
+  assignedUsers     User[]             @relation("UserAssignedBranch")
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -1100,19 +1113,138 @@ model SmallGroupMembership {
 // ----------------------------------------------------------------------------
 // AUDIT LOG
 // ----------------------------------------------------------------------------
+/// The tenant-wide change log. Historically written only by AuthService
+/// (login/logout/MFA); `AuditService` (backend/src/audit/audit.service.ts)
+/// generalizes this into shared, injectable infrastructure so any module can
+/// record a mutation. `reason`/`previousValue`/`newValue` are first-class
+/// columns (not folded into `metadata`) because they're queried on and
+/// mandatory for the specific "important record" actions this platform
+/// requires a reason for — see `@RequiresAuditReason()` and
+/// docs/governance/business-analysis.md.
 model AuditLog {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  userId        String?  @map("user_id")
+  user          User?    @relation(fields: [userId], references: [id])
+  action        String // e.g. "auth.login", "role.updated", "config.created"
+  entityType    String   @map("entity_type")
+  entityId      String?  @map("entity_id")
+  reason        String? // mandatory-comment text for actions gated by @RequiresAuditReason()
+  previousValue Json?    @map("previous_value")
+  newValue      Json?    @map("new_value")
+  metadata      Json?
+  ipAddress     String?  @map("ip_address")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ----------------------------------------------------------------------------
+// GOVERNANCE: Approval Workflows & Deadlines (cross-cutting, reused by
+// Hierarchy Requirements, Dynamic Modules, and Member Registration)
+// ----------------------------------------------------------------------------
+
+/// A tenant-defined, ordered chain of approval steps for one `entityType`
+/// (e.g. "member_registration", "hierarchy_requirement_submission", or a
+/// Dynamic Module's own "dynamicmodule:{moduleDefinitionId}"). Deliberately a
+/// linear chain, not an arbitrary state-machine/BPMN engine — nothing in the
+/// requirements this serves asks for conditional branching, only "who
+/// approves this, in what order." See docs/governance/business-analysis.md.
+model ApprovalWorkflow {
   id         String   @id @default(uuid())
   tenantId   String   @map("tenant_id")
   tenant     Tenant   @relation(fields: [tenantId], references: [id])
-  userId     String?  @map("user_id")
-  user       User?    @relation(fields: [userId], references: [id])
-  action     String // e.g. "auth.login", "role.updated", "config.created"
   entityType String   @map("entity_type")
-  entityId   String?  @map("entity_id")
-  metadata   Json?
-  ipAddress  String?  @map("ip_address")
+  name       String
+  isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
-  @@index([tenantId, createdAt])
-  @@map("audit_logs")
+  steps    ApprovalStep[]
+  requests ApprovalRequest[]
+
+  @@unique([tenantId, entityType, name])
+  @@index([tenantId, entityType])
+  @@map("approval_workflows")
+}
+
+/// One step in an ApprovalWorkflow — the approver gate is either a role name
+/// or a permission code (mirrors `@Roles`/`@Permissions`' own either/or
+/// shape), never both, so "does this user satisfy this step" is a single
+/// lookup against data the platform already assembles at login.
+model ApprovalStep {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id])
+  workflowId             String   @map("workflow_id")
+  workflow               ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  stepOrder              Int      @map("step_order")
+  label                  String
+  approverRoleName       String?  @map("approver_role_name")
+  approverPermissionCode String?  @map("approver_permission_code")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  @@unique([workflowId, stepOrder])
+  @@index([tenantId])
+  @@map("approval_steps")
+}
+
+/// One concrete thing (a pending Member, a HierarchyRequirementSubmission, a
+/// DynamicModuleRecord) working its way through an ApprovalWorkflow.
+/// Individual approve/reject decisions are recorded through `AuditService`
+/// (action `approval.approved`/`approval.rejected`, entityType
+/// `approval_request`, `reason` mandatory) rather than a second dedicated
+/// table — the audit log is already the source of truth for "who decided
+/// what, when, why."
+model ApprovalRequest {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  workflowId       String   @map("workflow_id")
+  workflow         ApprovalWorkflow @relation(fields: [workflowId], references: [id])
+  entityType       String   @map("entity_type")
+  entityId         String   @map("entity_id")
+  currentStepOrder Int      @default(1) @map("current_step_order")
+  status           String   @default("pending") @map("status") // "pending" | "approved" | "rejected"
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, entityType, entityId])
+  @@index([tenantId, workflowId])
+  @@index([tenantId, status])
+  @@map("approval_requests")
+}
+
+/// A configurable submission deadline against any (`entityType`, `entityId`)
+/// pair — a HierarchyRequirementSubmission, a Dynamic Module record, or any
+/// future "this has to happen by X" need. `open -> locked` happens
+/// automatically once `dueAt` passes (checked lazily on read, see
+/// `DeadlinesService.effectiveStatus` — no cron needed just to flip a
+/// status); `locked -> open` only via the permissioned `extend` action
+/// (reason mandatory); `* -> closed` via the permissioned `close` action;
+/// `closed` is immutable except via the permissioned `reopen` action. The
+/// same "dedicated action per real side effect" shape as
+/// `Visitor.convertToMember`/`Member.transfer`.
+model Deadline {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  entityType       String    @map("entity_type")
+  entityId         String    @map("entity_id")
+  dueAt            DateTime  @map("due_at")
+  status           String    @default("open") @map("status") // "open" | "locked" | "closed" — see effectiveStatus for the open->locked transition
+  extendedByUserId String?   @map("extended_by_user_id")
+  extendedByUser   User?     @relation("DeadlineExtendedBy", fields: [extendedByUserId], references: [id])
+  extensionReason  String?   @map("extension_reason")
+  closedAt         DateTime? @map("closed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, entityType, entityId])
+  @@index([tenantId, status])
+  @@index([tenantId, dueAt])
+  @@map("deadlines")
 }

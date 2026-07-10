@@ -53,6 +53,8 @@ docs/
   document-management/         Module 12 docs (business analysis, FRs, API design)
   small-groups/                Module 13 docs (business analysis, FRs, API design)
   member-activities/           Module 14 docs (business analysis, FRs, API design)
+  governance/                  Module 15 docs (business analysis, FRs, API design) —
+                                Audit Service, Approval Workflows, Deadlines
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -62,14 +64,35 @@ prisma/
                                 CustomFieldValue, Event, EventRegistration, Staff,
                                 PayrollPayment, Asset, VisitorGroup, Visitor, VisitorActivity,
                                 Document, DocumentVersion, SmallGroup, SmallGroupMembership,
-                                MemberActivity, ...
+                                MemberActivity, ApprovalWorkflow, ApprovalStep,
+                                ApprovalRequest, Deadline, User.assignedBranchId, ...
 
 backend/                       NestJS API
   src/
     common/                    Tenant middleware, guards, decorators, filters,
                                 AsyncLocalStorage tenant-context store, exports/export.util.ts
                                 (CSV by hand; XLSX via exceljs; PDF via pdfkit — one shared
-                                helper every export endpoint calls)
+                                helper every export endpoint calls); branch-scope/
+                                (BranchScopeService — organizational visibility roll-up,
+                                reusing BranchesService.findDescendants);
+                                guards/requires-audit-reason.guard.ts +
+                                decorators/requires-audit-reason.decorator.ts (mandatory-
+                                comment enforcement, same metadata+guard shape as
+                                @Permissions()); dto/require-reason.dto.ts
+    audit/                     AuditService — generalizes what used to be AuthService's
+                                private audit() helper (login/logout/MFA only) into shared,
+                                injectable infrastructure any module calls; AuditLog gained
+                                reason/previousValue/newValue as first-class columns
+    approval-workflows/        Tenant-defined, ordered approval chains (ApprovalWorkflow/
+                                Step/Request) reused by member registration, Dynamic Module
+                                status transitions, and hierarchy requirement submissions —
+                                one generic engine, not three bespoke ones. Deliberately
+                                linear, not an arbitrary state-machine/BPMN engine
+    deadlines/                 Configurable submission deadlines against any (entityType,
+                                entityId) pair. "Locked" is derived at read time from dueAt
+                                vs. now (DeadlinesService.effectiveStatus), never stored —
+                                no cron needed just to flip a flag. extend/close/reopen are
+                                separately-permissioned dedicated actions
     prisma/                    PrismaService + tenant-scoping Client Extension
                                 (auto-scopes/enforces tenantId on every query)
     queue/                     BullMQ/Redis queue wiring; NotificationsProcessor now
@@ -688,6 +711,17 @@ npm run test:e2e             # requires a migrated + seeded test database
     (`auth.login_failed` + reason), because an unresolved email has no
     owner who could act on the entry — logging it would be noise wearing
     the shape of a security feature. See `docs/business-analysis.md`.
+38. **Three cross-cutting needs (approval chains, deadlines, mandatory-reason audit) get
+    one generic implementation each, keyed by `(entityType, entityId)`, rather than a
+    bespoke mechanism per consumer.** `ApprovalWorkflow`/`Step`/`Request` power member
+    registration, Dynamic Module status transitions, and hierarchy requirement submissions
+    from one engine; `Deadline` and `AuditService` are the same story. This mirrors how
+    Custom Fields' `entityType` composition already serves Assets/Visitor Activities/
+    Member Activities from one mechanism (design decisions #23/#33/#34) — the pattern
+    generalizes to non-field concerns just as well as it did to fields. An approval
+    decision is recorded through `AuditService` rather than a fourth dedicated table,
+    since the audit log is already the source of truth for "who decided what, when, why."
+    See `docs/governance/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -749,6 +783,12 @@ npm run test:e2e             # requires a migrated + seeded test database
   `GET /auth/login-history` surfaces the last 50 login/failed-login/logout/switch-tenant
   events for the calling user, reusing `AuditLog` rather than a new table. See design
   decision #37 and `docs/business-analysis.md`.
+- **Governance foundation (new Module 15)**: `AuditService`, `ApprovalWorkflow`/`Step`/
+  `Request`, `Deadline`, and `BranchScopeService` — the shared infrastructure a larger,
+  in-progress pass (configurable requirements between organizational levels, a Dynamic
+  Module Builder, organizational visibility roll-up, member registration approval) builds
+  on, rather than three or four bespoke mechanisms invented per feature. See design
+  decision #38 and `docs/governance/business-analysis.md`.
 
 ## Next module
 
