@@ -1,9 +1,11 @@
 import { Test } from '@nestjs/testing';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { MembersService } from '../src/members/members.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { FamiliesService } from '../src/families/families.service';
 import { CustomFieldsService } from '../src/custom-fields/custom-fields.service';
+import { AuditService } from '../src/audit/audit.service';
+import { ApprovalWorkflowsService } from '../src/approval-workflows/approval-workflows.service';
 
 describe('MembersService', () => {
   let service: MembersService;
@@ -21,6 +23,9 @@ describe('MembersService', () => {
     branch: {
       findFirst: jest.fn(),
     },
+    approvalWorkflow: {
+      findFirst: jest.fn(),
+    },
   };
 
   const mockFamilies = {
@@ -35,18 +40,24 @@ describe('MembersService', () => {
     getValuesForMany: jest.fn().mockResolvedValue({}),
   };
 
+  const mockAudit = { record: jest.fn() };
+  const mockApprovalWorkflows = { startRequest: jest.fn(), decide: jest.fn() };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     mockCustomFields.assertRequiredFieldsProvided.mockResolvedValue(undefined);
     mockCustomFields.setValues.mockResolvedValue(undefined);
     mockCustomFields.getValues.mockResolvedValue({});
     mockCustomFields.getValuesForMany.mockResolvedValue({});
+    mockPrisma.approvalWorkflow.findFirst.mockResolvedValue(null);
     const moduleRef = await Test.createTestingModule({
       providers: [
         MembersService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: FamiliesService, useValue: mockFamilies },
         { provide: CustomFieldsService, useValue: mockCustomFields },
+        { provide: AuditService, useValue: mockAudit },
+        { provide: ApprovalWorkflowsService, useValue: mockApprovalWorkflows },
       ],
     }).compile();
     service = moduleRef.get(MembersService);
@@ -259,6 +270,67 @@ describe('MembersService', () => {
       );
       expect(mockPrisma.member.findMany.mock.calls[0][0]).not.toHaveProperty('skip');
       expect(result).toHaveLength(2);
+    });
+  });
+
+  describe('registerPublic', () => {
+    it('rejects when the branch does not exist', async () => {
+      mockPrisma.branch.findFirst.mockResolvedValue(null);
+      await expect(
+        service.registerPublic(TENANT_ID, { branchId: 'missing', firstName: 'Jean', lastName: 'Uwimana' } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('always creates the member with membershipStatus "pending"', async () => {
+      mockPrisma.branch.findFirst.mockResolvedValue({ id: 'branch-1' });
+      mockPrisma.member.create.mockResolvedValue({ id: 'mem-1', membershipStatus: 'pending' });
+
+      await service.registerPublic(TENANT_ID, { branchId: 'branch-1', firstName: 'Jean', lastName: 'Uwimana' } as any);
+
+      expect(mockPrisma.member.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ membershipStatus: 'pending' }) }),
+      );
+    });
+  });
+
+  const user = { userId: 'user-1', tenantId: TENANT_ID, email: 'a@b.com', isPlatformAdmin: false, permissions: [], roles: [] };
+
+  describe('approve/reject', () => {
+    it('rejects when the member is not pending', async () => {
+      mockPrisma.member.findFirst.mockResolvedValue({ id: 'mem-1', membershipStatus: 'active' });
+      await expect(service.approve(TENANT_ID, 'mem-1', user, 'Looks good.')).rejects.toThrow(BadRequestException);
+    });
+
+    it('records directly via AuditService when no workflow is configured for member_registration', async () => {
+      mockPrisma.member.findFirst.mockResolvedValue({ id: 'mem-1', membershipStatus: 'pending' });
+      mockPrisma.approvalWorkflow.findFirst.mockResolvedValue(null);
+      mockPrisma.member.update.mockResolvedValue({ id: 'mem-1', membershipStatus: 'active' });
+
+      await service.approve(TENANT_ID, 'mem-1', user, 'Documents verified in person.');
+
+      expect(mockApprovalWorkflows.decide).not.toHaveBeenCalled();
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        TENANT_ID,
+        'user-1',
+        'member.registration.approved',
+        'member_registration',
+        'mem-1',
+        expect.objectContaining({ reason: 'Documents verified in person.' }),
+      );
+      expect(mockPrisma.member.update).toHaveBeenCalledWith({ where: { id: 'mem-1' }, data: { membershipStatus: 'active' } });
+    });
+
+    it('routes through a configured ApprovalWorkflow for member_registration', async () => {
+      mockPrisma.member.findFirst.mockResolvedValue({ id: 'mem-1', membershipStatus: 'pending' });
+      mockPrisma.approvalWorkflow.findFirst.mockResolvedValue({ id: 'wf-1' });
+      mockPrisma.member.update.mockResolvedValue({ id: 'mem-1', membershipStatus: 'rejected' });
+
+      await service.reject(TENANT_ID, 'mem-1', user, 'Could not verify identity.');
+
+      expect(mockApprovalWorkflows.startRequest).toHaveBeenCalledWith(TENANT_ID, 'wf-1', 'member_registration', 'mem-1');
+      expect(mockApprovalWorkflows.decide).toHaveBeenCalledWith(TENANT_ID, 'member_registration', 'mem-1', 'rejected', user, 'Could not verify identity.');
+      expect(mockAudit.record).not.toHaveBeenCalled();
+      expect(mockPrisma.member.update).toHaveBeenCalledWith({ where: { id: 'mem-1' }, data: { membershipStatus: 'rejected' } });
     });
   });
 });

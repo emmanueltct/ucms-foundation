@@ -63,6 +63,8 @@ docs/
                                 generic membership for Dynamic Module entities
   organizational-visibility/   Cross-cutting hardening docs (business analysis, FRs) —
                                 branch-scoped visibility roll-up across 7 list endpoints
+  member-registration/         Module 19 docs (business analysis, FRs, API design) —
+                                admin + self member registration with configurable approval
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -155,7 +157,12 @@ backend/                       NestJS API
                                 MemberActivitiesService logs a tenant-configurable activity
                                 (sacraments, trainings, certificates, leadership appointments,
                                 ...) per member (member_activity:{type} composed Custom Fields);
-                                GET /members/export downloads the list as CSV/XLSX/PDF
+                                GET /members/export downloads the list as CSV/XLSX/PDF;
+                                POST /members/register (@Public(), rate-limited) + GET
+                                /members/register/branches let a prospective member
+                                self-register as "pending"; PATCH :id/approve|reject
+                                decide it, routed through a configured ApprovalWorkflow
+                                for "member_registration" when one exists
     families/                  Family/household grouping — flat (no hierarchy), head
                                 of family, non-cascading deactivate/delete
     finance/                   Contribution recording against a Branch and (optionally) a
@@ -251,7 +258,8 @@ backend/                       NestJS API
                                 groups, visitor activities, documents, small groups, audit,
                                 approval workflows, deadlines, branch scope, hierarchy
                                 requirements, dynamic module definitions, dynamic module
-                                records, entity memberships, branch visibility) + e2e auth flow
+                                records, entity memberships, branch visibility, member
+                                registration) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -289,7 +297,11 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   "History" panel per member merging ministries/small groups/
                                   events/attendance/giving/activities into one timeline, with
                                   a form to log new tenant-configurable activities, and a
-                                  CSV/XLSX/PDF export of the current filtered list
+                                  CSV/XLSX/PDF export of the current filtered list, plus a
+                                  "Pending registrations" queue with approve/reject actions
+  app/register/page.tsx          Public, unauthenticated self-registration — pick the
+                                  Church/Branch/Parish/Cell/Work Group being joined; the
+                                  resulting member shows up in the admin queue above
   app/admin/finance/page.tsx     Church Admin UI for recording/voiding contributions
   app/admin/attendance/page.tsx  Church Admin UI for check-ins and head-counts
   app/admin/ministries/page.tsx  Church Admin UI for ministries and volunteer rosters
@@ -834,6 +846,20 @@ npm run test:e2e             # requires a migrated + seeded test database
     pre-existing call site (including every existing test) keeps compiling and
     behaving identically unless a controller actually resolves and passes a real value.
     See `docs/organizational-visibility/business-analysis.md`.
+43. **Member self-registration reuses `auth/register`'s `@Public()` pattern, not a
+    separate `/public/:tenantSlug/...` path.** The tenant is still resolved by
+    `TenantContextMiddleware` from the `X-Tenant-Slug` header/subdomain exactly as every
+    other tenant-scoped route does; `@Public()` only tells `JwtAuthGuard` to skip the JWT
+    check, and `PermissionsGuard`/`RolesGuard` already pass through any route declaring no
+    `@Permissions()`/`@Roles()` requirement. A dedicated, minimal
+    `GET /members/register/branches` (id/name/type/parent only) backs the registration
+    picker rather than exposing the full, authenticated `GET /branches` endpoint publicly.
+    Approval reuses Module 15's `ApprovalWorkflow` engine only when a tenant has actually
+    configured one for `entityType: "member_registration"`; otherwise the decision is
+    recorded directly via `AuditService` — the same delegate-if-configured-else-direct
+    shape `HierarchyRequirementsService.decide`/`DynamicModuleRecordsService.changeStatus`
+    already established, applied here for a third time rather than invented anew. See
+    `docs/member-registration/business-analysis.md`.
 
 ## Recent hardening (this pass)
 

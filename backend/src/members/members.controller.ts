@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { MembersService } from './members.service';
 import { MemberActivitiesService } from './member-activities.service';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -8,9 +9,13 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 import { TransferMemberDto } from './dto/transfer-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
 import { CreateMemberActivityDto } from './dto/create-member-activity.dto';
+import { RegisterMemberDto } from './dto/register-member.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
+import { Public } from '../common/decorators/public.decorator';
+import { RequiresAuditReason } from '../common/decorators/requires-audit-reason.decorator';
+import { RequireReasonDto } from '../common/dto/require-reason.dto';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { ExportFormat, sendExportFile } from '../common/exports/export.util';
@@ -42,6 +47,21 @@ export class MembersController {
   @Post()
   async create(@CurrentTenantId() tenantId: string, @Body() dto: CreateMemberDto) {
     return ok(await this.membersService.create(tenantId, dto));
+  }
+
+  @ApiOperation({ summary: 'Public list of active branches, for the self-registration Church/Branch/Parish/Cell/Work Group picker' })
+  @Public()
+  @Get('register/branches')
+  async registerBranchOptions(@CurrentTenantId() tenantId: string) {
+    return ok(await this.membersService.listBranchOptionsForRegistration(tenantId));
+  }
+
+  @ApiOperation({ summary: 'Public self-registration — creates a pending member awaiting approval; choose the Church/Branch/Parish/Cell/Work Group being joined' })
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('register')
+  async register(@CurrentTenantId() tenantId: string, @Body() dto: RegisterMemberDto) {
+    return ok(await this.membersService.registerPublic(tenantId, dto));
   }
 
   @ApiOperation({ summary: 'List members (paginated, searchable, filterable by branch/family/status) — scoped to the caller\'s assigned branch and its descendants, if any' })
@@ -86,6 +106,22 @@ export class MembersController {
   @Patch(':id/transfer')
   async transfer(@CurrentTenantId() tenantId: string, @Param('id') id: string, @Body() dto: TransferMemberDto) {
     return ok(await this.membersService.transfer(tenantId, id, dto.branchId));
+  }
+
+  @ApiOperation({ summary: 'Approve a pending registration — reason required; routed through a tenant-defined approval workflow when one is configured for "member_registration"' })
+  @Permissions('member.registration.decide')
+  @RequiresAuditReason()
+  @Patch(':id/approve')
+  async approve(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: RequireReasonDto) {
+    return ok(await this.membersService.approve(tenantId, id, user, dto.reason));
+  }
+
+  @ApiOperation({ summary: 'Reject a pending registration — reason required' })
+  @Permissions('member.registration.decide')
+  @RequiresAuditReason()
+  @Patch(':id/reject')
+  async reject(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: RequireReasonDto) {
+    return ok(await this.membersService.reject(tenantId, id, user, dto.reason));
   }
 
   @ApiOperation({ summary: 'Soft-delete a member' })

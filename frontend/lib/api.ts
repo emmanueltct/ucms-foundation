@@ -401,6 +401,27 @@ export const membersApi = {
     apiRequest<Member>(`/members/${id}/transfer`, { method: 'PATCH', tenantSlug, auth: true, body: { branchId } }),
   remove: (tenantSlug: string, id: string) =>
     apiRequest<Member>(`/members/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  /** Public, unauthenticated list of active branches for the self-registration picker. */
+  registerBranchOptions: (tenantSlug: string) =>
+    apiRequest<{ id: string; name: string; branchType: string | null; parentBranchId: string | null }[]>('/members/register/branches', { tenantSlug }),
+  /** Public, unauthenticated self-registration — always creates a pending member. */
+  registerPublic: (
+    tenantSlug: string,
+    body: {
+      branchId: string;
+      firstName: string;
+      lastName: string;
+      gender?: string;
+      dateOfBirth?: string;
+      phone?: string;
+      email?: string;
+      address?: string;
+    },
+  ) => apiRequest<Member>('/members/register', { method: 'POST', tenantSlug, body }),
+  approve: (tenantSlug: string, id: string, reason: string) =>
+    apiRequest<Member>(`/members/${id}/approve`, { method: 'PATCH', tenantSlug, auth: true, body: { reason } }),
+  reject: (tenantSlug: string, id: string, reason: string) =>
+    apiRequest<Member>(`/members/${id}/reject`, { method: 'PATCH', tenantSlug, auth: true, body: { reason } }),
   addActivity: (tenantSlug: string, memberId: string, activity: CreateMemberActivityInput) =>
     apiRequest<MemberActivity>(`/members/${memberId}/activities`, { method: 'POST', tenantSlug, auth: true, body: activity }),
   listActivities: (tenantSlug: string, memberId: string) =>

@@ -31,6 +31,8 @@ const STATUS_STYLES: Record<string, string> = {
   inactive: 'text-slate-500 bg-slate-100 border-slate-200',
   transferred: 'text-amber-700 bg-amber-50 border-amber-200',
   deceased: 'text-slate-400 bg-slate-50 border-slate-200',
+  pending: 'text-[#C9A24B] bg-[#C9A24B]/10 border-[#C9A24B]/30',
+  rejected: 'text-red-600 bg-red-50 border-red-200',
 };
 
 const TIMELINE_KIND_LABELS: Record<string, string> = {
@@ -71,6 +73,42 @@ export default function MembersAdminPage() {
   const [activityCustomFieldDefs, setActivityCustomFieldDefs] = useState<CustomFieldDefinition[]>([]);
   const [activityCustomFieldValues, setActivityCustomFieldValues] = useState<Record<string, unknown>>({});
 
+  const [pendingMembers, setPendingMembers] = useState<Member[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+
+  async function loadPending() {
+    setPendingLoading(true);
+    try {
+      const res = await membersApi.list(TENANT_SLUG, { membershipStatus: 'pending' });
+      if (res.success && res.data) setPendingMembers(res.data);
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    } finally {
+      setPendingLoading(false);
+    }
+  }
+
+  async function handleDecide(memberId: string, decision: 'approve' | 'reject') {
+    const reason = window.prompt(`Reason for this ${decision === 'approve' ? 'approval' : 'rejection'}:`);
+    if (!reason || reason.trim().length < 3) {
+      setError('A reason of at least 3 characters is required.');
+      return;
+    }
+    try {
+      const res = decision === 'approve'
+        ? await membersApi.approve(TENANT_SLUG, memberId, reason.trim())
+        : await membersApi.reject(TENANT_SLUG, memberId, reason.trim());
+      if (res.success) {
+        loadPending();
+        load();
+      } else {
+        setError(res.error?.message ?? 'Could not record the decision.');
+      }
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -99,6 +137,10 @@ export default function MembersAdminPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, branchFilter]);
+
+  useEffect(() => {
+    loadPending();
+  }, []);
 
   useEffect(() => {
     if (!activityType) {
@@ -222,6 +264,42 @@ export default function MembersAdminPage() {
             own records to whoever you build here.
           </p>
         </header>
+
+        {pendingMembers.length > 0 && (
+          <div className="rounded-xl border border-[#C9A24B]/30 bg-[#C9A24B]/5 p-4 mb-6">
+            <h2 className="text-sm font-medium text-[#1E2A44] mb-3">
+              Pending registrations {pendingLoading ? '' : `(${pendingMembers.length})`}
+            </h2>
+            <div className="divide-y divide-[#C9A24B]/20">
+              {pendingMembers.map((m) => (
+                <div key={m.id} className="flex items-center justify-between py-2">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{m.firstName} {m.lastName}</p>
+                    <p className="text-xs text-slate-500">
+                      {branches.find((b) => b.id === m.branchId)?.name ?? '—'}
+                      {m.email ? ` · ${m.email}` : ''}
+                      {m.phone ? ` · ${m.phone}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDecide(m.id, 'approve')}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleDecide(m.id, 'reject')}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-red-200 text-red-600 hover:bg-red-50"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-4 mb-6 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

@@ -4,7 +4,7 @@ import { IsDateString, IsEmail, IsIn, IsObject, IsOptional, IsString, IsUUID } f
 const GENDERS = ['male', 'female', 'other'] as const;
 const FAMILY_ROLES = ['head', 'spouse', 'child', 'dependent', 'other'] as const;
 const MARITAL_STATUSES = ['single', 'married', 'divorced', 'widowed', 'other'] as const;
-const MEMBERSHIP_STATUSES = ['active', 'inactive', 'transferred', 'deceased'] as const;
+const MEMBERSHIP_STATUSES = ['active', 'inactive', 'transferred', 'deceased', 'pending', 'rejected'] as const;
 
 export class CreateMemberDto {
   @ApiProperty({ description: 'Branch this member belongs to' })

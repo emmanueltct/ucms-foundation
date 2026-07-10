@@ -43,6 +43,7 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'member.update', module: 'member', description: 'Edit member profiles' },
   { code: 'member.delete', module: 'member', description: 'Soft-delete a member profile' },
   { code: 'member.transfer', module: 'member', description: 'Move a member to a different branch' },
+  { code: 'member.registration.decide', module: 'member', description: 'Approve or reject a pending self/admin registration' },
   { code: 'member.activity.create', module: 'member', description: 'Log an activity (sacrament, training, certificate, leadership appointment, ...) against a member' },
   { code: 'member.activity.read', module: 'member', description: "View a member's logged activity history" },
 

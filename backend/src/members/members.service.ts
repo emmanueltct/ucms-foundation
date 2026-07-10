@@ -1,17 +1,24 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Member } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FamiliesService } from '../families/families.service';
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
+import { AuditService } from '../audit/audit.service';
+import { ApprovalWorkflowsService } from '../approval-workflows/approval-workflows.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
+import { RegisterMemberDto } from './dto/register-member.dto';
 import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
+import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 
 export type MemberWithCustomFields = Member & { customFields: Record<string, unknown> };
 
 /** entityType key this module registers its records under with the Custom Fields module. */
 const CUSTOM_FIELD_ENTITY_TYPE = 'member';
+
+/** entityType key a tenant-defined ApprovalWorkflow (Module 15) may target to gate member-registration decisions. */
+const REGISTRATION_ENTITY_TYPE = 'member_registration';
 
 /**
  * Member profiles — see docs/member-management/business-analysis.md. Every
@@ -29,6 +36,8 @@ export class MembersService {
     private readonly prisma: PrismaService,
     private readonly familiesService: FamiliesService,
     private readonly customFieldsService: CustomFieldsService,
+    private readonly auditService: AuditService,
+    private readonly approvalWorkflowsService: ApprovalWorkflowsService,
   ) {}
 
   async create(tenantId: string, dto: CreateMemberDto): Promise<MemberWithCustomFields> {
@@ -220,5 +229,101 @@ export class MembersService {
         message: `Membership number "${membershipNumber}" is already in use.`,
       });
     }
+  }
+
+  /**
+   * A minimal, public projection of active branches (id/name/type/parent
+   * only — no address, code, or other admin-facing fields) so the
+   * self-registration form can offer a Church/Branch/Parish/Cell/Work Group
+   * picker without exposing the full, authenticated Branches API.
+   */
+  async listBranchOptionsForRegistration(tenantId: string) {
+    return this.prisma.branch.findMany({
+      where: { tenantId, isActive: true, deletedAt: null },
+      select: { id: true, name: true, branchType: true, parentBranchId: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  /**
+   * Public, unauthenticated self-registration — always creates a `pending`
+   * member, regardless of what an admin-created member defaults to. See
+   * docs/member-registration/business-analysis.md.
+   */
+  async registerPublic(tenantId: string, dto: RegisterMemberDto): Promise<MemberWithCustomFields> {
+    await this.assertBranchExists(tenantId, dto.branchId);
+    await this.customFieldsService.assertRequiredFieldsProvided(tenantId, CUSTOM_FIELD_ENTITY_TYPE, dto.customFields);
+
+    const member = await this.prisma.member.create({
+      data: {
+        tenantId,
+        branchId: dto.branchId,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        gender: dto.gender,
+        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
+        phone: dto.phone,
+        email: dto.email,
+        address: dto.address,
+        membershipStatus: 'pending',
+      },
+    });
+
+    if (dto.customFields) {
+      await this.customFieldsService.setValues(tenantId, CUSTOM_FIELD_ENTITY_TYPE, member.id, dto.customFields);
+    }
+
+    return { ...member, customFields: dto.customFields ?? {} };
+  }
+
+  async approve(tenantId: string, id: string, user: AuthenticatedUser, reason: string): Promise<Member> {
+    return this.decideRegistration(tenantId, id, 'active', 'approved', user, reason);
+  }
+
+  async reject(tenantId: string, id: string, user: AuthenticatedUser, reason: string): Promise<Member> {
+    return this.decideRegistration(tenantId, id, 'rejected', 'rejected', user, reason);
+  }
+
+  /**
+   * If the tenant has defined an active `ApprovalWorkflow` for
+   * `"member_registration"`, the decision is routed through it (enforcing
+   * the current step's gating role/permission); otherwise it's recorded
+   * directly via `AuditService`. Either way the member's own
+   * `membershipStatus` is set immediately — the same simplification
+   * `HierarchyRequirementsService.decide`/`DynamicModuleRecordsService.changeStatus`
+   * already make, rather than waiting for every step of a multi-step chain.
+   */
+  private async decideRegistration(
+    tenantId: string,
+    id: string,
+    newStatus: string,
+    decision: 'approved' | 'rejected',
+    user: AuthenticatedUser,
+    reason: string,
+  ): Promise<Member> {
+    const member = await this.findOneRaw(tenantId, id);
+    if (member.membershipStatus !== 'pending') {
+      throw new BadRequestException({
+        code: 'MEMBER_NOT_PENDING',
+        message: 'Only a pending registration can be approved or rejected.',
+      });
+    }
+
+    const workflow = await this.prisma.approvalWorkflow.findFirst({
+      where: { tenantId, entityType: REGISTRATION_ENTITY_TYPE, isActive: true },
+    });
+
+    if (workflow) {
+      await this.approvalWorkflowsService.startRequest(tenantId, workflow.id, REGISTRATION_ENTITY_TYPE, member.id);
+      await this.approvalWorkflowsService.decide(tenantId, REGISTRATION_ENTITY_TYPE, member.id, decision, user, reason);
+    } else {
+      await this.auditService.record(tenantId, user.userId, `member.registration.${decision}`, REGISTRATION_ENTITY_TYPE, member.id, {
+        reason,
+        previousValue: { membershipStatus: member.membershipStatus },
+        newValue: { membershipStatus: newStatus },
+      });
+    }
+
+    return this.prisma.member.update({ where: { id }, data: { membershipStatus: newStatus } });
   }
 }

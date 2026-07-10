@@ -2,7 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsUUID } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
 
-const MEMBERSHIP_STATUSES = ['active', 'inactive', 'transferred', 'deceased'] as const;
+const MEMBERSHIP_STATUSES = ['active', 'inactive', 'transferred', 'deceased', 'pending', 'rejected'] as const;
 
 export class MemberQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: 'Filter to members in this branch' })
