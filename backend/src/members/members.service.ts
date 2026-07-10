@@ -157,7 +157,7 @@ export class MembersService {
     return member;
   }
 
-  async update(tenantId: string, id: string, dto: UpdateMemberDto): Promise<MemberWithCustomFields> {
+  async update(tenantId: string, id: string, dto: UpdateMemberDto, userId?: string): Promise<MemberWithCustomFields> {
     const existing = await this.findOneRaw(tenantId, id);
 
     if (dto.familyId) {
@@ -199,6 +199,18 @@ export class MembersService {
     }
     const customFields = await this.customFieldsService.getValues(tenantId, CUSTOM_FIELD_ENTITY_TYPE, id);
 
+    // A status change carries a mandatory reason (enforced by UpdateMemberDto's
+    // conditional validation) and is always audited — every other field on this
+    // same endpoint is a routine edit and stays unaudited, the same "only the
+    // named hot-spot, not every mutation" scope this platform holds elsewhere.
+    if (dto.membershipStatus !== undefined && dto.membershipStatus !== existing.membershipStatus && userId) {
+      await this.auditService.record(tenantId, userId, 'member.status_changed', CUSTOM_FIELD_ENTITY_TYPE, id, {
+        reason: dto.reason,
+        previousValue: { membershipStatus: existing.membershipStatus },
+        newValue: { membershipStatus: dto.membershipStatus },
+      });
+    }
+
     return { ...updated, customFields };
   }
 
@@ -209,11 +221,13 @@ export class MembersService {
     return this.prisma.member.update({ where: { id }, data: { branchId } });
   }
 
-  /** Soft-deletes the member and clears any family's headOfFamilyId pointing at them (FR-MM-1.8). */
-  async softDelete(tenantId: string, id: string): Promise<Member> {
+  /** Soft-deletes the member and clears any family's headOfFamilyId pointing at them (FR-MM-1.8) — reason mandatory and always audited. */
+  async softDelete(tenantId: string, id: string, userId: string, reason: string): Promise<Member> {
     await this.findOneRaw(tenantId, id);
     await this.familiesService.clearHeadIfMember(tenantId, id);
-    return this.prisma.member.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+    const deleted = await this.prisma.member.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+    await this.auditService.record(tenantId, userId, 'member.deleted', CUSTOM_FIELD_ENTITY_TYPE, id, { reason });
+    return deleted;
   }
 
   private async assertBranchExists(tenantId: string, branchId: string): Promise<void> {

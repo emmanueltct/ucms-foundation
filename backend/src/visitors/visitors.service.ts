@@ -5,6 +5,9 @@ import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { UpdateVisitorDto } from './dto/update-visitor.dto';
 import { VisitorQueryDto } from './dto/visitor-query.dto';
 import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
+import { AuditService } from '../audit/audit.service';
+
+const CUSTOM_FIELD_ENTITY_TYPE = 'visitor';
 
 /**
  * Visitors — see docs/visitor-management/business-analysis.md. `status` is a
@@ -13,11 +16,16 @@ import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.ut
  * `convertedMemberId` — the same "a field with real side effects gets its
  * own dedicated action" reasoning `Member.transfer`/`Family.setHead` use.
  * Activity logging (First Visit, Counseling, Follow-up, ...) lives in
- * `VisitorActivitiesService`, shared with `VisitorGroupsService`.
+ * `VisitorActivitiesService`, shared with `VisitorGroupsService`. A status
+ * change (via `update`) or a conversion carries a mandatory, always-audited
+ * reason — the same named hot-spot treatment Members' status changes get.
  */
 @Injectable()
 export class VisitorsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async create(tenantId: string, dto: CreateVisitorDto): Promise<Visitor> {
     if (dto.branchId) {
@@ -79,8 +87,8 @@ export class VisitorsService {
     return this.findOneRaw(tenantId, id);
   }
 
-  async update(tenantId: string, id: string, dto: UpdateVisitorDto): Promise<Visitor> {
-    await this.findOneRaw(tenantId, id);
+  async update(tenantId: string, id: string, dto: UpdateVisitorDto, userId?: string): Promise<Visitor> {
+    const existing = await this.findOneRaw(tenantId, id);
 
     if (dto.status === 'joined') {
       throw new BadRequestException({
@@ -98,7 +106,7 @@ export class VisitorsService {
       await this.assertVisitorGroupExists(tenantId, dto.visitorGroupId);
     }
 
-    return this.prisma.visitor.update({
+    const updated = await this.prisma.visitor.update({
       where: { id },
       data: {
         branchId: dto.branchId,
@@ -116,6 +124,19 @@ export class VisitorsService {
         notes: dto.notes,
       },
     });
+
+    // Only a status change is audited here — every other field on this same
+    // endpoint is a routine edit, the same bounded "named hot-spot" scope
+    // Members' status changes use.
+    if (dto.status !== undefined && dto.status !== existing.status && userId) {
+      await this.auditService.record(tenantId, userId, 'visitor.status_changed', CUSTOM_FIELD_ENTITY_TYPE, id, {
+        reason: dto.reason,
+        previousValue: { status: existing.status },
+        newValue: { status: dto.status },
+      });
+    }
+
+    return updated;
   }
 
   async softDelete(tenantId: string, id: string): Promise<Visitor> {
@@ -123,8 +144,8 @@ export class VisitorsService {
     return this.prisma.visitor.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
   }
 
-  /** Links this visitor to an already-created Member and marks them "joined" — the one legitimate way `status` becomes "joined". */
-  async convertToMember(tenantId: string, id: string, memberId: string): Promise<Visitor> {
+  /** Links this visitor to an already-created Member and marks them "joined" — the one legitimate way `status` becomes "joined". Reason mandatory and always audited. */
+  async convertToMember(tenantId: string, id: string, memberId: string, userId: string, reason: string): Promise<Visitor> {
     const visitor = await this.findOneRaw(tenantId, id);
     if (visitor.convertedMemberId) {
       throw new BadRequestException({
@@ -141,10 +162,18 @@ export class VisitorsService {
       });
     }
 
-    return this.prisma.visitor.update({
+    const updated = await this.prisma.visitor.update({
       where: { id },
       data: { status: 'joined', convertedMemberId: memberId },
     });
+
+    await this.auditService.record(tenantId, userId, 'visitor.converted', CUSTOM_FIELD_ENTITY_TYPE, id, {
+      reason,
+      previousValue: { status: visitor.status },
+      newValue: { status: 'joined', convertedMemberId: memberId },
+    });
+
+    return updated;
   }
 
   private async findOneRaw(tenantId: string, id: string): Promise<Visitor> {

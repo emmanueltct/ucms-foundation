@@ -4,6 +4,7 @@ import { HierarchyRequirementsService } from '../src/hierarchy-requirements/hier
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
 import { ApprovalWorkflowsService } from '../src/approval-workflows/approval-workflows.service';
+import { DeadlinesService } from '../src/deadlines/deadlines.service';
 import { NotificationsService } from '../src/communication/notifications.service';
 
 describe('HierarchyRequirementsService', () => {
@@ -26,16 +27,19 @@ describe('HierarchyRequirementsService', () => {
 
   const mockAuditService = { record: jest.fn() };
   const mockApprovalWorkflows = { findOne: jest.fn(), startRequest: jest.fn(), decide: jest.fn() };
+  const mockDeadlines = { assertOpen: jest.fn() };
   const mockNotifications = { create: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockDeadlines.assertOpen.mockResolvedValue(undefined);
     const moduleRef = await Test.createTestingModule({
       providers: [
         HierarchyRequirementsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AuditService, useValue: mockAuditService },
         { provide: ApprovalWorkflowsService, useValue: mockApprovalWorkflows },
+        { provide: DeadlinesService, useValue: mockDeadlines },
         { provide: NotificationsService, useValue: mockNotifications },
       ],
     }).compile();
@@ -151,9 +155,17 @@ describe('HierarchyRequirementsService', () => {
       mockPrisma.hierarchyRequirementSubmission.update.mockResolvedValue({ id: 'sub-1', status: 'submitted' });
       const result = await service.submit(TENANT_ID, 'sub-1', 'user-1', { notes: 'Attached the report.' });
       expect(result).toEqual({ id: 'sub-1', status: 'submitted' });
+      expect(mockDeadlines.assertOpen).toHaveBeenCalledWith(TENANT_ID, 'hierarchy_requirement_submission', 'sub-1');
       expect(mockPrisma.hierarchyRequirementSubmission.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 'sub-1' }, data: expect.objectContaining({ status: 'submitted', submittedByUserId: 'user-1' }) }),
       );
+    });
+
+    it('rejects when the deadline is locked or closed', async () => {
+      mockPrisma.hierarchyRequirementSubmission.findFirst.mockResolvedValue({ id: 'sub-1', status: 'pending' });
+      mockDeadlines.assertOpen.mockRejectedValue(new BadRequestException({ code: 'DEADLINE_NOT_OPEN', message: 'locked' }));
+      await expect(service.submit(TENANT_ID, 'sub-1', 'user-1', {})).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.hierarchyRequirementSubmission.update).not.toHaveBeenCalled();
     });
   });
 

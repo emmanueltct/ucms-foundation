@@ -6,9 +6,10 @@ import { VisitorGroupsController } from './visitor-groups.controller';
 import { VisitorActivitiesService } from './visitor-activities.service';
 import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
 import { BranchScopeModule } from '../common/branch-scope/branch-scope.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [CustomFieldsModule, BranchScopeModule],
+  imports: [CustomFieldsModule, BranchScopeModule, AuditModule],
   controllers: [VisitorsController, VisitorGroupsController],
   providers: [VisitorsService, VisitorGroupsService, VisitorActivitiesService],
   exports: [VisitorsService, VisitorGroupsService, VisitorActivitiesService],

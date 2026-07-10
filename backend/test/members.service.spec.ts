@@ -184,6 +184,31 @@ describe('MembersService', () => {
       expect(mockCustomFields.setValues).toHaveBeenCalledWith(TENANT_ID, 'member', 'mem-1', { spiritual_gift: 'teaching' });
       expect(result.customFields).toEqual({ confirmation_date: '2020-06-01', spiritual_gift: 'teaching' });
     });
+
+    it('audits a membershipStatus change with the provided reason', async () => {
+      mockPrisma.member.findFirst.mockResolvedValue({ id: 'mem-1', tenantId: TENANT_ID, membershipStatus: 'active' });
+      mockPrisma.member.update.mockResolvedValue({ id: 'mem-1', membershipStatus: 'inactive' });
+
+      await service.update(TENANT_ID, 'mem-1', { membershipStatus: 'inactive', reason: 'Moved away.' } as any, 'user-1');
+
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        TENANT_ID,
+        'user-1',
+        'member.status_changed',
+        'member',
+        'mem-1',
+        expect.objectContaining({ reason: 'Moved away.', previousValue: { membershipStatus: 'active' }, newValue: { membershipStatus: 'inactive' } }),
+      );
+    });
+
+    it('does not audit when membershipStatus is not part of the update', async () => {
+      mockPrisma.member.findFirst.mockResolvedValue({ id: 'mem-1', tenantId: TENANT_ID, membershipStatus: 'active' });
+      mockPrisma.member.update.mockResolvedValue({ id: 'mem-1' });
+
+      await service.update(TENANT_ID, 'mem-1', { firstName: 'Jean-Pierre' }, 'user-1');
+
+      expect(mockAudit.record).not.toHaveBeenCalled();
+    });
   });
 
   describe('findAll', () => {
@@ -246,13 +271,21 @@ describe('MembersService', () => {
       mockPrisma.member.findFirst.mockResolvedValue({ id: 'mem-1', tenantId: TENANT_ID });
       mockPrisma.member.update.mockResolvedValue({ id: 'mem-1', isActive: false });
 
-      await service.softDelete(TENANT_ID, 'mem-1');
+      await service.softDelete(TENANT_ID, 'mem-1', 'user-1', 'No longer attending.');
 
       expect(mockFamilies.clearHeadIfMember).toHaveBeenCalledWith(TENANT_ID, 'mem-1');
       expect(mockPrisma.member.update).toHaveBeenCalledWith({
         where: { id: 'mem-1' },
         data: { deletedAt: expect.any(Date), isActive: false },
       });
+      expect(mockAudit.record).toHaveBeenCalledWith(
+        TENANT_ID,
+        'user-1',
+        'member.deleted',
+        'member',
+        'mem-1',
+        expect.objectContaining({ reason: 'No longer attending.' }),
+      );
     });
   });
 

@@ -234,8 +234,13 @@ export default function MembersAdminPage() {
   }
 
   async function handleRemove(member: Member) {
+    const reason = window.prompt('Reason for removing this member:');
+    if (!reason || reason.trim().length < 3) {
+      setError('A reason of at least 3 characters is required.');
+      return;
+    }
     try {
-      const res = await membersApi.remove(TENANT_SLUG, member.id);
+      const res = await membersApi.remove(TENANT_SLUG, member.id, reason.trim());
       if (res.success) load();
       else setError(res.error?.message ?? 'Could not remove the member.');
     } catch {

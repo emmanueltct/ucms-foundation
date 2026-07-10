@@ -399,8 +399,8 @@ export const membersApi = {
     apiRequest<Member>(`/members/${id}`, { method: 'PATCH', tenantSlug, auth: true, body: member }),
   transfer: (tenantSlug: string, id: string, branchId: string) =>
     apiRequest<Member>(`/members/${id}/transfer`, { method: 'PATCH', tenantSlug, auth: true, body: { branchId } }),
-  remove: (tenantSlug: string, id: string) =>
-    apiRequest<Member>(`/members/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  remove: (tenantSlug: string, id: string, reason: string) =>
+    apiRequest<Member>(`/members/${id}`, { method: 'DELETE', tenantSlug, auth: true, body: { reason } }),
   /** Public, unauthenticated list of active branches for the self-registration picker. */
   registerBranchOptions: (tenantSlug: string) =>
     apiRequest<{ id: string; name: string; branchType: string | null; parentBranchId: string | null }[]>('/members/register/branches', { tenantSlug }),
@@ -1154,12 +1154,13 @@ export const visitorsApi = {
   },
   create: (tenantSlug: string, visitor: CreateVisitorInput) =>
     apiRequest<Visitor>('/visitors', { method: 'POST', tenantSlug, auth: true, body: visitor }),
-  update: (tenantSlug: string, id: string, body: Partial<CreateVisitorInput> & { status?: string }) =>
+  /** `reason` is required by the backend whenever `status` is included in the payload. */
+  update: (tenantSlug: string, id: string, body: Partial<CreateVisitorInput> & { status?: string; reason?: string }) =>
     apiRequest<Visitor>(`/visitors/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) =>
     apiRequest<Visitor>(`/visitors/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
-  convert: (tenantSlug: string, id: string, memberId: string) =>
-    apiRequest<Visitor>(`/visitors/${id}/convert`, { method: 'PATCH', tenantSlug, auth: true, body: { memberId } }),
+  convert: (tenantSlug: string, id: string, memberId: string, reason: string) =>
+    apiRequest<Visitor>(`/visitors/${id}/convert`, { method: 'PATCH', tenantSlug, auth: true, body: { memberId, reason } }),
   addActivity: (tenantSlug: string, visitorId: string, activity: CreateVisitorActivityInput) =>
     apiRequest<VisitorActivity>(`/visitors/${visitorId}/activities`, { method: 'POST', tenantSlug, auth: true, body: activity }),
   listActivities: (tenantSlug: string, visitorId: string) =>

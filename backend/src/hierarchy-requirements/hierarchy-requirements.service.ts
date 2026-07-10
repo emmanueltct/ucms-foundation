@@ -3,6 +3,7 @@ import { HierarchyRequirement, HierarchyRequirementSubmission } from '@prisma/cl
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ApprovalWorkflowsService } from '../approval-workflows/approval-workflows.service';
+import { DeadlinesService } from '../deadlines/deadlines.service';
 import { NotificationsService } from '../communication/notifications.service';
 import { CreateHierarchyRequirementDto } from './dto/create-hierarchy-requirement.dto';
 import { UpdateHierarchyRequirementDto } from './dto/update-hierarchy-requirement.dto';
@@ -25,6 +26,7 @@ export class HierarchyRequirementsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly approvalWorkflows: ApprovalWorkflowsService,
+    private readonly deadlines: DeadlinesService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -187,6 +189,8 @@ export class HierarchyRequirementsService {
     if (submission.status !== 'pending') {
       throw new BadRequestException({ code: 'SUBMISSION_ALREADY_SUBMITTED', message: 'This submission has already been submitted.' });
     }
+    // No-op if no Deadline was ever set for this submission (Phase 0's assertOpen); otherwise blocks a locked/closed cycle.
+    await this.deadlines.assertOpen(tenantId, SUBMISSION_ENTITY_TYPE, submissionId);
 
     return this.prisma.hierarchyRequirementSubmission.update({
       where: { id: submissionId },

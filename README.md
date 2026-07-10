@@ -65,6 +65,10 @@ docs/
                                 branch-scoped visibility roll-up across 7 list endpoints
   member-registration/         Module 19 docs (business analysis, FRs, API design) —
                                 admin + self member registration with configurable approval
+  audit-hardening/             Cross-cutting hardening docs (business analysis, FRs) —
+                                mandatory audit reasons + deadlines on the remaining named
+                                hot-spots (member delete/status-change, visitor convert/
+                                status-change, hierarchy requirement submission deadlines)
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -162,7 +166,9 @@ backend/                       NestJS API
                                 /members/register/branches let a prospective member
                                 self-register as "pending"; PATCH :id/approve|reject
                                 decide it, routed through a configured ApprovalWorkflow
-                                for "member_registration" when one exists
+                                for "member_registration" when one exists; a reason is
+                                required whenever membershipStatus is included in a
+                                general update, and always for delete
     families/                  Family/household grouping — flat (no hierarchy), head
                                 of family, non-cascading deactivate/delete
     finance/                   Contribution recording against a Branch and (optionally) a
@@ -216,7 +222,9 @@ backend/                       NestJS API
                                 for individuals, (optionally) becoming a Member — `status` is
                                 a plain lifecycle field except "joined", which only ever
                                 happens via the dedicated `convert` action that links
-                                `convertedMemberId`; GET /visitors/export downloads the list
+                                `convertedMemberId` (reason required, always audited); a
+                                reason is also required whenever `status` is included in a
+                                general update; GET /visitors/export downloads the list
                                 as CSV/XLSX/PDF
     documents/                 Documents (policies, minutes, forms, certificates, ...) —
                                 unlike Assets' `file`-type custom fields, a Document *is* the
@@ -259,7 +267,10 @@ backend/                       NestJS API
                                 approval workflows, deadlines, branch scope, hierarchy
                                 requirements, dynamic module definitions, dynamic module
                                 records, entity memberships, branch visibility, member
-                                registration) + e2e auth flow
+                                registration) + e2e auth flow. Members/Visitors service
+                                tests now also cover status-change/delete/convert audit
+                                behavior and the Hierarchy Requirements suite covers the
+                                Deadline.assertOpen wiring
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -860,6 +871,22 @@ npm run test:e2e             # requires a migrated + seeded test database
     shape `HierarchyRequirementsService.decide`/`DynamicModuleRecordsService.changeStatus`
     already established, applied here for a third time rather than invented anew. See
     `docs/member-registration/business-analysis.md`.
+44. **A status change is audited via conditional DTO validation, not the blanket
+    `@RequiresAuditReason()` route guard.** `Member.update`/`Visitor.update` are still one
+    general-purpose endpoint each (name, phone, address, ...); adding the route-level
+    guard would force a reason on every routine field edit, which nothing in the
+    requirements asked for. Instead `UpdateMemberDto`/`UpdateVisitorDto` make `reason`
+    conditionally required (`@ValidateIf((o) => o.membershipStatus/status !== undefined)`)
+    only when the status field itself is present in that specific request — enforced by
+    class-validator as a `422` field error, not the guard. The service layer then writes
+    to `AuditService` only when the status actually differs from what's stored. Delete
+    (`Member`) and convert (`Visitor`) are clean, singular actions with no such overreach
+    risk, so they use the standard route-level `@RequiresAuditReason()` unconditionally,
+    the same as every other dedicated-action endpoint in this platform. Separately,
+    `HierarchyRequirementsService.submit` now actually calls
+    `DeadlinesService.assertOpen` — documented as the intended composition since Module 16
+    shipped, but never wired into code until this pass. See
+    `docs/audit-hardening/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -963,15 +990,27 @@ npm run test:e2e             # requires a migrated + seeded test database
   identical to behavior before this pass; Reports & Analytics is explicitly deferred (no
   single shared `buildWhere` to hook into today). See design decision #42 and
   `docs/organizational-visibility/business-analysis.md`.
+- **Mandatory audit reasons + deadlines applied to the remaining named hot-spots**:
+  Member delete and status-change, Visitor convert and status-change now require a
+  reason (conditionally, only when the status field itself changes — not on every
+  routine edit) and are always recorded to `AuditLog`; `HierarchyRequirementsService.submit`
+  now actually calls `DeadlinesService.assertOpen` (documented as the intent since Module
+  16 shipped, wired into code for the first time in this pass). This closes out every
+  hot-spot the original requirements #7/#8 named. See design decision #44 and
+  `docs/audit-hardening/business-analysis.md`.
 
 ## Next module
 
-Modules 0-14 (Foundation through Member Activities & Personal History) plus the
-cross-cutting Custom Fields mechanism are complete, and every item on this pass's working
-list (Tasks 1-12: form-builder Custom Fields, password reset, email verification, MFA UI,
-multi-workspace login, dynamic hierarchy onboarding, visitor groups/activities, member
-activities + personal history, report/list exports, file management polish, and
-session/login-history) is now done.
+Modules 0-19 (Foundation through Member Registration) plus the cross-cutting Custom
+Fields, Governance/Audit, and Organizational Visibility mechanisms are complete. This
+covers both the original 12-task working list (form-builder Custom Fields, password
+reset, email verification, MFA UI, multi-workspace login, dynamic hierarchy onboarding,
+visitor groups/activities, member activities + personal history, report/list exports,
+file management polish, session/login-history) and the six-phase expansion that followed
+it (shared governance infrastructure; configurable requirements between organizational
+levels; the no-code Dynamic Module Builder; generic entity membership; organizational
+visibility roll-up; member registration; and mandatory-reason/deadline hardening on the
+remaining named hot-spots).
 
 What's left is everything each module's own "Out of Scope" section already names
 explicitly and for a stated reason — not a hidden gap, but a deliberate line drawn under
@@ -979,9 +1018,11 @@ time/dependency constraints this environment has (no credentials for virus scann
 geolocation, or a real email/SMS gateway; no admin-facing "see other users' sessions" view;
 no configurable report builder; no full rich-text mentions/tables/embeds; no barcode/QR
 generation or GPS map picker widget for Custom Fields' `gps`/`barcode`-flavored fields
-beyond their current plain-value storage). Any of these is a reasonable next module to pick
-up — each one's business-analysis doc explains the specific reason it was deferred and what
-building it for real would require.
+beyond their current plain-value storage; Reports & Analytics branch-scoping; a full
+BPMN-style workflow engine; migrating `MinistryMembership`/`SmallGroupMembership` onto
+`EntityMembership`). Any of these is a reasonable next module to pick up — each one's
+business-analysis doc explains the specific reason it was deferred and what building it
+for real would require.
 
 Whichever is picked up should still follow the established patterns: tenant
 scoping structural not optional, `ConfigItem` for tenant-specific "types,"

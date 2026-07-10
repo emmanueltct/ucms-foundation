@@ -347,8 +347,13 @@ export default function VisitorsAdminPage() {
   }
 
   async function handleStatusChange(id: string, status: string) {
+    const reason = window.prompt(`Reason for moving this visitor to "${status}":`);
+    if (!reason || reason.trim().length < 3) {
+      setError('A reason of at least 3 characters is required.');
+      return;
+    }
     try {
-      const res = await visitorsApi.update(TENANT_SLUG, id, { status });
+      const res = await visitorsApi.update(TENANT_SLUG, id, { status, reason: reason.trim() });
       if (res.success) loadVisitors();
       else setError(res.error?.message ?? 'Could not update the status.');
     } catch {
@@ -358,8 +363,13 @@ export default function VisitorsAdminPage() {
 
   async function handleConvert() {
     if (!selectedVisitorId || !convertMemberId) return;
+    const reason = window.prompt('Reason for marking this visitor as joined:');
+    if (!reason || reason.trim().length < 3) {
+      setError('A reason of at least 3 characters is required.');
+      return;
+    }
     try {
-      const res = await visitorsApi.convert(TENANT_SLUG, selectedVisitorId, convertMemberId);
+      const res = await visitorsApi.convert(TENANT_SLUG, selectedVisitorId, convertMemberId, reason.trim());
       if (res.success) {
         setConvertMemberId('');
         loadVisitors();

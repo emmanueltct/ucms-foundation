@@ -1,5 +1,5 @@
 import { ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsIn, IsOptional } from 'class-validator';
+import { IsIn, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
 import { CreateVisitorDto } from './create-visitor.dto';
 
 const VISITOR_STATUSES = ['new', 'contacted', 'scheduled_visit', 'joined', 'no_response', 'closed'] as const;
@@ -17,4 +17,10 @@ export class UpdateVisitorDto extends PartialType(CreateVisitorDto) {
   @IsOptional()
   @IsIn(VISITOR_STATUSES)
   status?: string;
+
+  @ApiPropertyOptional({ description: 'Required whenever status is included in this update — why the status is changing.' })
+  @ValidateIf((o) => o.status !== undefined)
+  @IsString()
+  @MinLength(3)
+  reason?: string;
 }

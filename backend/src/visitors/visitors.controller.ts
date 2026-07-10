@@ -15,6 +15,7 @@ import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { ExportFormat, sendExportFile } from '../common/exports/export.util';
 import { BranchScopeService } from '../common/branch-scope/branch-scope.service';
+import { RequiresAuditReason } from '../common/decorators/requires-audit-reason.decorator';
 
 const VISITOR_EXPORT_COLUMNS = [
   { key: 'firstName', header: 'First Name' },
@@ -74,11 +75,11 @@ export class VisitorsController {
     return ok(await this.visitorsService.findOne(tenantId, id));
   }
 
-  @ApiOperation({ summary: "Update a visitor (status changes accepted here except \"joined\" — see /convert)" })
+  @ApiOperation({ summary: "Update a visitor (status changes accepted here except \"joined\" — see /convert). A reason is required whenever status is included" })
   @Permissions('visitor.update')
   @Patch(':id')
-  async update(@CurrentTenantId() tenantId: string, @Param('id') id: string, @Body() dto: UpdateVisitorDto) {
-    return ok(await this.visitorsService.update(tenantId, id, dto));
+  async update(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateVisitorDto) {
+    return ok(await this.visitorsService.update(tenantId, id, dto, user?.userId));
   }
 
   @ApiOperation({ summary: 'Soft-delete a visitor' })
@@ -88,11 +89,12 @@ export class VisitorsController {
     return ok(await this.visitorsService.softDelete(tenantId, id));
   }
 
-  @ApiOperation({ summary: 'Link this visitor to an already-created Member and mark them "joined"' })
+  @ApiOperation({ summary: 'Link this visitor to an already-created Member and mark them "joined" — reason required' })
   @Permissions('visitor.convert')
+  @RequiresAuditReason()
   @Patch(':id/convert')
-  async convert(@CurrentTenantId() tenantId: string, @Param('id') id: string, @Body() dto: ConvertVisitorDto) {
-    return ok(await this.visitorsService.convertToMember(tenantId, id, dto.memberId));
+  async convert(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: ConvertVisitorDto) {
+    return ok(await this.visitorsService.convertToMember(tenantId, id, dto.memberId, user.userId, dto.reason));
   }
 
   @ApiOperation({ summary: 'Log a configurable activity (First Visit, Counseling, Prayer, Follow-up, ...) against this visitor' })

@@ -94,11 +94,11 @@ export class MembersController {
     return ok(await this.membersService.findOne(tenantId, id));
   }
 
-  @ApiOperation({ summary: 'Update profile fields (not branch — use transfer)' })
+  @ApiOperation({ summary: 'Update profile fields (not branch — use transfer). A reason is required whenever membershipStatus is included' })
   @Permissions('member.update')
   @Patch(':id')
-  async update(@CurrentTenantId() tenantId: string, @Param('id') id: string, @Body() dto: UpdateMemberDto) {
-    return ok(await this.membersService.update(tenantId, id, dto));
+  async update(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: UpdateMemberDto) {
+    return ok(await this.membersService.update(tenantId, id, dto, user?.userId));
   }
 
   @ApiOperation({ summary: 'Move a member to a different branch' })
@@ -124,11 +124,12 @@ export class MembersController {
     return ok(await this.membersService.reject(tenantId, id, user, dto.reason));
   }
 
-  @ApiOperation({ summary: 'Soft-delete a member' })
+  @ApiOperation({ summary: 'Soft-delete a member — reason required' })
   @Permissions('member.delete')
+  @RequiresAuditReason()
   @Delete(':id')
-  async remove(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
-    return ok(await this.membersService.softDelete(tenantId, id));
+  async remove(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: RequireReasonDto) {
+    return ok(await this.membersService.softDelete(tenantId, id, user.userId, dto.reason));
   }
 
   @ApiOperation({ summary: 'Log a configurable activity (sacrament, training, certificate, leadership appointment, ...) against this member' })
