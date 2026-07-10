@@ -40,6 +40,7 @@ import { DeadlinesModule } from './deadlines/deadlines.module';
 import { BranchScopeModule } from './common/branch-scope/branch-scope.module';
 import { HierarchyRequirementsModule } from './hierarchy-requirements/hierarchy-requirements.module';
 import { DynamicModulesModule } from './dynamic-modules/dynamic-modules.module';
+import { EntityMembershipsModule } from './entity-memberships/entity-memberships.module';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { DynamicModulesModule } from './dynamic-modules/dynamic-modules.module';
     BranchScopeModule,
     HierarchyRequirementsModule,
     DynamicModulesModule,
+    EntityMembershipsModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,

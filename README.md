@@ -59,6 +59,8 @@ docs/
                                 configurable requirements between organizational levels
   dynamic-modules/             Module 17 docs (business analysis, FRs, API design) —
                                 the no-code Dynamic Module Builder
+  entity-memberships/          Module 18 docs (business analysis, FRs, API design) —
+                                generic membership for Dynamic Module entities
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -115,6 +117,10 @@ backend/                       NestJS API
                                 express a route-param-dependent code; fields reuse
                                 CustomFieldsService with entityType
                                 "dynamicmodule:{id}")
+    entity-memberships/        Generalizes MinistryMembership/SmallGroupMembership's shape
+                                (Member + role, attached to something, never a duplicate
+                                Member row) for Dynamic Module entities specifically — the
+                                two existing hand-rolled tables are untouched
     prisma/                    PrismaService + tenant-scoping Client Extension
                                 (auto-scopes/enforces tenantId on every query)
     queue/                     BullMQ/Redis queue wiring; NotificationsProcessor now
@@ -239,7 +245,7 @@ backend/                       NestJS API
                                 groups, visitor activities, documents, small groups, audit,
                                 approval workflows, deadlines, branch scope, hierarchy
                                 requirements, dynamic module definitions, dynamic module
-                                records) + e2e auth flow
+                                records, entity memberships) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -321,6 +327,9 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   field types
   components/rich-text-editor.tsx  Dependency-free bold/italic/lists/links editor
                                   backing the `richtext` custom field type
+  components/member-search-picker.tsx  Search-and-select an existing Member —
+                                  shared by the Dynamic Module records page's membership
+                                  panel, the frontend half of "never duplicate a Member"
   components/ui/                shadcn/ui components (button, input, label, card)
   lib/api.ts                     Typed fetch client (standard envelope + tenant header)
   lib/utils.ts                   shadcn's `cn()` class-merging helper
@@ -786,6 +795,19 @@ npm run test:e2e             # requires a migrated + seeded test database
     `CustomFieldDefinition`/`CustomFieldValue` composition trick already proven three times
     over, applied to one more `entityType` namespace. See
     `docs/dynamic-modules/business-analysis.md`.
+41. **`EntityMembership` generalizes `MinistryMembership`/`SmallGroupMembership`'s shape
+    for Dynamic Module entities only — it does not replace or migrate either existing
+    table.** Both already satisfy "a person must be a registered member before joining any
+    entity, never duplicated as a new record" exactly as built; rewriting or migrating
+    working screens for consistency's own sake was never asked for. The target entity is
+    only structurally validated when `attachedToEntityType` starts with
+    `"dynamicmodule:"` (the one case a lookup table — `DynamicModuleRecord` — actually
+    exists to check against); any other entityType is trusted as given, the same trust
+    level `DynamicModuleRecord`'s own attachment pair already carries. The shared
+    `MemberSearchPicker` frontend component is additive — wired into the new generic
+    membership panel, left out of the two existing hand-rolled roster screens since
+    neither needed to change for this module to ship. See
+    `docs/entity-memberships/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -873,6 +895,14 @@ npm run test:e2e             # requires a migrated + seeded test database
   way it already lists asset categories); one generic `/admin/modules/[key]` page renders
   every module's records. See design decision #40 and
   `docs/dynamic-modules/business-analysis.md`.
+- **Generic entity membership for Dynamic Module entities (new Module 18)**: a leader of a
+  Dynamic Module entity (a Fellowship, a Committee, ...) can add an already-registered
+  Member with a role via the new membership panel on `/admin/modules/[key]` — search by
+  name with the shared `MemberSearchPicker` component, never a duplicate Member row.
+  `EntityMembership` generalizes `MinistryMembership`/`SmallGroupMembership`'s already-
+  correct shape for entities that have no dedicated membership table of their own; the two
+  existing tables are untouched. See design decision #41 and
+  `docs/entity-memberships/business-analysis.md`.
 
 ## Next module
 

@@ -13,15 +13,20 @@ import {
   dynamicModuleRecordsApi,
   customFieldDefinitionsApi,
   branchesApi,
+  entityMembershipsApi,
+  membersApi,
   DynamicModuleDefinition,
   DynamicModuleRecord,
   CustomFieldDefinition,
   Branch,
+  Member,
+  EntityMembership,
 } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
 import { DynamicCustomFields } from '../../../../components/dynamic-custom-fields';
+import { MemberSearchPicker } from '../../../../components/member-search-picker';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -44,6 +49,11 @@ export default function DynamicModuleRecordsPage() {
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [recordMemberships, setRecordMemberships] = useState<EntityMembership[]>([]);
+  const [membershipsLoading, setMembershipsLoading] = useState(false);
+  const [newMemberId, setNewMemberId] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState('member');
 
   async function load() {
     setLoading(true);
@@ -58,19 +68,80 @@ export default function DynamicModuleRecordsPage() {
       setDefinition(defRes.data);
 
       const entityType = `dynamicmodule:${defRes.data.id}`;
-      const [recordsRes, fieldsRes, branchesRes] = await Promise.all([
+      const [recordsRes, fieldsRes, branchesRes, membersRes] = await Promise.all([
         dynamicModuleRecordsApi.list(TENANT_SLUG, defRes.data.id),
         customFieldDefinitionsApi.list(TENANT_SLUG, { entityType }),
         branchesApi.list(TENANT_SLUG),
+        membersApi.list(TENANT_SLUG, {}),
       ]);
       if (recordsRes.success && recordsRes.data) setRecords(recordsRes.data);
       if (fieldsRes.success && fieldsRes.data) setFieldDefinitions(fieldsRes.data);
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
+      if (membersRes.success && membersRes.data) setMembers(membersRes.data);
     } catch {
       setError('Could not reach the server. Check the API is running.');
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadMemberships(record: DynamicModuleRecord) {
+    if (!definition) return;
+    setMembershipsLoading(true);
+    try {
+      const res = await entityMembershipsApi.list(TENANT_SLUG, {
+        attachedToEntityType: `dynamicmodule:${definition.id}`,
+        attachedToEntityId: record.id,
+      });
+      if (res.success && res.data) setRecordMemberships(res.data);
+      else setError(res.error?.message ?? 'Could not load members.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    } finally {
+      setMembershipsLoading(false);
+    }
+  }
+
+  function selectRecord(record: DynamicModuleRecord) {
+    setSelectedId(record.id);
+    loadMemberships(record);
+  }
+
+  async function handleAddMember(e: React.FormEvent) {
+    e.preventDefault();
+    if (!definition || !selectedRecord || !newMemberId) return;
+    try {
+      const res = await entityMembershipsApi.create(TENANT_SLUG, {
+        attachedToEntityType: `dynamicmodule:${definition.id}`,
+        attachedToEntityId: selectedRecord.id,
+        memberId: newMemberId,
+        role: newMemberRole,
+      });
+      if (res.success) {
+        setNewMemberId('');
+        loadMemberships(selectedRecord);
+      } else {
+        setError(res.error?.message ?? 'Could not add the member.');
+      }
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function handleRemoveMember(id: string) {
+    if (!selectedRecord) return;
+    try {
+      const res = await entityMembershipsApi.remove(TENANT_SLUG, id);
+      if (res.success) loadMemberships(selectedRecord);
+      else setError(res.error?.message ?? 'Could not remove the member.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  function memberName(id: string) {
+    const m = members.find((mm) => mm.id === id);
+    return m ? `${m.firstName} ${m.lastName}` : '—';
   }
 
   useEffect(() => {
@@ -210,7 +281,7 @@ export default function DynamicModuleRecordsPage() {
               records.map((r) => (
                 <div
                   key={r.id}
-                  onClick={() => setSelectedId(r.id)}
+                  onClick={() => selectRecord(r)}
                   className={`flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0 cursor-pointer ${
                     selectedId === r.id ? 'bg-[#1E2A44]/5' : 'hover:bg-slate-50'
                   }`}
@@ -243,7 +314,7 @@ export default function DynamicModuleRecordsPage() {
               <>
                 <h2 className="font-serif text-lg text-[#1E2A44] mb-1">{selectedRecord.title || `Record ${selectedRecord.id.slice(0, 8)}`}</h2>
                 <p className="text-xs text-slate-400 mb-3">Current status: {selectedRecord.status}</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 mb-6">
                   {definition.statuses
                     .filter((s) => s !== selectedRecord.status)
                     .map((s) => (
@@ -256,6 +327,40 @@ export default function DynamicModuleRecordsPage() {
                       </button>
                     ))}
                 </div>
+
+                <h3 className="text-sm font-medium text-slate-700 mb-2">Members</h3>
+                <form onSubmit={handleAddMember} className="space-y-2 mb-3">
+                  <MemberSearchPicker members={members} value={newMemberId} onChange={setNewMemberId} />
+                  <div className="flex gap-2">
+                    <Input value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} placeholder="role (e.g. leader, member)" className="flex-1" />
+                    <Button type="submit" size="sm" style={{ backgroundColor: '#1E2A44' }} disabled={!newMemberId}>
+                      Add
+                    </Button>
+                  </div>
+                </form>
+
+                {membershipsLoading ? (
+                  <div className="py-4 text-center text-sm text-slate-400">Loading…</div>
+                ) : recordMemberships.length === 0 ? (
+                  <div className="py-4 text-center text-sm text-slate-400">No members yet.</div>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {recordMemberships.map((m) => (
+                      <div key={m.id} className="flex items-center justify-between py-2">
+                        <div>
+                          <p className={`text-sm font-medium ${m.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{memberName(m.memberId)}</p>
+                          <p className="text-xs text-slate-400">{m.role.replace(/_/g, ' ')}</p>
+                        </div>
+                        <button
+                          onClick={() => handleRemoveMember(m.id)}
+                          className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>

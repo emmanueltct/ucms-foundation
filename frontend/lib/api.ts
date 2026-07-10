@@ -1538,6 +1538,34 @@ export const dynamicModuleRecordsApi = {
     ),
 };
 
+export interface EntityMembership {
+  id: string;
+  attachedToEntityType: string;
+  attachedToEntityId: string;
+  memberId: string;
+  role: string;
+  joinedAt: string | null;
+  isActive: boolean;
+}
+
+export const entityMembershipsApi = {
+  list: (tenantSlug: string, params: { attachedToEntityType?: string; attachedToEntityId?: string; memberId?: string; role?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.attachedToEntityType) qs.set('attachedToEntityType', params.attachedToEntityType);
+    if (params.attachedToEntityId) qs.set('attachedToEntityId', params.attachedToEntityId);
+    if (params.memberId) qs.set('memberId', params.memberId);
+    if (params.role) qs.set('role', params.role);
+    qs.set('page', '1');
+    qs.set('pageSize', '50');
+    return apiRequest<EntityMembership[]>(`/entity-memberships?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, body: { attachedToEntityType: string; attachedToEntityId: string; memberId: string; role?: string }) =>
+    apiRequest<EntityMembership>('/entity-memberships', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ role: string; isActive: boolean }>) =>
+    apiRequest<EntityMembership>(`/entity-memberships/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) => apiRequest<EntityMembership>(`/entity-memberships/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;

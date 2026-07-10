@@ -72,6 +72,7 @@ model Tenant {
   dynamicModuleDefinitions DynamicModuleDefinition[]
   dynamicModuleRecords   DynamicModuleRecord[]
   dynamicModuleRecordStatusHistory DynamicModuleRecordStatusHistory[]
+  entityMemberships      EntityMembership[]
 
   @@map("tenants")
 }
@@ -421,6 +422,7 @@ model Member {
   convertedFromVisitor Visitor?            @relation("VisitorConvertedTo")
   smallGroupMemberships SmallGroupMembership[]
   memberActivities     MemberActivity[]
+  entityMemberships    EntityMembership[]
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
@@ -1444,4 +1446,35 @@ model DynamicModuleRecordStatusHistory {
 
   @@index([tenantId, recordId])
   @@map("dynamic_module_record_status_history")
+}
+
+/// Generalizes `MinistryMembership`/`SmallGroupMembership`'s already-correct
+/// shape — a `Member` attaches to an entity with a role, never duplicated as
+/// a new `Member` row — for Dynamic Module entities specifically (a
+/// standalone module's records acting as a new entity type, e.g.
+/// "Fellowship"). The two existing hand-rolled membership tables are left
+/// exactly as they are; this is not a migration target for them, it only
+/// covers entities that have no dedicated membership table of their own.
+/// `attachedToEntityType` is conventionally `"dynamicmodule:{moduleDefinitionId}"`
+/// (the same string other records use to attach to a Dynamic Module's
+/// records), but is not restricted to that at the schema level.
+model EntityMembership {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  tenant       Tenant    @relation(fields: [tenantId], references: [id])
+  attachedToEntityType String @map("attached_to_entity_type")
+  attachedToEntityId   String @map("attached_to_entity_id")
+  memberId     String    @map("member_id")
+  member       Member    @relation(fields: [memberId], references: [id])
+  role         String    @default("member")
+  joinedAt     DateTime? @map("joined_at")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, attachedToEntityType, attachedToEntityId, memberId])
+  @@index([tenantId])
+  @@index([tenantId, attachedToEntityType, attachedToEntityId])
+  @@index([tenantId, memberId])
+  @@map("entity_memberships")
 }

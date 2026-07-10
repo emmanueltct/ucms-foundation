@@ -152,6 +152,11 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
 
   { code: 'dynamic_module.manage', module: 'dynamic_modules', description: 'Create, edit, and deactivate admin-defined modules' },
   { code: 'dynamic_module.read', module: 'dynamic_modules', description: 'View admin-defined module definitions' },
+
+  { code: 'entity_membership.create', module: 'entity_memberships', description: 'Add an existing member to an entity (e.g. a Dynamic Module record)' },
+  { code: 'entity_membership.read', module: 'entity_memberships', description: 'View entity memberships' },
+  { code: 'entity_membership.update', module: 'entity_memberships', description: "Change a member's role or active status within an entity" },
+  { code: 'entity_membership.delete', module: 'entity_memberships', description: 'Remove a member from an entity' },
 ];
 
 async function main() {
