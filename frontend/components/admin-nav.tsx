@@ -27,6 +27,7 @@ import {
   HelpCircle,
   ChevronsUpDown,
   ShieldCheck,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { authApi, getCurrentTenant, setSession, WorkspaceOption } from '@/lib/api';
@@ -35,6 +36,7 @@ const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
   { href: '/admin/branches', label: 'Branches', icon: Building2 },
+  { href: '/admin/hierarchy-requirements', label: 'Level Requirements', icon: ClipboardList },
   { href: '/admin/members', label: 'Members', icon: Users },
   { href: '/admin/visitors', label: 'Visitors', icon: UserPlus },
   { href: '/admin/finance', label: 'Finance', icon: Wallet },

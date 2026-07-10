@@ -67,6 +67,8 @@ model Tenant {
   approvalSteps          ApprovalStep[]
   approvalRequests       ApprovalRequest[]
   deadlines              Deadline[]
+  hierarchyRequirements  HierarchyRequirement[]
+  hierarchyRequirementSubmissions HierarchyRequirementSubmission[]
 
   @@map("tenants")
 }
@@ -117,6 +119,7 @@ model User {
   uploadedDocuments       Document[]       @relation("DocumentUploadedBy")
   replacedDocumentVersions DocumentVersion[] @relation("DocumentVersionReplacedBy")
   extendedDeadlines       Deadline[]       @relation("DeadlineExtendedBy")
+  submittedHierarchyRequirements HierarchyRequirementSubmission[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -326,6 +329,7 @@ model Branch {
   documents         Document[]
   smallGroups       SmallGroup[]
   assignedUsers     User[]             @relation("UserAssignedBranch")
+  hierarchyRequirementSubmissions HierarchyRequirementSubmission[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -1165,6 +1169,7 @@ model ApprovalWorkflow {
 
   steps    ApprovalStep[]
   requests ApprovalRequest[]
+  hierarchyRequirements HierarchyRequirement[]
 
   @@unique([tenantId, entityType, name])
   @@index([tenantId, entityType])
@@ -1247,4 +1252,85 @@ model Deadline {
   @@index([tenantId, status])
   @@index([tenantId, dueAt])
   @@map("deadlines")
+}
+
+// ----------------------------------------------------------------------------
+// HIERARCHY REQUIREMENTS (Module 16) — a parent Branch's requirements for its
+// immediate child Branches
+// ----------------------------------------------------------------------------
+
+/// A requirement one organizational level defines for the level directly
+/// beneath it — e.g. a Diocese requires every District to submit a monthly
+/// activity report. `parentBranchType`/`childBranchType` are `branch_type`
+/// `ConfigItem` keys (the same ones `Branch.branchType` already uses), so
+/// "Diocese requires this of District" needs no new hierarchy concept beyond
+/// this one table — see docs/hierarchy-requirements/business-analysis.md.
+/// `frequency`/`dueDayOfPeriod` are informational/display fields today (an
+/// admin sees "this recurs monthly"); the concrete due date for each cycle
+/// is set explicitly on the `HierarchyRequirementSubmission` via `Deadline`,
+/// not computed automatically — see the module's Out of Scope section for
+/// why automatic period-end date math is deferred.
+model HierarchyRequirement {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  parentBranchType   String    @map("parent_branch_type")
+  childBranchType    String    @map("child_branch_type")
+  kind               String // "report" | "document" | "form" | "activity" | "compliance"
+  label              String
+  description        String?
+  frequency          String    @default("once") @map("frequency") // "once" | "monthly" | "quarterly" | "annually" — informational
+  dueDayOfPeriod     Int?      @map("due_day_of_period") // informational, e.g. "the 5th of every month"
+  approvalWorkflowId String?   @map("approval_workflow_id")
+  approvalWorkflow   ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
+  notifyRoleNames    String[]  @default([]) @map("notify_role_names")
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  deletedAt          DateTime? @map("deleted_at")
+
+  submissions HierarchyRequirementSubmission[]
+
+  @@index([tenantId])
+  @@index([tenantId, parentBranchType, childBranchType])
+  @@map("hierarchy_requirements")
+}
+
+/// One child Branch's actual submission against a `HierarchyRequirement` for
+/// one cycle (`periodLabel`, e.g. `"2026-07"` for a monthly requirement, or
+/// `""` for a one-off requirement — kept a concrete empty string rather than
+/// null so the compound unique constraint below actually enforces
+/// uniqueness: Postgres treats every NULL as distinct, so a nullable column
+/// in a unique index silently allows duplicate rows). Its deadline and
+/// approval chain are *not* stored here as FKs — they're resolved by key
+/// (`entityType: "hierarchy_requirement_submission"`, `entityId: this row's
+/// id`) against Phase 0's generic `Deadline`/`ApprovalWorkflow` tables,
+/// exactly the composition trick Custom Fields already established for
+/// per-category fields. `attachedDocumentIds` is a loose array of
+/// `Document.id`s (uploaded through the existing Documents module) rather
+/// than a join table — a submission rarely has more than a handful of
+/// attachments and doesn't need its own relation semantics.
+model HierarchyRequirementSubmission {
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  requirementId     String    @map("requirement_id")
+  requirement       HierarchyRequirement @relation(fields: [requirementId], references: [id])
+  branchId          String    @map("branch_id")
+  branch            Branch    @relation(fields: [branchId], references: [id])
+  periodLabel       String    @default("") @map("period_label")
+  status            String    @default("pending") @map("status") // "pending" | "submitted" | "approved" | "rejected"
+  attachedDocumentIds String[] @default([]) @map("attached_document_ids")
+  submittedByUserId String?   @map("submitted_by_user_id")
+  submittedByUser   User?     @relation(fields: [submittedByUserId], references: [id])
+  submittedAt       DateTime? @map("submitted_at")
+  notes             String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, requirementId, branchId, periodLabel])
+  @@index([tenantId])
+  @@index([tenantId, requirementId])
+  @@index([tenantId, branchId])
+  @@map("hierarchy_requirement_submissions")
 }

@@ -140,6 +140,15 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'deadline.extend', module: 'governance', description: 'Push a locked (overdue) deadline forward' },
   { code: 'deadline.close', module: 'governance', description: 'Close a deadline, preventing further edits' },
   { code: 'deadline.reopen', module: 'governance', description: 'Reopen a closed deadline — a more sensitive action than close' },
+
+  { code: 'hierarchy_requirement.create', module: 'governance', description: "Define a parent level's requirement of a child level" },
+  { code: 'hierarchy_requirement.read', module: 'governance', description: 'View hierarchy requirements' },
+  { code: 'hierarchy_requirement.update', module: 'governance', description: 'Edit a hierarchy requirement' },
+  { code: 'hierarchy_requirement.delete', module: 'governance', description: 'Deactivate a hierarchy requirement' },
+  { code: 'hierarchy_requirement.submission.create', module: 'governance', description: 'Open a new submission cycle for a branch' },
+  { code: 'hierarchy_requirement.submission.read', module: 'governance', description: 'View requirement submissions' },
+  { code: 'hierarchy_requirement.submission.submit', module: 'governance', description: 'Mark a submission as submitted' },
+  { code: 'hierarchy_requirement.submission.decide', module: 'governance', description: 'Approve or reject a submitted submission' },
 ];
 
 async function main() {

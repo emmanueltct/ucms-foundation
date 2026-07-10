@@ -6,7 +6,14 @@
 // shape this tenant needs) through the Church & Hierarchy Management module.
 
 import { useEffect, useState } from 'react';
-import { branchesApi, Branch, BranchTreeNode } from '../../../lib/api';
+import {
+  branchesApi,
+  hierarchyRequirementsApi,
+  Branch,
+  BranchTreeNode,
+  HierarchyRequirement,
+  HierarchyRequirementSubmission,
+} from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
@@ -20,19 +27,25 @@ function flatten(nodes: BranchTreeNode[]): Branch[] {
 function BranchNode({
   node,
   depth,
+  selectedId,
   onToggle,
+  onSelect,
 }: {
   node: BranchTreeNode;
   depth: number;
+  selectedId: string | null;
   onToggle: (branch: Branch) => void;
+  onSelect: (branch: Branch) => void;
 }) {
   return (
     <div>
       <div
-        className="flex items-center justify-between py-2 pr-3 border-b border-slate-100 last:border-0"
+        className={`flex items-center justify-between py-2 pr-3 border-b border-slate-100 last:border-0 ${
+          selectedId === node.id ? 'bg-[#1E2A44]/5' : ''
+        }`}
         style={{ paddingLeft: 12 + depth * 20 }}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <button onClick={() => onSelect(node)} className="flex items-center gap-2 min-w-0 text-left">
           <span className={`text-sm font-medium truncate ${node.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
             {node.name}
           </span>
@@ -42,7 +55,7 @@ function BranchNode({
             </span>
           )}
           {node.branchType && <span className="shrink-0 text-xs text-slate-400">{node.branchType}</span>}
-        </div>
+        </button>
         <button
           onClick={() => onToggle(node)}
           className="shrink-0 text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
@@ -51,7 +64,7 @@ function BranchNode({
         </button>
       </div>
       {node.children.map((child) => (
-        <BranchNode key={child.id} node={child} depth={depth + 1} onToggle={onToggle} />
+        <BranchNode key={child.id} node={child} depth={depth + 1} selectedId={selectedId} onToggle={onToggle} onSelect={onSelect} />
       ))}
     </div>
   );
@@ -65,6 +78,11 @@ export default function BranchesAdminPage() {
   const [name, setName] = useState('');
   const [branchType, setBranchType] = useState('');
   const [parentBranchId, setParentBranchId] = useState('');
+
+  const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
+  const [owedRequirements, setOwedRequirements] = useState<HierarchyRequirement[]>([]);
+  const [ownSubmissions, setOwnSubmissions] = useState<HierarchyRequirementSubmission[]>([]);
+  const [requirementsLoading, setRequirementsLoading] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -104,6 +122,52 @@ export default function BranchesAdminPage() {
       } else {
         setError(res.error?.message ?? 'Could not create the branch.');
       }
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function loadRequirements(branch: Branch) {
+    setRequirementsLoading(true);
+    try {
+      const [owedRes, subsRes] = await Promise.all([
+        hierarchyRequirementsApi.forBranch(TENANT_SLUG, branch.id),
+        hierarchyRequirementsApi.submissionsForBranch(TENANT_SLUG, branch.id),
+      ]);
+      if (owedRes.success && owedRes.data) setOwedRequirements(owedRes.data);
+      if (subsRes.success && subsRes.data) setOwnSubmissions(subsRes.data);
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    } finally {
+      setRequirementsLoading(false);
+    }
+  }
+
+  function handleSelectBranch(branch: Branch) {
+    setSelectedBranch(branch);
+    loadRequirements(branch);
+  }
+
+  async function handleOpenCycle(requirementId: string) {
+    if (!selectedBranch) return;
+    const periodLabel = window.prompt('Period label for this cycle (e.g. 2026-07), or leave blank for a one-off:') ?? undefined;
+    try {
+      const res = await hierarchyRequirementsApi.createSubmission(TENANT_SLUG, requirementId, selectedBranch.id, {
+        periodLabel: periodLabel || undefined,
+      });
+      if (res.success) loadRequirements(selectedBranch);
+      else setError(res.error?.message ?? 'Could not open a submission cycle.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function handleMarkSubmitted(submissionId: string) {
+    if (!selectedBranch) return;
+    try {
+      const res = await hierarchyRequirementsApi.submit(TENANT_SLUG, submissionId);
+      if (res.success) loadRequirements(selectedBranch);
+      else setError(res.error?.message ?? 'Could not mark this submitted.');
     } catch {
       setError('Could not reach the server. Check the API is running.');
     }
@@ -188,16 +252,88 @@ export default function BranchesAdminPage() {
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">{error}</div>
         )}
 
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-          {loading ? (
-            <div className="px-4 py-8 text-center text-sm text-slate-400">Loading…</div>
-          ) : tree.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-slate-400">
-              No branches yet. Add your first one above — it&rsquo;ll usually be your headquarters.
-            </div>
-          ) : (
-            tree.map((node) => <BranchNode key={node.id} node={node} depth={0} onToggle={handleToggle} />)
-          )}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            {loading ? (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">Loading…</div>
+            ) : tree.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">
+                No branches yet. Add your first one above — it&rsquo;ll usually be your headquarters.
+              </div>
+            ) : (
+              tree.map((node) => (
+                <BranchNode
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  selectedId={selectedBranch?.id ?? null}
+                  onToggle={handleToggle}
+                  onSelect={handleSelectBranch}
+                />
+              ))
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            {!selectedBranch ? (
+              <div className="py-8 text-center text-sm text-slate-400">Select a branch to see what it owes upward.</div>
+            ) : requirementsLoading ? (
+              <div className="py-8 text-center text-sm text-slate-400">Loading…</div>
+            ) : (
+              <>
+                <h2 className="font-serif text-lg text-[#1E2A44] mb-1">{selectedBranch.name}</h2>
+                <p className="text-xs text-slate-400 mb-3">Requirements owed upward</p>
+                {owedRequirements.length === 0 ? (
+                  <p className="text-sm text-slate-400 mb-4">
+                    {selectedBranch.branchType
+                      ? 'No requirements are configured from this branch’s parent level.'
+                      : 'This branch has no branch type set, so no requirements can be matched.'}
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-50 mb-4">
+                    {owedRequirements.map((r) => {
+                      const existing = ownSubmissions.find((s) => s.requirementId === r.id && !s.periodLabel);
+                      return (
+                        <div key={r.id} className="flex items-center justify-between py-2">
+                          <div>
+                            <p className="text-sm font-medium text-slate-800">{r.label}</p>
+                            <p className="text-xs text-slate-400">{r.kind} · {r.frequency}</p>
+                          </div>
+                          <Button size="sm" style={{ backgroundColor: '#1E2A44' }} onClick={() => handleOpenCycle(r.id)}>
+                            Open cycle
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <p className="text-xs text-slate-400 mb-2">This branch&rsquo;s submissions</p>
+                {ownSubmissions.length === 0 ? (
+                  <p className="text-sm text-slate-400">No submissions yet.</p>
+                ) : (
+                  <div className="divide-y divide-slate-50">
+                    {ownSubmissions.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between py-2">
+                        <div>
+                          <p className="text-sm text-slate-700">{s.periodLabel || 'one-off'}</p>
+                          <p className="text-xs text-slate-400">{s.status}</p>
+                        </div>
+                        {s.status === 'pending' && (
+                          <button
+                            onClick={() => handleMarkSubmitted(s.id)}
+                            className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                          >
+                            Mark submitted
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

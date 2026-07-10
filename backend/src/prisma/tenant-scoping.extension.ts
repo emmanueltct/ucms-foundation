@@ -43,6 +43,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'ApprovalStep',
   'ApprovalRequest',
   'Deadline',
+  'HierarchyRequirement',
+  'HierarchyRequirementSubmission',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

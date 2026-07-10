@@ -55,6 +55,8 @@ docs/
   member-activities/           Module 14 docs (business analysis, FRs, API design)
   governance/                  Module 15 docs (business analysis, FRs, API design) —
                                 Audit Service, Approval Workflows, Deadlines
+  hierarchy-requirements/      Module 16 docs (business analysis, FRs, API design) —
+                                configurable requirements between organizational levels
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -65,7 +67,8 @@ prisma/
                                 PayrollPayment, Asset, VisitorGroup, Visitor, VisitorActivity,
                                 Document, DocumentVersion, SmallGroup, SmallGroupMembership,
                                 MemberActivity, ApprovalWorkflow, ApprovalStep,
-                                ApprovalRequest, Deadline, User.assignedBranchId, ...
+                                ApprovalRequest, Deadline, User.assignedBranchId,
+                                HierarchyRequirement, HierarchyRequirementSubmission, ...
 
 backend/                       NestJS API
   src/
@@ -93,6 +96,12 @@ backend/                       NestJS API
                                 vs. now (DeadlinesService.effectiveStatus), never stored —
                                 no cron needed just to flip a flag. extend/close/reopen are
                                 separately-permissioned dedicated actions
+    hierarchy-requirements/    A parent branch type's requirement of a child branch type
+                                (reports/documents/forms/activities/compliance), plus each
+                                child branch's submissions against it. Deadlines and approval
+                                chains are resolved by key against approval-workflows/
+                                deadlines rather than duplicated; notifies role-holders by
+                                email when a new cycle opens
     prisma/                    PrismaService + tenant-scoping Client Extension
                                 (auto-scopes/enforces tenantId on every query)
     queue/                     BullMQ/Redis queue wiring; NotificationsProcessor now
@@ -214,8 +223,9 @@ backend/                       NestJS API
                                 activities, tenant profile, finance, attendance, ministries,
                                 notifications, custom fields, events, staff, payroll,
                                 reports, report/list exports, assets, visitors, visitor
-                                groups, visitor activities, documents, small groups) + e2e
-                                auth flow
+                                groups, visitor activities, documents, small groups, audit,
+                                approval workflows, deadlines, branch scope, hierarchy
+                                requirements) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -235,7 +245,12 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
                                   over Finance/Attendance/Membership/Payroll, computed live,
                                   plus a CSV/XLSX/PDF download row for each of the four summaries
   app/admin/config/page.tsx      Church Admin UI for the Configuration Engine
-  app/admin/branches/page.tsx    Church Admin UI for the organizational hierarchy tree
+  app/admin/branches/page.tsx    Church Admin UI for the organizational hierarchy tree,
+                                  plus a "requirements owed upward" panel per selected
+                                  branch (open a submission cycle, mark it submitted)
+  app/admin/hierarchy-requirements/page.tsx  Church Admin UI to define requirements between
+                                  organizational levels and review/approve/reject submissions
+                                  across every branch that owes one
   app/admin/members/page.tsx     Church Admin UI for members — renders this tenant's
                                   custom fields dynamically alongside the fixed ones, plus a
                                   "History" panel per member merging ministries/small groups/
@@ -722,6 +737,16 @@ npm run test:e2e             # requires a migrated + seeded test database
     decision is recorded through `AuditService` rather than a fourth dedicated table,
     since the audit log is already the source of truth for "who decided what, when, why."
     See `docs/governance/business-analysis.md`.
+39. **A requirement between organizational levels is keyed by branch *type*, not by a pair
+    of specific branches.** `HierarchyRequirement.{parentBranchType, childBranchType}`
+    reuses the same `branchType` string every `Branch` already carries, so "Diocese
+    requires a monthly report from District" is one row that automatically applies to
+    every District under every Diocese — not one row per branch pair, and not a new
+    hierarchy concept alongside the existing self-referencing `Branch` tree. A submission's
+    `periodLabel` is stored as a concrete `""` rather than `null` for one-off requirements,
+    because Postgres treats every `NULL` as distinct within a unique index — a nullable
+    column there would have silently allowed duplicate one-off submissions. See
+    `docs/hierarchy-requirements/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -789,6 +814,16 @@ npm run test:e2e             # requires a migrated + seeded test database
   Module Builder, organizational visibility roll-up, member registration approval) builds
   on, rather than three or four bespoke mechanisms invented per feature. See design
   decision #38 and `docs/governance/business-analysis.md`.
+- **Configurable requirements between organizational levels (new Module 16)**: a Church
+  Administrator (or any parent-level officer) can now define what one branch type requires
+  of the branch type directly beneath it — reports, documents, forms, activities, or
+  compliance items — on a stated cadence, optionally gated by one of Module 15's approval
+  chains, and optionally notifying named roles by email the moment a new cycle opens. Child
+  branches see what they owe on the Branches page itself (a "requirements owed upward"
+  panel per selected branch) and open/submit cycles from there; a new
+  `/admin/hierarchy-requirements` page lets the parent level review and decide every
+  submission across every branch that owes one. See design decision #39 and
+  `docs/hierarchy-requirements/business-analysis.md`.
 
 ## Next module
 

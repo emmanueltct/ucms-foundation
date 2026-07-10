@@ -1323,6 +1323,95 @@ export const smallGroupMembershipsApi = {
     apiRequest<SmallGroupMembership>(`/small-group-memberships/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface HierarchyRequirement {
+  id: string;
+  parentBranchType: string;
+  childBranchType: string;
+  kind: string;
+  label: string;
+  description: string | null;
+  frequency: string;
+  dueDayOfPeriod: number | null;
+  approvalWorkflowId: string | null;
+  notifyRoleNames: string[];
+  isActive: boolean;
+}
+
+export interface HierarchyRequirementSubmission {
+  id: string;
+  requirementId: string;
+  branchId: string;
+  periodLabel: string;
+  status: string;
+  attachedDocumentIds: string[];
+  submittedByUserId: string | null;
+  submittedAt: string | null;
+  notes: string | null;
+  createdAt: string;
+}
+
+export const hierarchyRequirementsApi = {
+  list: (tenantSlug: string, params: { parentBranchType?: string; childBranchType?: string; kind?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.parentBranchType) qs.set('parentBranchType', params.parentBranchType);
+    if (params.childBranchType) qs.set('childBranchType', params.childBranchType);
+    if (params.kind) qs.set('kind', params.kind);
+    return apiRequest<HierarchyRequirement[]>(`/hierarchy-requirements?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  forBranch: (tenantSlug: string, branchId: string) =>
+    apiRequest<HierarchyRequirement[]>(`/hierarchy-requirements/for-branch/${branchId}`, { tenantSlug, auth: true }),
+  create: (
+    tenantSlug: string,
+    body: {
+      parentBranchType: string;
+      childBranchType: string;
+      kind: string;
+      label: string;
+      description?: string;
+      frequency?: string;
+      dueDayOfPeriod?: number;
+      approvalWorkflowId?: string;
+      notifyRoleNames?: string[];
+    },
+  ) => apiRequest<HierarchyRequirement>('/hierarchy-requirements', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ label: string; description: string; isActive: boolean }>) =>
+    apiRequest<HierarchyRequirement>(`/hierarchy-requirements/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<HierarchyRequirement>(`/hierarchy-requirements/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  submissionsForRequirement: (tenantSlug: string, requirementId: string) =>
+    apiRequest<HierarchyRequirementSubmission[]>(`/hierarchy-requirements/${requirementId}/submissions`, { tenantSlug, auth: true }),
+  submissionsForBranch: (tenantSlug: string, branchId: string) =>
+    apiRequest<HierarchyRequirementSubmission[]>(`/hierarchy-requirements/submissions/branch/${branchId}`, { tenantSlug, auth: true }),
+  createSubmission: (tenantSlug: string, requirementId: string, branchId: string, body: { periodLabel?: string; notes?: string } = {}) =>
+    apiRequest<HierarchyRequirementSubmission>(`/hierarchy-requirements/${requirementId}/submissions?branchId=${branchId}`, {
+      method: 'POST',
+      tenantSlug,
+      auth: true,
+      body,
+    }),
+  submit: (tenantSlug: string, submissionId: string, body: { attachedDocumentIds?: string[]; notes?: string } = {}) =>
+    apiRequest<HierarchyRequirementSubmission>(`/hierarchy-requirements/submissions/${submissionId}/submit`, {
+      method: 'PATCH',
+      tenantSlug,
+      auth: true,
+      body,
+    }),
+  approve: (tenantSlug: string, submissionId: string, reason: string) =>
+    apiRequest<HierarchyRequirementSubmission>(`/hierarchy-requirements/submissions/${submissionId}/approve`, {
+      method: 'PATCH',
+      tenantSlug,
+      auth: true,
+      body: { reason },
+    }),
+  reject: (tenantSlug: string, submissionId: string, reason: string) =>
+    apiRequest<HierarchyRequirementSubmission>(`/hierarchy-requirements/submissions/${submissionId}/reject`, {
+      method: 'PATCH',
+      tenantSlug,
+      auth: true,
+      body: { reason },
+    }),
+};
+
 export interface TenantProfile {
   id: string;
   name: string;
