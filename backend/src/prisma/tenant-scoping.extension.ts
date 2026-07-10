@@ -45,6 +45,9 @@ const TENANT_SCOPED_MODELS = new Set([
   'Deadline',
   'HierarchyRequirement',
   'HierarchyRequirementSubmission',
+  'DynamicModuleDefinition',
+  'DynamicModuleRecord',
+  'DynamicModuleRecordStatusHistory',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

@@ -39,6 +39,7 @@ import { ApprovalWorkflowsModule } from './approval-workflows/approval-workflows
 import { DeadlinesModule } from './deadlines/deadlines.module';
 import { BranchScopeModule } from './common/branch-scope/branch-scope.module';
 import { HierarchyRequirementsModule } from './hierarchy-requirements/hierarchy-requirements.module';
+import { DynamicModulesModule } from './dynamic-modules/dynamic-modules.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { HierarchyRequirementsModule } from './hierarchy-requirements/hierarchy-
     DeadlinesModule,
     BranchScopeModule,
     HierarchyRequirementsModule,
+    DynamicModulesModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,

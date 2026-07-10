@@ -69,6 +69,9 @@ model Tenant {
   deadlines              Deadline[]
   hierarchyRequirements  HierarchyRequirement[]
   hierarchyRequirementSubmissions HierarchyRequirementSubmission[]
+  dynamicModuleDefinitions DynamicModuleDefinition[]
+  dynamicModuleRecords   DynamicModuleRecord[]
+  dynamicModuleRecordStatusHistory DynamicModuleRecordStatusHistory[]
 
   @@map("tenants")
 }
@@ -120,6 +123,8 @@ model User {
   replacedDocumentVersions DocumentVersion[] @relation("DocumentVersionReplacedBy")
   extendedDeadlines       Deadline[]       @relation("DeadlineExtendedBy")
   submittedHierarchyRequirements HierarchyRequirementSubmission[]
+  createdDynamicModuleRecords DynamicModuleRecord[] @relation("DynamicModuleRecordCreatedBy")
+  changedDynamicModuleRecordStatuses DynamicModuleRecordStatusHistory[] @relation("DynamicModuleRecordStatusChangedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -149,7 +154,11 @@ model Role {
 
 /// Global, platform-versioned catalog of permission codes.
 /// New modules add rows here via migration; tenants only ever attach
-/// existing codes to their own roles.
+/// existing codes to their own roles. The one deliberate exception:
+/// DynamicModuleDefinitionsService programmatically appends
+/// `dynamicmodule.{definitionId}.{action}` codes when an admin builds a new
+/// module in the UI, since a UI-built module has no migration to add them
+/// in — see docs/dynamic-modules/business-analysis.md.
 model Permission {
   id          String  @id @default(uuid())
   code        String  @unique // e.g. "finance.contribution.create"
@@ -330,6 +339,7 @@ model Branch {
   smallGroups       SmallGroup[]
   assignedUsers     User[]             @relation("UserAssignedBranch")
   hierarchyRequirementSubmissions HierarchyRequirementSubmission[]
+  dynamicModuleRecords DynamicModuleRecord[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -1170,6 +1180,7 @@ model ApprovalWorkflow {
   steps    ApprovalStep[]
   requests ApprovalRequest[]
   hierarchyRequirements HierarchyRequirement[]
+  dynamicModuleDefinitions DynamicModuleDefinition[]
 
   @@unique([tenantId, entityType, name])
   @@index([tenantId, entityType])
@@ -1333,4 +1344,104 @@ model HierarchyRequirementSubmission {
   @@index([tenantId, requirementId])
   @@index([tenantId, branchId])
   @@map("hierarchy_requirement_submissions")
+}
+
+// ----------------------------------------------------------------------------
+// DYNAMIC MODULES: admin-defined modules, no code change required
+// ----------------------------------------------------------------------------
+
+/// An admin-defined functional module — its own record type, with its own
+/// statuses, optionally attachable to an existing entity (Branch, Ministry,
+/// Member, another Dynamic Module's records, ...) or standalone (in which
+/// case its own records serve as a brand-new entity type other things attach
+/// to — see design decision in docs/dynamic-modules/business-analysis.md).
+/// Custom fields on this module's records reuse `CustomFieldDefinition`/
+/// `CustomFieldValue` with `entityType = "dynamicmodule:{this.id}"`, the same
+/// composition trick already proven for Assets/Visitor Activities/Member
+/// Activities — no new field-storage mechanism is built here.
+model DynamicModuleDefinition {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  key        String // stable machine key, e.g. "committee-requests"
+  label      String
+  description String?
+  icon       String? // an icon name the frontend maps to a lucide-react icon
+  /// Which existing entityType strings a record of this module may attach
+  /// to — informational, for the builder UI's dropdown; not enforced at the
+  /// database level since attachment is a loose (entityType, entityId) pair
+  /// like every other composed entityType in this platform.
+  attachableToEntityTypes String[] @default([]) @map("attachable_to_entity_types")
+  /// Tenant-defined, ordered list of status labels a record may hold. The
+  /// first entry is the default status a new record starts in.
+  statuses   String[] @default(["open", "closed"])
+  approvalWorkflowId String? @map("approval_workflow_id")
+  approvalWorkflow   ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
+  showInNav  Boolean  @default(false) @map("show_in_nav")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  records DynamicModuleRecord[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("dynamic_module_definitions")
+}
+
+/// One record of an admin-defined module. `attachedToEntityType`/
+/// `attachedToEntityId` are both null for a standalone record (the module
+/// itself acting as a brand-new entity type); both set when the record
+/// attaches to something else (a Branch, a Ministry, another Dynamic
+/// Module's record via `"dynamicmodule:{otherDefinitionId}"`, ...).
+/// `branchId` is separate from the attachment pair — set when the record's
+/// own organizational scope matters for Phase 4's visibility roll-up,
+/// regardless of what it's attached to.
+model DynamicModuleRecord {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  moduleDefinitionId String @map("module_definition_id")
+  moduleDefinition DynamicModuleDefinition @relation(fields: [moduleDefinitionId], references: [id])
+  attachedToEntityType String? @map("attached_to_entity_type")
+  attachedToEntityId   String? @map("attached_to_entity_id")
+  status           String
+  title            String?
+  branchId         String?  @map("branch_id")
+  branch           Branch?  @relation(fields: [branchId], references: [id])
+  createdByUserId  String?  @map("created_by_user_id")
+  createdByUser    User?    @relation("DynamicModuleRecordCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  statusHistory DynamicModuleRecordStatusHistory[]
+
+  @@index([tenantId])
+  @@index([tenantId, moduleDefinitionId])
+  @@index([tenantId, attachedToEntityType, attachedToEntityId])
+  @@map("dynamic_module_records")
+}
+
+/// Append-only status-change history for a `DynamicModuleRecord` — feeds
+/// `AuditService` too, but this table exists separately (unlike an
+/// `ApprovalRequest` decision, which lives only in `AuditLog`) because a
+/// record's status history is a first-class thing this module's own UI
+/// displays as a timeline, not just an audit trail.
+model DynamicModuleRecordStatusHistory {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id])
+  recordId       String   @map("record_id")
+  record         DynamicModuleRecord @relation(fields: [recordId], references: [id])
+  fromStatus     String?  @map("from_status")
+  toStatus       String   @map("to_status")
+  changedByUserId String? @map("changed_by_user_id")
+  changedByUser  User?    @relation("DynamicModuleRecordStatusChangedBy", fields: [changedByUserId], references: [id])
+  reason         String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, recordId])
+  @@map("dynamic_module_record_status_history")
 }

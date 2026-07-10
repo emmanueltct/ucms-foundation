@@ -57,6 +57,8 @@ docs/
                                 Audit Service, Approval Workflows, Deadlines
   hierarchy-requirements/      Module 16 docs (business analysis, FRs, API design) —
                                 configurable requirements between organizational levels
+  dynamic-modules/             Module 17 docs (business analysis, FRs, API design) —
+                                the no-code Dynamic Module Builder
   custom-fields/               Cross-cutting module docs (business analysis, FRs, API design)
 
 prisma/
@@ -68,7 +70,9 @@ prisma/
                                 Document, DocumentVersion, SmallGroup, SmallGroupMembership,
                                 MemberActivity, ApprovalWorkflow, ApprovalStep,
                                 ApprovalRequest, Deadline, User.assignedBranchId,
-                                HierarchyRequirement, HierarchyRequirementSubmission, ...
+                                HierarchyRequirement, HierarchyRequirementSubmission,
+                                DynamicModuleDefinition, DynamicModuleRecord,
+                                DynamicModuleRecordStatusHistory, ...
 
 backend/                       NestJS API
   src/
@@ -102,6 +106,15 @@ backend/                       NestJS API
                                 chains are resolved by key against approval-workflows/
                                 deadlines rather than duplicated; notifies role-holders by
                                 email when a new cycle opens
+    dynamic-modules/           No-code Module Builder — DynamicModuleDefinitionsService
+                                (module shell: statuses, optional approval workflow,
+                                generates dynamicmodule.{id}.{action} Permission rows
+                                programmatically, the one exception to "Permission rows are
+                                migration-only") + DynamicModuleRecordsService (records,
+                                permission-checked dynamically since @Permissions() can't
+                                express a route-param-dependent code; fields reuse
+                                CustomFieldsService with entityType
+                                "dynamicmodule:{id}")
     prisma/                    PrismaService + tenant-scoping Client Extension
                                 (auto-scopes/enforces tenantId on every query)
     queue/                     BullMQ/Redis queue wiring; NotificationsProcessor now
@@ -225,7 +238,8 @@ backend/                       NestJS API
                                 reports, report/list exports, assets, visitors, visitor
                                 groups, visitor activities, documents, small groups, audit,
                                 approval workflows, deadlines, branch scope, hierarchy
-                                requirements) + e2e auth flow
+                                requirements, dynamic module definitions, dynamic module
+                                records) + e2e auth flow
 
 frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/page.tsx                   Public landing page (denominations, live modules, CTAs)
@@ -251,6 +265,13 @@ frontend/                      Next.js 14 + Tailwind v4 + shadcn/ui
   app/admin/hierarchy-requirements/page.tsx  Church Admin UI to define requirements between
                                   organizational levels and review/approve/reject submissions
                                   across every branch that owes one
+  app/admin/settings/dynamic-modules/page.tsx  The Dynamic Module Builder — define a new
+                                  module's label, key, ordered statuses, optional approval
+                                  workflow, and sidebar visibility
+  app/admin/modules/[key]/page.tsx  One generic page rendering every admin-built module's
+                                  records — create/attach/status-change/custom fields — the
+                                  same "data drives the UI" pattern DynamicCustomFields
+                                  already established for fields alone
   app/admin/members/page.tsx     Church Admin UI for members — renders this tenant's
                                   custom fields dynamically alongside the fixed ones, plus a
                                   "History" panel per member merging ministries/small groups/
@@ -747,6 +768,24 @@ npm run test:e2e             # requires a migrated + seeded test database
     because Postgres treats every `NULL` as distinct within a unique index — a nullable
     column there would have silently allowed duplicate one-off submissions. See
     `docs/hierarchy-requirements/business-analysis.md`.
+40. **A Dynamic Module's record-level permission codes are generated at module-creation
+    time and checked in the service layer, not via `@Permissions()`.** `Permission`'s own
+    doc comment says new codes are added by migration only — Dynamic Modules is the one
+    deliberate exception, since a module built in the UI has no migration to add codes in.
+    Codes are namespaced by the module definition's own globally-unique id
+    (`dynamicmodule.{id}.{action}`), so they can never collide across tenants or modules,
+    and are granted to every `isSystem` role immediately (mirroring
+    `TenantsService.bootstrapAdminUser`'s own convention). Because the code depends on a
+    route param (`:moduleDefinitionId`), the static `@Permissions()` decorator can't
+    express it — `DynamicModuleRecordsService` compares `user.permissions` directly
+    instead, with the global guard pipeline simply passing through routes that declare no
+    static requirement. "Creating a new entity type" reuses the same module mechanism
+    (a standalone module's records *are* the new entity type; other records attach to them
+    via `attachedToEntityType: "dynamicmodule:{id}"`) rather than a second registry, and
+    custom fields need no new mechanism at all — they're the same
+    `CustomFieldDefinition`/`CustomFieldValue` composition trick already proven three times
+    over, applied to one more `entityType` namespace. See
+    `docs/dynamic-modules/business-analysis.md`.
 
 ## Recent hardening (this pass)
 
@@ -824,6 +863,16 @@ npm run test:e2e             # requires a migrated + seeded test database
   `/admin/hierarchy-requirements` page lets the parent level review and decide every
   submission across every branch that owes one. See design decision #39 and
   `docs/hierarchy-requirements/business-analysis.md`.
+- **The no-code Dynamic Module Builder (new Module 17)**: a Church Administrator can define
+  an entirely new functional module — its own record type, ordered statuses, optional
+  approval workflow, optional sidebar entry — with zero code changes, via
+  `/admin/settings/dynamic-modules`. Records attach to an existing entity (Branch,
+  Ministry, Member, ...) or stand alone to serve as a brand-new entity type other things
+  attach to; custom fields for a module are defined on the existing Custom Fields settings
+  page (which now lists every module as a selectable entity type automatically, the same
+  way it already lists asset categories); one generic `/admin/modules/[key]` page renders
+  every module's records. See design decision #40 and
+  `docs/dynamic-modules/business-analysis.md`.
 
 ## Next module
 

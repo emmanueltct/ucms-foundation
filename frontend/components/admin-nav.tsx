@@ -28,9 +28,10 @@ import {
   ChevronsUpDown,
   ShieldCheck,
   ClipboardList,
+  Puzzle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { authApi, getCurrentTenant, setSession, WorkspaceOption } from '@/lib/api';
+import { authApi, getCurrentTenant, setSession, WorkspaceOption, dynamicModuleDefinitionsApi } from '@/lib/api';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -50,6 +51,7 @@ const NAV_ITEMS = [
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/config', label: 'Configuration', icon: SlidersHorizontal },
   { href: '/admin/settings/custom-fields', label: 'Custom Fields', icon: ListPlus },
+  { href: '/admin/settings/dynamic-modules', label: 'Dynamic Modules', icon: Puzzle },
   { href: '/admin/settings/security', label: 'Security', icon: ShieldCheck },
   { href: '/admin/help', label: 'Help & Test Guide', icon: HelpCircle },
 ];
@@ -61,6 +63,7 @@ export function AdminNav() {
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [dynamicNavItems, setDynamicNavItems] = useState<{ href: string; label: string }[]>([]);
 
   useEffect(() => {
     const current = getCurrentTenant();
@@ -68,6 +71,11 @@ export function AdminNav() {
     if (!current) return;
     authApi.listWorkspaces(current.slug).then((res) => {
       if (res.success && res.data) setWorkspaces(res.data);
+    });
+    dynamicModuleDefinitionsApi.list(current.slug, true).then((res) => {
+      if (res.success && res.data) {
+        setDynamicNavItems(res.data.map((m) => ({ href: `/admin/modules/${m.key}`, label: m.label })));
+      }
     });
   }, [pathname]);
 
@@ -145,6 +153,24 @@ export function AdminNav() {
               )}
             >
               <Icon className="h-4 w-4 shrink-0" strokeWidth={isActive ? 2.25 : 2} />
+              <span className="truncate">{item.label}</span>
+            </Link>
+          );
+        })}
+        {dynamicNavItems.map((item) => {
+          const isActive = pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-[#1E2A44] text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-[#1E2A44]',
+              )}
+            >
+              <Puzzle className="h-4 w-4 shrink-0" strokeWidth={isActive ? 2.25 : 2} />
               <span className="truncate">{item.label}</span>
             </Link>
           );

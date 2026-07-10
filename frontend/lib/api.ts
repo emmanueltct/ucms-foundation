@@ -1323,6 +1323,34 @@ export const smallGroupMembershipsApi = {
     apiRequest<SmallGroupMembership>(`/small-group-memberships/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface ApprovalStep {
+  id: string;
+  stepOrder: number;
+  label: string;
+  approverRoleName: string | null;
+  approverPermissionCode: string | null;
+}
+
+export interface ApprovalWorkflow {
+  id: string;
+  entityType: string;
+  name: string;
+  isActive: boolean;
+  steps: ApprovalStep[];
+}
+
+export const approvalWorkflowsApi = {
+  list: (tenantSlug: string, entityType?: string) =>
+    apiRequest<ApprovalWorkflow[]>(`/approval-workflows${entityType ? `?entityType=${entityType}` : ''}`, { tenantSlug, auth: true }),
+  get: (tenantSlug: string, id: string) => apiRequest<ApprovalWorkflow>(`/approval-workflows/${id}`, { tenantSlug, auth: true }),
+  create: (
+    tenantSlug: string,
+    body: { entityType: string; name: string; steps: { label: string; approverRoleName?: string; approverPermissionCode?: string }[] },
+  ) => apiRequest<ApprovalWorkflow>('/approval-workflows', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ name: string; isActive: boolean }>) =>
+    apiRequest<ApprovalWorkflow>(`/approval-workflows/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+};
+
 export interface HierarchyRequirement {
   id: string;
   parentBranchType: string;
@@ -1410,6 +1438,104 @@ export const hierarchyRequirementsApi = {
       auth: true,
       body: { reason },
     }),
+};
+
+export interface DynamicModuleDefinition {
+  id: string;
+  key: string;
+  label: string;
+  description: string | null;
+  icon: string | null;
+  attachableToEntityTypes: string[];
+  statuses: string[];
+  approvalWorkflowId: string | null;
+  showInNav: boolean;
+  isActive: boolean;
+}
+
+export interface DynamicModuleRecord {
+  id: string;
+  moduleDefinitionId: string;
+  attachedToEntityType: string | null;
+  attachedToEntityId: string | null;
+  status: string;
+  title: string | null;
+  branchId: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  customFields: Record<string, unknown>;
+}
+
+export interface DynamicModuleRecordStatusHistoryEntry {
+  id: string;
+  recordId: string;
+  fromStatus: string | null;
+  toStatus: string;
+  changedByUserId: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export const dynamicModuleDefinitionsApi = {
+  list: (tenantSlug: string, showInNav?: boolean) =>
+    apiRequest<DynamicModuleDefinition[]>(`/dynamic-modules${showInNav !== undefined ? `?showInNav=${showInNav}` : ''}`, { tenantSlug, auth: true }),
+  getByKey: (tenantSlug: string, key: string) =>
+    apiRequest<DynamicModuleDefinition>(`/dynamic-modules/by-key/${key}`, { tenantSlug, auth: true }),
+  get: (tenantSlug: string, id: string) => apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { tenantSlug, auth: true }),
+  create: (
+    tenantSlug: string,
+    body: {
+      key: string;
+      label: string;
+      description?: string;
+      icon?: string;
+      attachableToEntityTypes?: string[];
+      statuses?: string[];
+      approvalWorkflowId?: string;
+      showInNav?: boolean;
+    },
+  ) => apiRequest<DynamicModuleDefinition>('/dynamic-modules', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ label: string; description: string; statuses: string[]; showInNav: boolean; isActive: boolean }>) =>
+    apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) => apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export const dynamicModuleRecordsApi = {
+  list: (tenantSlug: string, moduleDefinitionId: string, params: { attachedToEntityType?: string; attachedToEntityId?: string; status?: string; branchId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.attachedToEntityType) qs.set('attachedToEntityType', params.attachedToEntityType);
+    if (params.attachedToEntityId) qs.set('attachedToEntityId', params.attachedToEntityId);
+    if (params.status) qs.set('status', params.status);
+    if (params.branchId) qs.set('branchId', params.branchId);
+    return apiRequest<DynamicModuleRecord[]>(`/dynamic-modules/${moduleDefinitionId}/records?${qs.toString()}`, { tenantSlug, auth: true });
+  },
+  create: (
+    tenantSlug: string,
+    moduleDefinitionId: string,
+    body: { attachedToEntityType?: string; attachedToEntityId?: string; title?: string; branchId?: string; customFields?: Record<string, unknown> },
+  ) => apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records`, { method: 'POST', tenantSlug, auth: true, body }),
+  update: (
+    tenantSlug: string,
+    moduleDefinitionId: string,
+    id: string,
+    body: { title?: string; branchId?: string; customFields?: Record<string, unknown> },
+  ) => apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, moduleDefinitionId: string, id: string) =>
+    apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  changeStatus: (tenantSlug: string, moduleDefinitionId: string, id: string, toStatus: string, reason: string) =>
+    apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records/${id}/status`, {
+      method: 'PATCH',
+      tenantSlug,
+      auth: true,
+      body: { toStatus, reason },
+    }),
+  statusHistory: (tenantSlug: string, moduleDefinitionId: string, id: string) =>
+    apiRequest<DynamicModuleRecordStatusHistoryEntry[]>(`/dynamic-modules/${moduleDefinitionId}/records/${id}/status-history`, { tenantSlug, auth: true }),
+  summary: (tenantSlug: string, moduleDefinitionId: string) =>
+    apiRequest<{ byStatus: { status: string; count: number }[]; byBranch: { branchId: string | null; count: number }[] }>(
+      `/dynamic-modules/${moduleDefinitionId}/records/summary`,
+      { tenantSlug, auth: true },
+    ),
 };
 
 export interface TenantProfile {

@@ -8,7 +8,7 @@
 // docs/custom-fields/business-analysis.md.
 
 import { useEffect, useState } from 'react';
-import { customFieldDefinitionsApi, configApi, rolesApi, CustomFieldDefinition, CustomFieldOption, CustomFieldType, Role } from '../../../../lib/api';
+import { customFieldDefinitionsApi, configApi, rolesApi, dynamicModuleDefinitionsApi, CustomFieldDefinition, CustomFieldOption, CustomFieldType, Role } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
@@ -52,7 +52,11 @@ export default function CustomFieldsSettingsPage() {
   // as "asset:{category}" — the same free-string entityType composition the
   // Assets backend module uses, rather than a fixed pill list.
   const [assetEntityTypes, setAssetEntityTypes] = useState<{ value: string; label: string }[]>([]);
-  const ENTITY_TYPES = [...BASE_ENTITY_TYPES, ...assetEntityTypes];
+  // Dynamic Module Builder modules also get their own entityType here, the
+  // same "compose the entityType string" trick asset categories use — see
+  // docs/dynamic-modules/business-analysis.md.
+  const [dynamicModuleEntityTypes, setDynamicModuleEntityTypes] = useState<{ value: string; label: string }[]>([]);
+  const ENTITY_TYPES = [...BASE_ENTITY_TYPES, ...assetEntityTypes, ...dynamicModuleEntityTypes];
 
   const [entityType, setEntityType] = useState(BASE_ENTITY_TYPES[0].value);
   const [definitions, setDefinitions] = useState<CustomFieldDefinition[]>([]);
@@ -84,6 +88,11 @@ export default function CustomFieldsSettingsPage() {
     });
     rolesApi.list(TENANT_SLUG).then((res) => {
       if (res.success && res.data) setRoles(res.data);
+    });
+    dynamicModuleDefinitionsApi.list(TENANT_SLUG).then((res) => {
+      if (res.success && res.data) {
+        setDynamicModuleEntityTypes(res.data.map((m) => ({ value: `dynamicmodule:${m.id}`, label: `Module: ${m.label}` })));
+      }
     });
   }, []);
 
