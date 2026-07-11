@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditLogQueryDto } from './dto/audit-log-query.dto';
 
 export interface AuditContext {
   /** Mandatory-comment text for actions gated by `@RequiresAuditReason()` — becomes part of the permanent audit history. */
@@ -46,5 +47,28 @@ export class AuditService {
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       },
     });
+  }
+
+  /** Read-only viewer for the Configuration Center's Audit Log tab — the write side (`record`) is used everywhere else. */
+  async findAll(tenantId: string, query: AuditLogQueryDto) {
+    const where = {
+      tenantId,
+      ...(query.action ? { action: query.action } : {}),
+      ...(query.entityType ? { entityType: query.entityType } : {}),
+      ...(query.userId ? { userId: query.userId } : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } },
+        skip: query.skip,
+        take: query.take,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
   }
 }

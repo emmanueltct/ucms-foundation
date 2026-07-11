@@ -29,9 +29,10 @@ import {
   ShieldCheck,
   ClipboardList,
   Puzzle,
+  Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { authApi, getCurrentTenant, setSession, WorkspaceOption, dynamicModuleDefinitionsApi } from '@/lib/api';
+import { authApi, getCurrentTenant, setSession, WorkspaceOption, dynamicModuleDefinitionsApi, menuItemsApi, MenuItem } from '@/lib/api';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -49,6 +50,7 @@ const NAV_ITEMS = [
   { href: '/admin/assets', label: 'Assets', icon: Boxes },
   { href: '/admin/documents', label: 'Documents', icon: FileText },
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
+  { href: '/admin/settings', label: 'Configuration Center', icon: Settings },
   { href: '/admin/config', label: 'Configuration', icon: SlidersHorizontal },
   { href: '/admin/settings/custom-fields', label: 'Custom Fields', icon: ListPlus },
   { href: '/admin/settings/dynamic-modules', label: 'Dynamic Modules', icon: Puzzle },
@@ -64,6 +66,7 @@ export function AdminNav() {
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [dynamicNavItems, setDynamicNavItems] = useState<{ href: string; label: string }[]>([]);
+  const [configuredMenuItems, setConfiguredMenuItems] = useState<MenuItem[]>([]);
 
   useEffect(() => {
     const current = getCurrentTenant();
@@ -77,7 +80,15 @@ export function AdminNav() {
         setDynamicNavItems(res.data.map((m) => ({ href: `/admin/modules/${m.key}`, label: m.label })));
       }
     });
+    // Additive: a tenant with zero configured menu items sees exactly the
+    // static NAV_ITEMS list below, unchanged — this only adds to it.
+    menuItemsApi.forCurrentUser(current.slug).then((res) => {
+      if (res.success && res.data) setConfiguredMenuItems(res.data);
+    });
   }, [pathname]);
+
+  const topLevelConfigured = configuredMenuItems.filter((i) => !i.parentMenuItemId);
+  const childrenOfConfigured = (id: string) => configuredMenuItems.filter((i) => i.parentMenuItemId === id);
 
   async function handleSwitch(targetSlug: string) {
     if (!tenant || targetSlug === tenant.slug) {
@@ -175,6 +186,16 @@ export function AdminNav() {
             </Link>
           );
         })}
+        {topLevelConfigured.map((item) => (
+          <div key={item.id}>
+            <ConfiguredMenuLink item={item} pathname={pathname} />
+            {childrenOfConfigured(item.id).map((child) => (
+              <div key={child.id} className="pl-4">
+                <ConfiguredMenuLink item={child} pathname={pathname} />
+              </div>
+            ))}
+          </div>
+        ))}
       </nav>
 
       <div className="px-5 py-4 border-t border-slate-200/70">
@@ -183,5 +204,22 @@ export function AdminNav() {
         </Link>
       </div>
     </aside>
+  );
+}
+
+/** Renders one admin-configured MenuItem — target path is used verbatim as the href (see Menu Builder). */
+function ConfiguredMenuLink({ item, pathname }: { item: MenuItem; pathname: string }) {
+  const isActive = pathname.startsWith(item.targetKey);
+  return (
+    <Link
+      href={item.targetKey}
+      className={cn(
+        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+        isActive ? 'bg-[#1E2A44] text-white' : 'text-slate-600 hover:bg-slate-100 hover:text-[#1E2A44]',
+      )}
+    >
+      <SlidersHorizontal className="h-4 w-4 shrink-0" strokeWidth={isActive ? 2.25 : 2} />
+      <span className="truncate">{item.label}</span>
+    </Link>
   );
 }

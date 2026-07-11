@@ -2,6 +2,7 @@ import { Body, Controller, Get, Patch } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { TenantProfileService } from './tenant-profile.service';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
+import { UpdateTenantBrandingDto } from './dto/update-tenant-branding.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
@@ -34,5 +35,12 @@ export class TenantProfileController {
   @Patch('onboarding/complete')
   async completeOnboarding(@CurrentTenantId() tenantId: string, @Body() dto: CompleteOnboardingDto) {
     return ok(await this.tenantProfileService.completeOnboarding(tenantId, dto));
+  }
+
+  @ApiOperation({ summary: "Update the current church's branding (logo, theme colors, custom domain)" })
+  @Permissions('tenant.profile.update')
+  @Patch('branding')
+  async updateBranding(@CurrentTenantId() tenantId: string, @Body() dto: UpdateTenantBrandingDto) {
+    return ok(await this.tenantProfileService.updateBranding(tenantId, dto));
   }
 }

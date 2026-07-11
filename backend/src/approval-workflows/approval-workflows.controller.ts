@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApprovalWorkflowsService } from './approval-workflows.service';
 import { CreateApprovalWorkflowDto } from './dto/create-approval-workflow.dto';
@@ -83,5 +83,12 @@ export class ApprovalWorkflowsController {
   @Patch(':id')
   async update(@CurrentTenantId() tenantId: string, @Param('id') id: string, @Body() dto: UpdateApprovalWorkflowDto) {
     return ok(await this.approvalWorkflowsService.update(tenantId, id, dto));
+  }
+
+  @ApiOperation({ summary: "Delete a workflow with no approval history yet (steps are immutable — delete and recreate to change them)" })
+  @Permissions('approval_workflow.delete')
+  @Delete(':id')
+  async remove(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.approvalWorkflowsService.remove(tenantId, id));
   }
 }

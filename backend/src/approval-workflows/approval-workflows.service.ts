@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApprovalRequest, ApprovalWorkflow } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -66,6 +66,20 @@ export class ApprovalWorkflowsService {
   async update(tenantId: string, id: string, dto: UpdateApprovalWorkflowDto): Promise<ApprovalWorkflow> {
     await this.findOne(tenantId, id);
     return this.prisma.approvalWorkflow.update({ where: { id }, data: { name: dto.name, isActive: dto.isActive } });
+  }
+
+  /** The "recreate" half of "delete and recreate the workflow to change its step chain" (steps are otherwise immutable). Blocked once any ApprovalRequest exists against it — that history must stay attributable to a real workflow. */
+  async remove(tenantId: string, id: string): Promise<{ id: string }> {
+    await this.findOne(tenantId, id);
+    const requestCount = await this.prisma.approvalRequest.count({ where: { tenantId, workflowId: id } });
+    if (requestCount > 0) {
+      throw new ConflictException({
+        code: 'APPROVAL_WORKFLOW_IN_USE',
+        message: 'This workflow has approval history and cannot be deleted — deactivate it instead.',
+      });
+    }
+    await this.prisma.approvalWorkflow.delete({ where: { id } });
+    return { id };
   }
 
   /** Starts (or returns the already-existing) approval request for one concrete entity — idempotent, never creates a duplicate for the same (entityType, entityId). */

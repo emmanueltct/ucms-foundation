@@ -73,6 +73,7 @@ model Tenant {
   dynamicModuleRecords   DynamicModuleRecord[]
   dynamicModuleRecordStatusHistory DynamicModuleRecordStatusHistory[]
   entityMemberships      EntityMembership[]
+  menuItems              MenuItem[]
 
   @@map("tenants")
 }
@@ -363,6 +364,7 @@ model Branch {
   assignedUsers     User[]             @relation("UserAssignedBranch")
   hierarchyRequirementSubmissions HierarchyRequirementSubmission[]
   dynamicModuleRecords DynamicModuleRecord[]
+  menuItems         MenuItem[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -1499,4 +1501,40 @@ model EntityMembership {
   @@index([tenantId, attachedToEntityType, attachedToEntityId])
   @@index([tenantId, memberId])
   @@map("entity_memberships")
+}
+
+/// Admin-configured navigation, additive to the frontend's static default
+/// nav — a tenant with zero MenuItems sees exactly what it always saw
+/// (`admin-nav.tsx`'s hardcoded list), so this is a pure opt-in. Self-
+/// referencing (`parentMenuItemId`) for parent/child menus, same shape as
+/// `Branch.parentBranchId`. `targetType`/`targetKey` are a polymorphic
+/// pointer (module key, dynamic-module key, report slug, ...) resolved by
+/// the frontend, not validated at the schema level — the same trade-off
+/// `DynamicModuleRecord.attachedToEntityType`/`attachedToEntityId` already
+/// makes. Visibility is role-name and/or branch based, checked server-side
+/// in `MenuItemsService.forCurrentUser` using the same primitives
+/// `PermissionsGuard`/`BranchScopeService` already provide — no new
+/// authorization mechanism.
+model MenuItem {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  parentMenuItemId String?  @map("parent_menu_item_id")
+  parentMenuItem   MenuItem? @relation("MenuItemHierarchy", fields: [parentMenuItemId], references: [id])
+  childMenuItems   MenuItem[] @relation("MenuItemHierarchy")
+  label            String
+  icon             String?
+  sortOrder        Int      @default(0) @map("sort_order")
+  targetType       String   @map("target_type") // "module" | "entity" | "report" | "dashboard" | "customPage" | "workflow"
+  targetKey        String   @map("target_key")
+  visibleToRoleNames String[] @default([]) @map("visible_to_role_names")
+  visibleToBranchId  String?  @map("visible_to_branch_id")
+  visibleToBranch    Branch?  @relation(fields: [visibleToBranchId], references: [id])
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@index([tenantId, parentMenuItemId])
+  @@map("menu_items")
 }

@@ -281,14 +281,39 @@ export const configApi = {
     apiRequest<any>(`/config/items/${id}/reactivate`, { method: 'PATCH', tenantSlug, auth: true }),
 };
 
+export interface RolePermission {
+  permission: { id: string; code: string; module: string; description: string };
+}
+
 export interface Role {
   id: string;
   name: string;
+  description: string | null;
   isSystem: boolean;
+  rolePermissions: RolePermission[];
 }
 
 export const rolesApi = {
   list: (tenantSlug: string) => apiRequest<Role[]>('/roles', { tenantSlug, auth: true }),
+  get: (tenantSlug: string, id: string) => apiRequest<Role>(`/roles/${id}`, { tenantSlug, auth: true }),
+  create: (tenantSlug: string, body: { name: string; description?: string; permissionCodes?: string[] }) =>
+    apiRequest<Role>('/roles', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ name: string; description: string; permissionCodes: string[] }>) =>
+    apiRequest<Role>(`/roles/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) => apiRequest<Role>(`/roles/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export interface Permission {
+  id: string;
+  code: string;
+  module: string;
+  description: string;
+}
+
+export const permissionsApi = {
+  list: (tenantSlug: string, module?: string) =>
+    apiRequest<Permission[]>(`/permissions${module ? `?module=${encodeURIComponent(module)}` : ''}`, { tenantSlug, auth: true }),
+  modules: (tenantSlug: string) => apiRequest<string[]>('/permissions/modules', { tenantSlug, auth: true }),
 };
 
 export interface Branch {
@@ -1083,10 +1108,22 @@ export interface AppUser {
   firstName: string;
   lastName: string;
   email: string;
+  isActive: boolean;
+  assignedBranchId: string | null;
+  assignedBranch: { id: string; name: string } | null;
+  userRoles: { role: { id: string; name: string } }[];
 }
 
 export const usersApi = {
   list: (tenantSlug: string) => apiRequest<AppUser[]>('/users?page=1&pageSize=100', { tenantSlug, auth: true }),
+  create: (
+    tenantSlug: string,
+    body: { email: string; password: string; firstName: string; lastName: string; roleIds?: string[]; assignedBranchId?: string },
+  ) => apiRequest<AppUser>('/users', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ firstName: string; lastName: string; assignedBranchId: string | null }>) =>
+    apiRequest<AppUser>(`/users/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  assignRoles: (tenantSlug: string, id: string, roleIds: string[]) =>
+    apiRequest<AppUser>(`/users/${id}/roles`, { method: 'PATCH', tenantSlug, auth: true, body: { roleIds } }),
 };
 
 export interface Visitor {
@@ -1409,6 +1446,8 @@ export const approvalWorkflowsApi = {
   ) => apiRequest<ApprovalWorkflow>('/approval-workflows', { method: 'POST', tenantSlug, auth: true, body }),
   update: (tenantSlug: string, id: string, body: Partial<{ name: string; isActive: boolean }>) =>
     apiRequest<ApprovalWorkflow>(`/approval-workflows/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<{ id: string }>(`/approval-workflows/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
 export interface HierarchyRequirement {
@@ -1630,13 +1669,80 @@ export interface TenantProfile {
   id: string;
   name: string;
   slug: string;
+  logoUrl: string | null;
+  themeConfig: Record<string, string> | null;
+  customDomain: string | null;
   onboardedAt: string | null;
 }
+
+export type MenuItemTargetType = 'module' | 'entity' | 'report' | 'dashboard' | 'customPage' | 'workflow';
+
+export interface MenuItem {
+  id: string;
+  parentMenuItemId: string | null;
+  label: string;
+  icon: string | null;
+  sortOrder: number;
+  targetType: MenuItemTargetType;
+  targetKey: string;
+  visibleToRoleNames: string[];
+  visibleToBranchId: string | null;
+  isActive: boolean;
+}
+
+export interface CreateMenuItemInput {
+  label: string;
+  icon?: string;
+  sortOrder?: number;
+  parentMenuItemId?: string;
+  targetType: MenuItemTargetType;
+  targetKey: string;
+  visibleToRoleNames?: string[];
+  visibleToBranchId?: string;
+}
+
+export const menuItemsApi = {
+  list: (tenantSlug: string) => apiRequest<MenuItem[]>('/menu-items', { tenantSlug, auth: true }),
+  forCurrentUser: (tenantSlug: string) => apiRequest<MenuItem[]>('/menu-items/for-current-user', { tenantSlug, auth: true }),
+  create: (tenantSlug: string, body: CreateMenuItemInput) =>
+    apiRequest<MenuItem>('/menu-items', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<CreateMenuItemInput & { isActive: boolean }>) =>
+    apiRequest<MenuItem>(`/menu-items/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) => apiRequest<{ id: string }>(`/menu-items/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
 
 export const tenantApi = {
   getProfile: (tenantSlug: string) => apiRequest<TenantProfile>('/tenant', { tenantSlug, auth: true }),
   completeOnboarding: (tenantSlug: string, body: { headquartersName?: string; headquartersType?: string }) =>
     apiRequest<TenantProfile>('/tenant/onboarding/complete', { method: 'PATCH', tenantSlug, auth: true, body }),
+  updateBranding: (tenantSlug: string, body: { logoUrl?: string; themeConfig?: Record<string, string>; customDomain?: string }) =>
+    apiRequest<TenantProfile>('/tenant/branding', { method: 'PATCH', tenantSlug, auth: true, body }),
+};
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  reason: string | null;
+  previousValue: unknown;
+  newValue: unknown;
+  metadata: Record<string, unknown> | null;
+  ipAddress: string | null;
+  createdAt: string;
+  user: { id: string; firstName: string; lastName: string; email: string } | null;
+}
+
+export const auditLogsApi = {
+  list: (tenantSlug: string, params: { action?: string; entityType?: string; userId?: string; page?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.action) qs.set('action', params.action);
+    if (params.entityType) qs.set('entityType', params.entityType);
+    if (params.userId) qs.set('userId', params.userId);
+    qs.set('page', String(params.page ?? 1));
+    qs.set('pageSize', '50');
+    return apiRequest<AuditLogEntry[]>(`/audit-logs?${qs.toString()}`, { tenantSlug, auth: true });
+  },
 };
 
 // ----------------------------------------------------------------------------

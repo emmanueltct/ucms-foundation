@@ -30,4 +30,13 @@ export class CreateUserDto {
   @IsArray()
   @IsString({ each: true })
   roleIds?: string[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Which branch this user is assigned to for organizational-visibility roll-up (see BranchScopeService). Omit/null for unrestricted (church-wide) access — the default.',
+  })
+  @IsOptional()
+  @IsString()
+  assignedBranchId?: string | null;
 }

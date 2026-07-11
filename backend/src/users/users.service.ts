@@ -29,6 +29,7 @@ export class UsersService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         phone: dto.phone,
+        assignedBranchId: dto.assignedBranchId,
         userRoles: dto.roleIds ? { create: dto.roleIds.map((roleId) => ({ roleId })) } : undefined,
       },
       select: this.publicSelect(),
@@ -122,6 +123,8 @@ export class UsersService {
       mfaEnabled: true,
       lastLoginAt: true,
       createdAt: true,
+      assignedBranchId: true,
+      assignedBranch: { select: { id: true, name: true } },
       userRoles: { select: { role: { select: { id: true, name: true } } } },
     };
   }

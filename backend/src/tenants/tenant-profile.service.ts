@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BranchesService } from '../branches/branches.service';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
+import { UpdateTenantBrandingDto } from './dto/update-tenant-branding.dto';
 
 /**
  * The current tenant's own view of itself, as opposed to TenantsService
@@ -41,5 +42,18 @@ export class TenantProfileService {
 
     if (tenant.onboardedAt) return tenant;
     return this.prisma.tenant.update({ where: { id: tenantId }, data: { onboardedAt: new Date() } });
+  }
+
+  async updateBranding(tenantId: string, dto: UpdateTenantBrandingDto) {
+    await this.getProfile(tenantId);
+
+    if (dto.customDomain) {
+      const existing = await this.prisma.tenant.findUnique({ where: { customDomain: dto.customDomain } });
+      if (existing && existing.id !== tenantId) {
+        throw new ConflictException({ code: 'DOMAIN_TAKEN', message: `Domain "${dto.customDomain}" is already in use.` });
+      }
+    }
+
+    return this.prisma.tenant.update({ where: { id: tenantId }, data: dto });
   }
 }
