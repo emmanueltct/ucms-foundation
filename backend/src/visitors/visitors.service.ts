@@ -1,13 +1,18 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Visitor, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { UpdateVisitorDto } from './dto/update-visitor.dto';
 import { VisitorQueryDto } from './dto/visitor-query.dto';
+import { RegisterVisitorDto } from './dto/register-visitor.dto';
 import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
 import { AuditService } from '../audit/audit.service';
+import { ConfigService } from '../config-engine/config.service';
 
 const CUSTOM_FIELD_ENTITY_TYPE = 'visitor';
+
+/** Tenant-wide kill switch for public visitor self-registration. */
+export const GUEST_ACCESS_VISITOR_REGISTRATION_FEATURE_KEY = 'guest_access.visitor_registration';
 
 /**
  * Visitors — see docs/visitor-management/business-analysis.md. `status` is a
@@ -25,6 +30,7 @@ export class VisitorsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly config: ConfigService,
   ) {}
 
   async create(tenantId: string, dto: CreateVisitorDto): Promise<Visitor> {
@@ -52,6 +58,47 @@ export class VisitorsService {
         source: dto.source,
         invitedByMemberId: dto.invitedByMemberId,
         assignedToUserId: dto.assignedToUserId,
+        notes: dto.notes,
+      },
+    });
+  }
+
+  /**
+   * A minimal, public projection of active branches (id/name/type/parent
+   * only) so the self-registration form can offer a location picker
+   * without exposing the full, authenticated Branches API — mirrors
+   * `MembersService.listBranchOptionsForRegistration` exactly.
+   */
+  async listBranchOptionsForRegistration(tenantId: string) {
+    return this.prisma.branch.findMany({
+      where: { tenantId, isActive: true, deletedAt: null },
+      select: { id: true, name: true, branchType: true, parentBranchId: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  /**
+   * Public, unauthenticated self-registration. Gated by the
+   * `guest_access.visitor_registration` `FeatureToggle` — off by default,
+   * so no existing tenant is silently exposed to guest visitor submissions.
+   */
+  async registerPublic(tenantId: string, dto: RegisterVisitorDto): Promise<Visitor> {
+    if (!(await this.config.isFeatureEnabled(tenantId, GUEST_ACCESS_VISITOR_REGISTRATION_FEATURE_KEY))) {
+      throw new ForbiddenException({ code: 'PUBLIC_REGISTRATION_DISABLED', message: 'Visitor self-registration is not currently enabled.' });
+    }
+    await this.assertBranchExists(tenantId, dto.branchId);
+
+    return this.prisma.visitor.create({
+      data: {
+        tenantId,
+        branchId: dto.branchId,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        phone: dto.phone,
+        email: dto.email,
+        address: dto.address,
+        visitDate: new Date(dto.visitDate),
+        source: dto.source,
         notes: dto.notes,
       },
     });

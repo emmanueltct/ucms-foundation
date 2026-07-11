@@ -40,6 +40,7 @@ export default function DynamicModulesAdminPage() {
   const [attachableText, setAttachableText] = useState('');
   const [approvalWorkflowId, setApprovalWorkflowId] = useState('');
   const [showInNav, setShowInNav] = useState(false);
+  const [allowPublicSubmission, setAllowPublicSubmission] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -81,6 +82,7 @@ export default function DynamicModulesAdminPage() {
         attachableToEntityTypes: attachableText.split(',').map((s) => s.trim()).filter(Boolean),
         approvalWorkflowId: approvalWorkflowId || undefined,
         showInNav,
+        allowPublicSubmission,
       });
       if (res.success) {
         setLabel('');
@@ -92,6 +94,7 @@ export default function DynamicModulesAdminPage() {
         setAttachableText('');
         setApprovalWorkflowId('');
         setShowInNav(false);
+        setAllowPublicSubmission(false);
         load();
       } else {
         setError(res.error?.message ?? 'Could not create the module.');
@@ -104,6 +107,16 @@ export default function DynamicModulesAdminPage() {
   async function handleToggleNav(mod: DynamicModuleDefinition) {
     try {
       const res = await dynamicModuleDefinitionsApi.update(TENANT_SLUG, mod.id, { showInNav: !mod.showInNav });
+      if (res.success) load();
+      else setError(res.error?.message ?? 'Could not update the module.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function handleTogglePublicSubmission(mod: DynamicModuleDefinition) {
+    try {
+      const res = await dynamicModuleDefinitionsApi.update(TENANT_SLUG, mod.id, { allowPublicSubmission: !mod.allowPublicSubmission });
       if (res.success) load();
       else setError(res.error?.message ?? 'Could not update the module.');
     } catch {
@@ -200,6 +213,17 @@ export default function DynamicModulesAdminPage() {
               <input id="dm-nav" type="checkbox" checked={showInNav} onChange={(e) => setShowInNav(e.target.checked)} />
               <Label htmlFor="dm-nav" className="text-slate-600">Show in sidebar navigation</Label>
             </div>
+            <div className="flex items-center gap-2 pt-5">
+              <input
+                id="dm-public"
+                type="checkbox"
+                checked={allowPublicSubmission}
+                onChange={(e) => setAllowPublicSubmission(e.target.checked)}
+              />
+              <Label htmlFor="dm-public" className="text-slate-600">
+                Allow guest submissions (also needs the Guest Access toggle in Configuration Center)
+              </Label>
+            </div>
           </div>
           <Button type="submit" style={{ backgroundColor: '#1E2A44' }}>Create module</Button>
         </form>
@@ -217,7 +241,14 @@ export default function DynamicModulesAdminPage() {
             modules.map((m) => (
               <div key={m.id} className={`flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0 ${!m.isActive ? 'opacity-60' : ''}`}>
                 <div>
-                  <p className="text-sm font-medium text-slate-800">{m.label}</p>
+                  <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
+                    {m.label}
+                    {m.allowPublicSubmission && (
+                      <span className="text-[10px] uppercase tracking-wide font-semibold text-[#C9A24B] border border-[#C9A24B]/40 rounded-full px-2 py-0.5">
+                        Public
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-slate-400">
                     {m.key} · {m.statuses.join(' → ')} · custom fields entityType:{' '}
                     <code className="text-[11px]">dynamicmodule:{m.id}</code>
@@ -235,6 +266,12 @@ export default function DynamicModulesAdminPage() {
                     className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
                   >
                     {m.showInNav ? 'Hide from nav' : 'Show in nav'}
+                  </button>
+                  <button
+                    onClick={() => handleTogglePublicSubmission(m)}
+                    className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                  >
+                    {m.allowPublicSubmission ? 'Disable guest form' : 'Allow guest form'}
                   </button>
                   <button
                     onClick={() => handleToggleActive(m)}

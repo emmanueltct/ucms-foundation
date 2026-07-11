@@ -1,16 +1,19 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { VisitorsService } from './visitors.service';
 import { VisitorActivitiesService } from './visitor-activities.service';
 import { CreateVisitorDto } from './dto/create-visitor.dto';
 import { UpdateVisitorDto } from './dto/update-visitor.dto';
 import { VisitorQueryDto } from './dto/visitor-query.dto';
+import { RegisterVisitorDto } from './dto/register-visitor.dto';
 import { CreateVisitorActivityDto } from './dto/create-visitor-activity.dto';
 import { ConvertVisitorDto } from './dto/convert-visitor.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { ExportFormat, sendExportFile } from '../common/exports/export.util';
@@ -43,6 +46,21 @@ export class VisitorsController {
   @Post()
   async create(@CurrentTenantId() tenantId: string, @Body() dto: CreateVisitorDto) {
     return ok(await this.visitorsService.create(tenantId, dto));
+  }
+
+  @ApiOperation({ summary: 'Public list of active branches, for the guest self-registration picker' })
+  @Public()
+  @Get('register/branches')
+  async registerBranchOptions(@CurrentTenantId() tenantId: string) {
+    return ok(await this.visitorsService.listBranchOptionsForRegistration(tenantId));
+  }
+
+  @ApiOperation({ summary: 'Public, unauthenticated visitor self-registration — gated by the guest_access.visitor_registration feature toggle' })
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('register')
+  async register(@CurrentTenantId() tenantId: string, @Body() dto: RegisterVisitorDto) {
+    return ok(await this.visitorsService.registerPublic(tenantId, dto));
   }
 
   @ApiOperation({ summary: 'List visitors (paginated, filterable by branch/status/assignee/search) — scoped to the caller\'s assigned branch and its descendants, if any' })

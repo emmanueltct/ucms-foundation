@@ -4,11 +4,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ApprovalWorkflowsService } from '../approval-workflows/approval-workflows.service';
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
+import { ConfigService } from '../config-engine/config.service';
 import { DynamicModuleDefinitionsService } from './dynamic-module-definitions.service';
 import { CreateDynamicModuleRecordDto } from './dto/create-dynamic-module-record.dto';
+import { CreateDynamicModuleRecordPublicDto } from './dto/create-dynamic-module-record-public.dto';
 import { UpdateDynamicModuleRecordDto } from './dto/update-dynamic-module-record.dto';
 import { ChangeDynamicModuleRecordStatusDto } from './dto/change-status.dto';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
+
+/** Tenant-wide kill switch for all guest dynamic-module submissions — a per-module `allowPublicSubmission` flag still gates each module individually. */
+export const GUEST_ACCESS_MODULES_FEATURE_KEY = 'guest_access.dynamic_modules';
 
 export type DynamicModuleRecordWithFields = DynamicModuleRecord & { customFields: Record<string, unknown> };
 
@@ -29,6 +34,7 @@ export class DynamicModuleRecordsService {
     private readonly approvalWorkflows: ApprovalWorkflowsService,
     private readonly customFields: CustomFieldsService,
     private readonly definitions: DynamicModuleDefinitionsService,
+    private readonly config: ConfigService,
   ) {}
 
   async create(tenantId: string, moduleDefinitionId: string, dto: CreateDynamicModuleRecordDto, user: AuthenticatedUser): Promise<DynamicModuleRecordWithFields> {
@@ -56,6 +62,46 @@ export class DynamicModuleRecordsService {
     if (dto.customFields) await this.customFields.setValues(tenantId, entityType, record.id, dto.customFields);
     await this.prisma.dynamicModuleRecordStatusHistory.create({
       data: { tenantId, recordId: record.id, fromStatus: null, toStatus: record.status, changedByUserId: user.userId },
+    });
+
+    return this.withCustomFields(tenantId, entityType, record);
+  }
+
+  /**
+   * The unauthenticated counterpart to `create` — no `AuthenticatedUser`,
+   * no `assertPermission` (there is no caller identity to check), resolved
+   * by the module's `key` rather than its internal id (a guest form has no
+   * reason to know the raw UUID). Gated by two independent switches: the
+   * per-module `allowPublicSubmission` flag (an admin decision made once,
+   * on the module itself) and the tenant-wide `guest_access.dynamic_modules`
+   * `FeatureToggle` (a quick kill switch for ALL guest module submissions
+   * at once, without having to un-check every module individually).
+   */
+  async createPublic(tenantId: string, moduleKey: string, dto: CreateDynamicModuleRecordPublicDto): Promise<DynamicModuleRecordWithFields> {
+    const definition = await this.definitions.findByKey(tenantId, moduleKey);
+    if (!definition.allowPublicSubmission) {
+      throw new ForbiddenException({ code: 'PUBLIC_SUBMISSION_DISABLED', message: 'This form is not currently accepting public submissions.' });
+    }
+    if (!(await this.config.isFeatureEnabled(tenantId, GUEST_ACCESS_MODULES_FEATURE_KEY))) {
+      throw new ForbiddenException({ code: 'PUBLIC_SUBMISSION_DISABLED', message: 'This form is not currently accepting public submissions.' });
+    }
+
+    const entityType = this.fieldsEntityType(definition.id);
+    await this.customFields.assertRequiredFieldsProvided(tenantId, entityType, dto.customFields);
+
+    const record = await this.prisma.dynamicModuleRecord.create({
+      data: {
+        tenantId,
+        moduleDefinitionId: definition.id,
+        status: definition.statuses[0] ?? 'open',
+        title: dto.title,
+        branchId: dto.branchId,
+      },
+    });
+
+    if (dto.customFields) await this.customFields.setValues(tenantId, entityType, record.id, dto.customFields);
+    await this.prisma.dynamicModuleRecordStatusHistory.create({
+      data: { tenantId, recordId: record.id, fromStatus: null, toStatus: record.status },
     });
 
     return this.withCustomFields(tenantId, entityType, record);

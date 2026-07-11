@@ -45,6 +45,7 @@ export class DynamicModuleDefinitionsService {
         statuses: dto.statuses ?? undefined, // let the column default (["open","closed"]) apply when omitted
         approvalWorkflowId: dto.approvalWorkflowId,
         showInNav: dto.showInNav ?? false,
+        allowPublicSubmission: dto.allowPublicSubmission ?? false,
       },
     });
 
@@ -99,6 +100,7 @@ export class DynamicModuleDefinitionsService {
         statuses: dto.statuses,
         approvalWorkflowId: dto.approvalWorkflowId,
         showInNav: dto.showInNav,
+        allowPublicSubmission: dto.allowPublicSubmission,
         isActive: dto.isActive,
       },
     });

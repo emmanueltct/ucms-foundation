@@ -1448,6 +1448,10 @@ model DynamicModuleDefinition {
   approvalWorkflowId String? @map("approval_workflow_id")
   approvalWorkflow   ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
   showInNav  Boolean  @default(false) @map("show_in_nav")
+  /// When true, an unauthenticated caller may submit a new record via
+  /// `POST /modules/:key/submit` (see PublicSubmissionController) — off by
+  /// default, so no existing module is silently exposed publicly.
+  allowPublicSubmission Boolean @default(false) @map("allow_public_submission")
   isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")

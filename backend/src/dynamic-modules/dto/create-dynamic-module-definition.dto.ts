@@ -43,4 +43,9 @@ export class CreateDynamicModuleDefinitionDto {
   @IsOptional()
   @IsBoolean()
   showInNav?: boolean;
+
+  @ApiPropertyOptional({ default: false, description: 'Whether an unauthenticated caller may submit a new record via POST /modules/:key/submit.' })
+  @IsOptional()
+  @IsBoolean()
+  allowPublicSubmission?: boolean;
 }

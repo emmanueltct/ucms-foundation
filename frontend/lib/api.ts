@@ -281,6 +281,24 @@ export const configApi = {
     apiRequest<any>(`/config/items/${id}/reactivate`, { method: 'PATCH', tenantSlug, auth: true }),
 };
 
+export interface FeatureToggle {
+  id: string;
+  featureKey: string;
+  isEnabled: boolean;
+}
+
+export const featureTogglesApi = {
+  list: (tenantSlug: string) => apiRequest<FeatureToggle[]>('/config/features', { tenantSlug, auth: true }),
+  set: (tenantSlug: string, featureKey: string, isEnabled: boolean) =>
+    apiRequest<FeatureToggle>('/config/features', { method: 'POST', tenantSlug, auth: true, body: { featureKey, isEnabled } }),
+};
+
+/** Guest form submission for a module with allowPublicSubmission enabled. */
+export const publicSubmissionApi = {
+  submit: (tenantSlug: string, moduleKey: string, body: { title?: string; branchId?: string; customFields?: Record<string, unknown> }) =>
+    apiRequest<DynamicModuleRecord>(`/modules/${moduleKey}/submit`, { method: 'POST', tenantSlug, body }),
+};
+
 export interface RolePermission {
   permission: { id: string; code: string; module: string; description: string };
 }
@@ -1276,6 +1294,14 @@ export const visitorsApi = {
     qs.set('format', format);
     return downloadFile(`/visitors/export?${qs.toString()}`, tenantSlug, `visitors.${format}`);
   },
+  /** Public, unauthenticated list of active branches for the guest self-registration picker. */
+  registerBranchOptions: (tenantSlug: string) =>
+    apiRequest<{ id: string; name: string; branchType: string | null; parentBranchId: string | null }[]>('/visitors/register/branches', { tenantSlug }),
+  /** Public, unauthenticated visitor self-registration — gated by the guest_access.visitor_registration feature toggle. */
+  registerPublic: (
+    tenantSlug: string,
+    body: { branchId: string; firstName: string; lastName: string; phone?: string; email?: string; address?: string; visitDate: string; source?: string; notes?: string },
+  ) => apiRequest<Visitor>('/visitors/register', { method: 'POST', tenantSlug, body }),
 };
 
 export const visitorGroupsApi = {
@@ -1572,6 +1598,7 @@ export interface DynamicModuleDefinition {
   statuses: string[];
   approvalWorkflowId: string | null;
   showInNav: boolean;
+  allowPublicSubmission: boolean;
   isActive: boolean;
 }
 
@@ -1621,10 +1648,14 @@ export const dynamicModuleDefinitionsApi = {
       statuses?: string[];
       approvalWorkflowId?: string;
       showInNav?: boolean;
+      allowPublicSubmission?: boolean;
     },
   ) => apiRequest<DynamicModuleDefinition>('/dynamic-modules', { method: 'POST', tenantSlug, auth: true, body }),
-  update: (tenantSlug: string, id: string, body: Partial<{ label: string; description: string; statuses: string[]; showInNav: boolean; isActive: boolean }>) =>
-    apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  update: (
+    tenantSlug: string,
+    id: string,
+    body: Partial<{ label: string; description: string; statuses: string[]; showInNav: boolean; allowPublicSubmission: boolean; isActive: boolean }>,
+  ) => apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) => apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 

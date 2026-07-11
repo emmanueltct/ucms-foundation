@@ -25,6 +25,7 @@ import {
   Hash,
   Trash2,
   Briefcase,
+  Globe,
 } from 'lucide-react';
 import {
   auditLogsApi,
@@ -39,6 +40,10 @@ import {
   trashApi,
   TrashResource,
   TrashItem,
+  featureTogglesApi,
+  FeatureToggle,
+  dynamicModuleDefinitionsApi,
+  DynamicModuleDefinition,
 } from '../../../lib/api';
 
 const SECTIONS = [
@@ -54,7 +59,7 @@ const SECTIONS = [
   { href: '/admin/settings/security', label: 'Security', description: 'Sessions, devices, and login history.', icon: ShieldCheck },
 ];
 
-type Tab = 'overview' | 'branding' | 'audit' | 'templates' | 'sequences' | 'trash';
+type Tab = 'overview' | 'branding' | 'audit' | 'templates' | 'sequences' | 'trash' | 'guestAccess';
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
@@ -63,7 +68,11 @@ const TAB_LABELS: Record<Tab, string> = {
   templates: 'Notification Templates',
   sequences: 'Numbering Sequences',
   trash: 'Trash',
+  guestAccess: 'Guest Access',
 };
+
+const GUEST_ACCESS_VISITOR_REGISTRATION_KEY = 'guest_access.visitor_registration';
+const GUEST_ACCESS_MODULES_KEY = 'guest_access.dynamic_modules';
 
 export default function ConfigurationCenterPage() {
   const [tab, setTab] = useState<Tab>('overview');
@@ -81,7 +90,7 @@ export default function ConfigurationCenterPage() {
       </header>
 
       <div className="flex gap-2 mb-8 border-b border-slate-200 flex-wrap">
-        {(['overview', 'branding', 'audit', 'templates', 'sequences', 'trash'] as Tab[]).map((t) => (
+        {(['overview', 'branding', 'audit', 'templates', 'sequences', 'trash', 'guestAccess'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -115,6 +124,7 @@ export default function ConfigurationCenterPage() {
       {tab === 'templates' && tenant && <NotificationTemplatesTab tenantSlug={tenant.slug} />}
       {tab === 'sequences' && tenant && <NumberingSequencesTab tenantSlug={tenant.slug} />}
       {tab === 'trash' && tenant && <TrashTab tenantSlug={tenant.slug} />}
+      {tab === 'guestAccess' && tenant && <GuestAccessTab tenantSlug={tenant.slug} />}
     </div>
   );
 }
@@ -642,6 +652,118 @@ function TrashTab({ tenantSlug }: { tenantSlug: string }) {
                   </button>
                 </div>
               ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GuestAccessTab({ tenantSlug }: { tenantSlug: string }) {
+  const [toggles, setToggles] = useState<FeatureToggle[]>([]);
+  const [publicModules, setPublicModules] = useState<DynamicModuleDefinition[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    const [togglesRes, modulesRes] = await Promise.all([
+      featureTogglesApi.list(tenantSlug),
+      dynamicModuleDefinitionsApi.list(tenantSlug, undefined, true),
+    ]);
+    if (togglesRes.success && togglesRes.data) setToggles(togglesRes.data);
+    else setError(togglesRes.error?.message ?? 'Could not load feature toggles.');
+    if (modulesRes.success && modulesRes.data) setPublicModules(modulesRes.data.filter((m) => m.allowPublicSubmission));
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantSlug]);
+
+  function isEnabled(featureKey: string): boolean {
+    return toggles.find((t) => t.featureKey === featureKey)?.isEnabled ?? false;
+  }
+
+  async function handleToggle(featureKey: string) {
+    setSavingKey(featureKey);
+    const res = await featureTogglesApi.set(tenantSlug, featureKey, !isEnabled(featureKey));
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not update this toggle.');
+    setSavingKey(null);
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-4 flex items-center gap-1.5">
+        <Globe className="h-3.5 w-3.5" /> Control what unauthenticated visitors to your public site can see and
+        submit. Each switch here is a tenant-wide kill switch — a module also needs its own &ldquo;Allow guest
+        submissions&rdquo; setting (Dynamic Module Builder) before it accepts public entries.
+      </p>
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
+
+      {loading ? (
+        <div className="py-8 text-center text-sm text-slate-400">Loading…</div>
+      ) : (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-800">Visitor self-registration</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Lets a guest register themselves as a visitor from a public form (no login required).
+              </p>
+            </div>
+            <button
+              onClick={() => handleToggle(GUEST_ACCESS_VISITOR_REGISTRATION_KEY)}
+              disabled={savingKey === GUEST_ACCESS_VISITOR_REGISTRATION_KEY}
+              className={`text-xs font-medium px-3 py-1.5 rounded-full border ${
+                isEnabled(GUEST_ACCESS_VISITOR_REGISTRATION_KEY)
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+            >
+              {isEnabled(GUEST_ACCESS_VISITOR_REGISTRATION_KEY) ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-800">Guest module submissions</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Lets guests submit to any module with its own &ldquo;Allow guest submissions&rdquo; setting turned on
+                (e.g. prayer requests, service requests).
+              </p>
+            </div>
+            <button
+              onClick={() => handleToggle(GUEST_ACCESS_MODULES_KEY)}
+              disabled={savingKey === GUEST_ACCESS_MODULES_KEY}
+              className={`text-xs font-medium px-3 py-1.5 rounded-full border ${
+                isEnabled(GUEST_ACCESS_MODULES_KEY) ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'
+              }`}
+            >
+              {isEnabled(GUEST_ACCESS_MODULES_KEY) ? 'Enabled' : 'Disabled'}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-sm font-medium text-slate-800 mb-2">Modules currently open to guest submissions</p>
+            {publicModules.length === 0 ? (
+              <p className="text-xs text-slate-400">
+                None yet — turn on &ldquo;Allow guest submissions&rdquo; for a module in the Dynamic Module Builder.
+              </p>
+            ) : (
+              <ul className="text-xs text-slate-600 space-y-1">
+                {publicModules.map((m) => (
+                  <li key={m.id} className="flex items-center justify-between">
+                    <span>{m.label}</span>
+                    <code className="text-[11px] text-slate-400">/modules/{m.key}/submit</code>
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>

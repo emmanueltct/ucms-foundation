@@ -6,6 +6,7 @@ import { AuditService } from '../src/audit/audit.service';
 import { ApprovalWorkflowsService } from '../src/approval-workflows/approval-workflows.service';
 import { CustomFieldsService } from '../src/custom-fields/custom-fields.service';
 import { DynamicModuleDefinitionsService } from '../src/dynamic-modules/dynamic-module-definitions.service';
+import { ConfigService } from '../src/config-engine/config.service';
 
 describe('DynamicModuleRecordsService', () => {
   let service: DynamicModuleRecordsService;
@@ -37,7 +38,8 @@ describe('DynamicModuleRecordsService', () => {
   const mockAudit = { record: jest.fn() };
   const mockApprovalWorkflows = { startRequest: jest.fn(), decide: jest.fn() };
   const mockCustomFields = { assertRequiredFieldsProvided: jest.fn(), setValues: jest.fn(), getValues: jest.fn().mockResolvedValue({}), getValuesForMany: jest.fn().mockResolvedValue({}) };
-  const mockDefinitions = { findOne: jest.fn() };
+  const mockDefinitions = { findOne: jest.fn(), findByKey: jest.fn() };
+  const mockConfig = { isFeatureEnabled: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -51,6 +53,7 @@ describe('DynamicModuleRecordsService', () => {
         { provide: ApprovalWorkflowsService, useValue: mockApprovalWorkflows },
         { provide: CustomFieldsService, useValue: mockCustomFields },
         { provide: DynamicModuleDefinitionsService, useValue: mockDefinitions },
+        { provide: ConfigService, useValue: mockConfig },
       ],
     }).compile();
     service = moduleRef.get(DynamicModuleRecordsService);
@@ -89,6 +92,45 @@ describe('DynamicModuleRecordsService', () => {
       mockCustomFields.assertRequiredFieldsProvided.mockRejectedValue(new BadRequestException('missing'));
       await expect(service.create(TENANT_ID, MODULE_ID, {}, userWithAll)).rejects.toThrow(BadRequestException);
       expect(mockPrisma.dynamicModuleRecord.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createPublic', () => {
+    const MODULE_KEY = 'prayer-requests';
+
+    it('rejects when the module has allowPublicSubmission disabled', async () => {
+      mockDefinitions.findByKey.mockResolvedValue({ id: MODULE_ID, statuses: ['open'], allowPublicSubmission: false });
+      await expect(service.createPublic(TENANT_ID, MODULE_KEY, {})).rejects.toThrow(ForbiddenException);
+      expect(mockPrisma.dynamicModuleRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the tenant-wide guest_access.dynamic_modules feature toggle is off, even if the module allows it', async () => {
+      mockDefinitions.findByKey.mockResolvedValue({ id: MODULE_ID, statuses: ['open'], allowPublicSubmission: true });
+      mockConfig.isFeatureEnabled.mockResolvedValue(false);
+      await expect(service.createPublic(TENANT_ID, MODULE_KEY, {})).rejects.toThrow(ForbiddenException);
+      expect(mockPrisma.dynamicModuleRecord.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a record with no createdByUserId when both switches are on', async () => {
+      mockDefinitions.findByKey.mockResolvedValue({ id: MODULE_ID, statuses: ['open', 'closed'], allowPublicSubmission: true });
+      mockConfig.isFeatureEnabled.mockResolvedValue(true);
+      mockCustomFields.assertRequiredFieldsProvided.mockResolvedValue(undefined);
+      mockPrisma.dynamicModuleRecord.create.mockResolvedValue({ id: 'rec-1', status: 'open' });
+
+      await service.createPublic(TENANT_ID, MODULE_KEY, { title: 'Please pray for my family' });
+
+      expect(mockPrisma.dynamicModuleRecord.create).toHaveBeenCalledWith({
+        data: {
+          tenantId: TENANT_ID,
+          moduleDefinitionId: MODULE_ID,
+          status: 'open',
+          title: 'Please pray for my family',
+          branchId: undefined,
+        },
+      });
+      expect(mockPrisma.dynamicModuleRecordStatusHistory.create).toHaveBeenCalledWith({
+        data: { tenantId: TENANT_ID, recordId: 'rec-1', fromStatus: null, toStatus: 'open' },
+      });
     });
   });
 

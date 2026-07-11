@@ -7,9 +7,10 @@ import { VisitorActivitiesService } from './visitor-activities.service';
 import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
 import { BranchScopeModule } from '../common/branch-scope/branch-scope.module';
 import { AuditModule } from '../audit/audit.module';
+import { ConfigEngineModule } from '../config-engine/config.module';
 
 @Module({
-  imports: [CustomFieldsModule, BranchScopeModule, AuditModule],
+  imports: [CustomFieldsModule, BranchScopeModule, AuditModule, ConfigEngineModule],
   controllers: [VisitorsController, VisitorGroupsController],
   providers: [VisitorsService, VisitorGroupsService, VisitorActivitiesService],
   exports: [VisitorsService, VisitorGroupsService, VisitorActivitiesService],

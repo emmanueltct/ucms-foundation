@@ -1,8 +1,9 @@
 import { Test } from '@nestjs/testing';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { VisitorsService } from '../src/visitors/visitors.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
+import { ConfigService } from '../src/config-engine/config.service';
 
 describe('VisitorsService', () => {
   let service: VisitorsService;
@@ -11,17 +12,23 @@ describe('VisitorsService', () => {
 
   const mockPrisma = {
     visitor: { create: jest.fn(), findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn(), update: jest.fn() },
-    branch: { findFirst: jest.fn() },
+    branch: { findFirst: jest.fn(), findMany: jest.fn() },
     member: { findFirst: jest.fn() },
     visitorGroup: { findFirst: jest.fn() },
   };
 
   const mockAudit = { record: jest.fn() };
+  const mockConfig = { isFeatureEnabled: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     const moduleRef = await Test.createTestingModule({
-      providers: [VisitorsService, { provide: PrismaService, useValue: mockPrisma }, { provide: AuditService, useValue: mockAudit }],
+      providers: [
+        VisitorsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: AuditService, useValue: mockAudit },
+        { provide: ConfigService, useValue: mockConfig },
+      ],
     }).compile();
     service = moduleRef.get(VisitorsService);
   });
@@ -72,6 +79,50 @@ describe('VisitorsService', () => {
       expect(mockPrisma.visitor.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ visitorGroupId: 'group-1' }) }),
       );
+    });
+  });
+
+  describe('registerPublic', () => {
+    const registerDto = { branchId: 'branch-1', firstName: 'Alice', lastName: 'Uwase', visitDate: '2026-07-05' };
+
+    it('rejects when the guest_access.visitor_registration feature toggle is off', async () => {
+      mockConfig.isFeatureEnabled.mockResolvedValue(false);
+
+      await expect(service.registerPublic(TENANT_ID, registerDto as any)).rejects.toThrow(ForbiddenException);
+      expect(mockPrisma.visitor.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the branch does not resolve within the tenant, even with the toggle on', async () => {
+      mockConfig.isFeatureEnabled.mockResolvedValue(true);
+      mockPrisma.branch.findFirst.mockResolvedValue(null);
+
+      await expect(service.registerPublic(TENANT_ID, registerDto as any)).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.visitor.create).not.toHaveBeenCalled();
+    });
+
+    it('creates the visitor when the toggle is on and the branch is valid', async () => {
+      mockConfig.isFeatureEnabled.mockResolvedValue(true);
+      mockPrisma.branch.findFirst.mockResolvedValue({ id: 'branch-1' });
+      mockPrisma.visitor.create.mockResolvedValue({ id: 'visitor-1' });
+
+      await service.registerPublic(TENANT_ID, registerDto as any);
+
+      expect(mockPrisma.visitor.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ tenantId: TENANT_ID, branchId: 'branch-1', firstName: 'Alice' }) }),
+      );
+    });
+  });
+
+  describe('listBranchOptionsForRegistration', () => {
+    it('returns only active, non-deleted branches with a minimal projection', async () => {
+      mockPrisma.branch.findMany.mockResolvedValue([{ id: 'branch-1', name: 'HQ', branchType: 'headquarters', parentBranchId: null }]);
+
+      const result = await service.listBranchOptionsForRegistration(TENANT_ID);
+
+      expect(mockPrisma.branch.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tenantId: TENANT_ID, isActive: true, deletedAt: null } }),
+      );
+      expect(result).toEqual([{ id: 'branch-1', name: 'HQ', branchType: 'headquarters', parentBranchId: null }]);
     });
   });
 
