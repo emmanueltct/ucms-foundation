@@ -77,6 +77,7 @@ model Tenant {
   notificationTemplates  NotificationTemplate[]
   numberingSequences     NumberingSequence[]
   hierarchyLevelDefinitions HierarchyLevelDefinition[]
+  resourceAssignments    ResourceAssignment[]
 
   @@map("tenants")
 }
@@ -1624,4 +1625,30 @@ model NumberingSequence {
   @@unique([tenantId, key])
   @@index([tenantId])
   @@map("numbering_sequences")
+}
+
+/// Generic polymorphic pair attaching a resource (module/report/dashboard/
+/// workflow/document category) to an organizational scope (a Branch, a
+/// branch_type ConfigItem, a Dynamic Module Record, ...) — the single
+/// mechanism behind Departments/Hierarchy-Level/general entity assignment
+/// (see the platform-admin business-analysis doc's design decisions)
+/// instead of three separate tables. `scopeEntityId` is ALWAYS a real row
+/// UUID, matching every other polymorphic pair already in this schema
+/// (`DynamicModuleRecord.attachedToEntityId`, `MenuItem.targetKey`'s
+/// sibling `targetType`, ...) — even `scopeEntityType: "branch_type"` uses
+/// the `ConfigItem.id` of that entry, not its free-text key, so consumers
+/// never need dual-mode id resolution.
+model ResourceAssignment {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  scopeEntityType String   @map("scope_entity_type") // "branch" | "branch_type" | "dynamic_module_record" | ...
+  scopeEntityId   String   @map("scope_entity_id") // always a real row UUID
+  resourceType    String   @map("resource_type") // "module" | "report" | "dashboard" | "workflow" | "document_category"
+  resourceKey     String   @map("resource_key")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, scopeEntityType, scopeEntityId, resourceType, resourceKey])
+  @@index([tenantId, scopeEntityType, scopeEntityId])
+  @@map("resource_assignments")
 }

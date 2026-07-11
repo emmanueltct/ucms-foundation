@@ -173,6 +173,10 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'hierarchy_requirement.submission.submit', module: 'governance', description: 'Mark a submission as submitted' },
   { code: 'hierarchy_requirement.submission.decide', module: 'governance', description: 'Approve or reject a submitted submission' },
 
+  { code: 'resourceassignment.create', module: 'resource_assignment', description: 'Attach a module/report/dashboard/workflow to an organizational scope' },
+  { code: 'resourceassignment.read', module: 'resource_assignment', description: 'View resource assignments' },
+  { code: 'resourceassignment.delete', module: 'resource_assignment', description: 'Remove a resource assignment' },
+
   { code: 'dynamic_module.manage', module: 'dynamic_modules', description: 'Create, edit, and deactivate admin-defined modules' },
   { code: 'dynamic_module.read', module: 'dynamic_modules', description: 'View admin-defined module definitions' },
 
