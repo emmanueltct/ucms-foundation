@@ -145,6 +145,25 @@ export class DynamicModuleRecordsService {
     return this.prisma.dynamicModuleRecord.update({ where: { id }, data: { deletedAt: new Date() } });
   }
 
+  /** No dedicated 'restore' action in `RECORD_ACTIONS` — gated on 'delete', same as softDelete. */
+  async deletedRecords(tenantId: string, moduleDefinitionId: string, user: AuthenticatedUser): Promise<DynamicModuleRecord[]> {
+    this.assertPermission(user, moduleDefinitionId, 'delete');
+    return this.prisma.dynamicModuleRecord.findMany({
+      where: { tenantId, moduleDefinitionId, deletedAt: { not: null } },
+      orderBy: { deletedAt: 'desc' },
+      take: 200,
+    });
+  }
+
+  async restore(tenantId: string, moduleDefinitionId: string, id: string, user: AuthenticatedUser): Promise<DynamicModuleRecord> {
+    this.assertPermission(user, moduleDefinitionId, 'delete');
+    const record = await this.prisma.dynamicModuleRecord.findFirst({
+      where: { id, tenantId, moduleDefinitionId, deletedAt: { not: null } },
+    });
+    if (!record) throw new NotFoundException({ code: 'DYNAMIC_MODULE_RECORD_NOT_FOUND', message: 'Deleted record not found.' });
+    return this.prisma.dynamicModuleRecord.update({ where: { id }, data: { deletedAt: null } });
+  }
+
   /**
    * If the module has an approval workflow and `toStatus` is "approved" or
    * "rejected", the decision is routed through `ApprovalWorkflowsService`

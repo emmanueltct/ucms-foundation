@@ -170,6 +170,23 @@ export class BranchesService {
     return this.prisma.branch.update({ where: { id }, data: { isActive: true } });
   }
 
+  /**
+   * Soft-deletes this branch and every descendant (distinct from `deactivate`
+   * — a deleted branch is meant to disappear from the org chart entirely,
+   * not just go temporarily inactive). Historical records (members,
+   * contributions) keep a valid FK reference since the row is never
+   * hard-deleted. Restore (see TrashService) only ever un-deletes the single
+   * branch, mirroring `reactivate`'s narrower-than-`deactivate` asymmetry.
+   */
+  async softDelete(tenantId: string, id: string): Promise<Branch> {
+    const branch = await this.findOne(tenantId, id);
+    const descendants = await this.findDescendants(tenantId, id);
+    const idsToDelete = [id, ...descendants.map((d) => d.id)];
+    const now = new Date();
+    await this.prisma.branch.updateMany({ where: { id: { in: idsToDelete }, tenantId }, data: { deletedAt: now, isActive: false } });
+    return { ...branch, deletedAt: now, isActive: false };
+  }
+
   private async clearExistingHeadquarters(tenantId: string, exceptId?: string): Promise<void> {
     await this.prisma.branch.updateMany({
       where: { tenantId, isHeadquarters: true, ...(exceptId ? { id: { not: exceptId } } : {}) },

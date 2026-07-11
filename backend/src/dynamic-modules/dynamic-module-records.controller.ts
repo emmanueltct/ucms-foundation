@@ -57,6 +57,12 @@ export class DynamicModuleRecordsController {
     return ok(await this.service.summary(tenantId, moduleDefinitionId, user));
   }
 
+  @ApiOperation({ summary: 'List soft-deleted records for this module' })
+  @Get('trash')
+  async deletedRecords(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('moduleDefinitionId') moduleDefinitionId: string) {
+    return ok(await this.service.deletedRecords(tenantId, moduleDefinitionId, user));
+  }
+
   @ApiOperation({ summary: 'Change a record\'s status — reason required; routed through the approval workflow when configured and moving to approved/rejected' })
   @RequiresAuditReason()
   @Patch(':id/status')
@@ -104,5 +110,11 @@ export class DynamicModuleRecordsController {
   @Delete(':id')
   async remove(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('moduleDefinitionId') moduleDefinitionId: string, @Param('id') id: string) {
     return ok(await this.service.softDelete(tenantId, moduleDefinitionId, id, user));
+  }
+
+  @ApiOperation({ summary: 'Restore a soft-deleted record' })
+  @Patch(':id/restore')
+  async restore(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('moduleDefinitionId') moduleDefinitionId: string, @Param('id') id: string) {
+    return ok(await this.service.restore(tenantId, moduleDefinitionId, id, user));
   }
 }

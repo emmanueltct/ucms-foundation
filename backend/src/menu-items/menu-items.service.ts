@@ -33,11 +33,11 @@ export class MenuItemsService {
   }
 
   async findAll(tenantId: string) {
-    return this.prisma.menuItem.findMany({ where: { tenantId }, orderBy: [{ sortOrder: 'asc' }] });
+    return this.prisma.menuItem.findMany({ where: { tenantId, deletedAt: null }, orderBy: [{ sortOrder: 'asc' }] });
   }
 
   async findOne(tenantId: string, id: string) {
-    const item = await this.prisma.menuItem.findFirst({ where: { id, tenantId } });
+    const item = await this.prisma.menuItem.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!item) throw new NotFoundException({ code: 'MENU_ITEM_NOT_FOUND', message: 'Menu item not found.' });
     return item;
   }
@@ -60,9 +60,10 @@ export class MenuItemsService {
     });
   }
 
+  /** Soft-delete — also sidesteps the FK constraint a hard delete would hit on a parent with children, since the row (and its id) never actually disappears. Restore via TrashService. */
   async remove(tenantId: string, id: string) {
     await this.findOne(tenantId, id);
-    await this.prisma.menuItem.delete({ where: { id } });
+    await this.prisma.menuItem.update({ where: { id, tenantId }, data: { deletedAt: new Date(), isActive: false } });
     return { id };
   }
 
@@ -76,7 +77,7 @@ export class MenuItemsService {
    * convention for data roll-up.
    */
   async forCurrentUser(tenantId: string, user: AuthenticatedUser) {
-    const items = await this.prisma.menuItem.findMany({ where: { tenantId, isActive: true }, orderBy: [{ sortOrder: 'asc' }] });
+    const items = await this.prisma.menuItem.findMany({ where: { tenantId, isActive: true, deletedAt: null }, orderBy: [{ sortOrder: 'asc' }] });
     if (user.isPlatformAdmin) return items;
 
     const dbUser = await this.prisma.user.findFirst({ where: { id: user.userId, tenantId }, select: { assignedBranchId: true } });

@@ -52,6 +52,7 @@ export class CustomFieldDefinitionsService {
     return this.prisma.customFieldDefinition.findMany({
       where: {
         tenantId,
+        deletedAt: null,
         ...(entityType ? { entityType } : {}),
         ...(includeInactive ? {} : { isActive: true }),
       },
@@ -60,7 +61,7 @@ export class CustomFieldDefinitionsService {
   }
 
   async findOne(tenantId: string, id: string): Promise<CustomFieldDefinition> {
-    const definition = await this.prisma.customFieldDefinition.findFirst({ where: { id, tenantId } });
+    const definition = await this.prisma.customFieldDefinition.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!definition) {
       throw new NotFoundException({ code: 'CUSTOM_FIELD_NOT_FOUND', message: 'Custom field definition not found.' });
     }
@@ -97,6 +98,17 @@ export class CustomFieldDefinitionsService {
   async reactivate(tenantId: string, id: string): Promise<CustomFieldDefinition> {
     await this.findOne(tenantId, id);
     return this.prisma.customFieldDefinition.update({ where: { id }, data: { isActive: true } });
+  }
+
+  /**
+   * Soft-delete, distinct from `deactivate` — deactivate just hides a field
+   * from forms while keeping it fully visible/manageable in the Custom
+   * Fields admin list; delete removes it from that list too, recoverable
+   * only via the Trash view (TrashService).
+   */
+  async softDelete(tenantId: string, id: string): Promise<CustomFieldDefinition> {
+    await this.findOne(tenantId, id);
+    return this.prisma.customFieldDefinition.update({ where: { id, tenantId }, data: { deletedAt: new Date(), isActive: false } });
   }
 
   private assertOptionsValidForType(fieldType: string, options: { key: string; label: string }[] | undefined): void {

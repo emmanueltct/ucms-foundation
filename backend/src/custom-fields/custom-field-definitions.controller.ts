@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { CustomFieldDefinitionsService } from './custom-field-definitions.service';
 import { CreateCustomFieldDefinitionDto } from './dto/create-custom-field-definition.dto';
@@ -56,5 +56,12 @@ export class CustomFieldDefinitionsController {
   @Patch(':id/reactivate')
   async reactivate(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
     return ok(await this.definitionsService.reactivate(tenantId, id));
+  }
+
+  @ApiOperation({ summary: 'Soft-delete a custom field definition — restore from the Trash view' })
+  @Permissions('customfield.definition.delete')
+  @Delete(':id')
+  async softDelete(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.definitionsService.softDelete(tenantId, id));
   }
 }

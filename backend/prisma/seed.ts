@@ -135,7 +135,7 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'approval_workflow.create', module: 'governance', description: 'Define an approval workflow' },
   { code: 'approval_workflow.read', module: 'governance', description: 'View approval workflows and requests' },
   { code: 'approval_workflow.update', module: 'governance', description: 'Rename or activate/deactivate an approval workflow' },
-  { code: 'approval_workflow.delete', module: 'governance', description: 'Delete a workflow with no approval history yet' },
+  { code: 'approval_workflow.delete', module: 'governance', description: 'Soft-delete an approval workflow (restorable from Trash)' },
   { code: 'approval_workflow.decide', module: 'governance', description: 'Approve or reject a pending approval request' },
   { code: 'deadline.create', module: 'governance', description: 'Set a deadline against a record' },
   { code: 'deadline.read', module: 'governance', description: 'View a deadline and its status' },

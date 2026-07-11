@@ -19,11 +19,12 @@ export class NotificationTemplatesService {
   }
 
   async findAll(tenantId: string): Promise<NotificationTemplate[]> {
-    return this.prisma.notificationTemplate.findMany({ where: { tenantId }, orderBy: { key: 'asc' } });
+    return this.prisma.notificationTemplate.findMany({ where: { tenantId, deletedAt: null }, orderBy: { key: 'asc' } });
   }
 
   async findByKey(tenantId: string, key: string): Promise<NotificationTemplate | null> {
-    return this.prisma.notificationTemplate.findUnique({ where: { tenantId_key: { tenantId, key } } });
+    const template = await this.prisma.notificationTemplate.findUnique({ where: { tenantId_key: { tenantId, key } } });
+    return template && !template.deletedAt ? template : null;
   }
 
   async update(tenantId: string, id: string, dto: UpdateNotificationTemplateDto): Promise<NotificationTemplate> {
@@ -31,9 +32,10 @@ export class NotificationTemplatesService {
     return this.prisma.notificationTemplate.update({ where: { id }, data: dto });
   }
 
+  /** Soft-delete. Restore via TrashService. */
   async remove(tenantId: string, id: string): Promise<{ id: string }> {
     await this.findOneOrThrow(tenantId, id);
-    await this.prisma.notificationTemplate.delete({ where: { id } });
+    await this.prisma.notificationTemplate.update({ where: { id, tenantId }, data: { deletedAt: new Date(), isActive: false } });
     return { id };
   }
 
@@ -43,7 +45,7 @@ export class NotificationTemplatesService {
   }
 
   private async findOneOrThrow(tenantId: string, id: string): Promise<NotificationTemplate> {
-    const template = await this.prisma.notificationTemplate.findFirst({ where: { id, tenantId } });
+    const template = await this.prisma.notificationTemplate.findFirst({ where: { id, tenantId, deletedAt: null } });
     if (!template) throw new NotFoundException({ code: 'NOTIFICATION_TEMPLATE_NOT_FOUND', message: 'Template not found.' });
     return template;
   }

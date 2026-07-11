@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApprovalRequest, ApprovalWorkflow } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -46,7 +46,7 @@ export class ApprovalWorkflowsService {
 
   async findAll(tenantId: string, entityType?: string): Promise<ApprovalWorkflowWithSteps[]> {
     return this.prisma.approvalWorkflow.findMany({
-      where: { tenantId, ...(entityType ? { entityType } : {}) },
+      where: { tenantId, deletedAt: null, ...(entityType ? { entityType } : {}) },
       include: { steps: { orderBy: { stepOrder: 'asc' } } },
       orderBy: { name: 'asc' },
     });
@@ -54,7 +54,7 @@ export class ApprovalWorkflowsService {
 
   async findOne(tenantId: string, id: string): Promise<ApprovalWorkflowWithSteps> {
     const workflow = await this.prisma.approvalWorkflow.findFirst({
-      where: { id, tenantId },
+      where: { id, tenantId, deletedAt: null },
       include: { steps: { orderBy: { stepOrder: 'asc' } } },
     });
     if (!workflow) {
@@ -68,17 +68,15 @@ export class ApprovalWorkflowsService {
     return this.prisma.approvalWorkflow.update({ where: { id }, data: { name: dto.name, isActive: dto.isActive } });
   }
 
-  /** The "recreate" half of "delete and recreate the workflow to change its step chain" (steps are otherwise immutable). Blocked once any ApprovalRequest exists against it — that history must stay attributable to a real workflow. */
+  /**
+   * Soft-delete — since this never hard-removes the row, existing
+   * `ApprovalRequest` history stays attributable to a real workflow row
+   * regardless, so (unlike the old hard-delete this replaces) there's no
+   * need to block deletion once requests exist. Restore via TrashService.
+   */
   async remove(tenantId: string, id: string): Promise<{ id: string }> {
     await this.findOne(tenantId, id);
-    const requestCount = await this.prisma.approvalRequest.count({ where: { tenantId, workflowId: id } });
-    if (requestCount > 0) {
-      throw new ConflictException({
-        code: 'APPROVAL_WORKFLOW_IN_USE',
-        message: 'This workflow has approval history and cannot be deleted — deactivate it instead.',
-      });
-    }
-    await this.prisma.approvalWorkflow.delete({ where: { id } });
+    await this.prisma.approvalWorkflow.update({ where: { id, tenantId }, data: { deletedAt: new Date(), isActive: false } });
     return { id };
   }
 

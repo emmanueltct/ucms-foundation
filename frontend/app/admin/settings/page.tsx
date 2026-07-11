@@ -23,6 +23,7 @@ import {
   Menu as MenuIcon,
   Mail,
   Hash,
+  Trash2,
 } from 'lucide-react';
 import {
   auditLogsApi,
@@ -34,6 +35,9 @@ import {
   NumberingSequence,
   tenantApi,
   TenantProfile,
+  trashApi,
+  TrashResource,
+  TrashItem,
 } from '../../../lib/api';
 
 const SECTIONS = [
@@ -48,7 +52,7 @@ const SECTIONS = [
   { href: '/admin/settings/security', label: 'Security', description: 'Sessions, devices, and login history.', icon: ShieldCheck },
 ];
 
-type Tab = 'overview' | 'branding' | 'audit' | 'templates' | 'sequences';
+type Tab = 'overview' | 'branding' | 'audit' | 'templates' | 'sequences' | 'trash';
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
@@ -56,6 +60,7 @@ const TAB_LABELS: Record<Tab, string> = {
   audit: 'Audit Log',
   templates: 'Notification Templates',
   sequences: 'Numbering Sequences',
+  trash: 'Trash',
 };
 
 export default function ConfigurationCenterPage() {
@@ -74,7 +79,7 @@ export default function ConfigurationCenterPage() {
       </header>
 
       <div className="flex gap-2 mb-8 border-b border-slate-200 flex-wrap">
-        {(['overview', 'branding', 'audit', 'templates', 'sequences'] as Tab[]).map((t) => (
+        {(['overview', 'branding', 'audit', 'templates', 'sequences', 'trash'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -107,6 +112,7 @@ export default function ConfigurationCenterPage() {
       {tab === 'audit' && tenant && <AuditLogTab tenantSlug={tenant.slug} />}
       {tab === 'templates' && tenant && <NotificationTemplatesTab tenantSlug={tenant.slug} />}
       {tab === 'sequences' && tenant && <NumberingSequencesTab tenantSlug={tenant.slug} />}
+      {tab === 'trash' && tenant && <TrashTab tenantSlug={tenant.slug} />}
     </div>
   );
 }
@@ -522,6 +528,122 @@ function NumberingSequencesTab({ tenantSlug }: { tenantSlug: string }) {
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+/** Best-effort human-readable label for a trash row, since each resource's shape differs. */
+function trashItemLabel(item: TrashItem): string {
+  const candidates = ['name', 'label', 'title', 'fullName', 'key', 'fieldKey', 'email'];
+  for (const field of candidates) {
+    const value = item[field];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  if (typeof item.firstName === 'string' || typeof item.lastName === 'string') {
+    return [item.firstName, item.lastName].filter(Boolean).join(' ') || `#${item.id.slice(0, 8)}`;
+  }
+  return `#${item.id.slice(0, 8)}`;
+}
+
+function TrashTab({ tenantSlug }: { tenantSlug: string }) {
+  const [resources, setResources] = useState<TrashResource[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [items, setItems] = useState<TrashItem[]>([]);
+  const [loadingResources, setLoadingResources] = useState(true);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoadingResources(true);
+    trashApi.listResources(tenantSlug).then((res) => {
+      if (res.success && res.data) {
+        setResources(res.data);
+        if (res.data.length > 0) setSelected(res.data[0].key);
+      } else {
+        setError(res.error?.message ?? 'Could not load trash resources.');
+      }
+      setLoadingResources(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantSlug]);
+
+  async function loadItems(resourceKey: string) {
+    setLoadingItems(true);
+    setError(null);
+    const res = await trashApi.list(tenantSlug, resourceKey);
+    if (res.success && res.data) setItems(res.data);
+    else setError(res.error?.message ?? 'Could not load deleted items.');
+    setLoadingItems(false);
+  }
+
+  useEffect(() => {
+    if (selected) loadItems(selected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected]);
+
+  async function handleRestore(item: TrashItem) {
+    if (!selected) return;
+    setRestoringId(item.id);
+    const res = await trashApi.restore(tenantSlug, selected, item.id);
+    if (res.success) loadItems(selected);
+    else setError(res.error?.message ?? 'Could not restore this item.');
+    setRestoringId(null);
+  }
+
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-4 flex items-center gap-1.5">
+        <Trash2 className="h-3.5 w-3.5" /> Nothing is permanently deleted by default — restore any of these to bring
+        it back into active use.
+      </p>
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
+
+      {loadingResources ? (
+        <div className="py-8 text-center text-sm text-slate-400">Loading…</div>
+      ) : resources.length === 0 ? (
+        <div className="py-8 text-center text-sm text-slate-400">You don&apos;t have permission to view any trash resources.</div>
+      ) : (
+        <div className="grid md:grid-cols-[220px_1fr] gap-6">
+          <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden h-fit">
+            {resources.map((r) => (
+              <button
+                key={r.key}
+                onClick={() => setSelected(r.key)}
+                className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
+                  selected === r.key ? 'bg-[#1E2A44]/5 text-[#1E2A44] font-medium' : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden h-fit">
+            {loadingItems ? (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">Loading…</div>
+            ) : items.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-slate-400">Nothing in the trash here.</div>
+            ) : (
+              items.map((item) => (
+                <div key={item.id} className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{trashItemLabel(item)}</p>
+                    <p className="text-xs text-slate-400">Deleted {new Date(item.deletedAt).toLocaleString()}</p>
+                  </div>
+                  <button
+                    onClick={() => handleRestore(item)}
+                    disabled={restoringId === item.id}
+                    className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300 disabled:opacity-60"
+                  >
+                    {restoringId === item.id ? 'Restoring…' : 'Restore'}
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1763,6 +1763,25 @@ export const numberingSequencesApi = {
     apiRequest<{ id: string }>(`/numbering-sequences/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface TrashResource {
+  key: string;
+  label: string;
+}
+
+/** Loosely typed — each resource's rows have a different shape, but every one carries at least `id` and `deletedAt`. */
+export interface TrashItem {
+  id: string;
+  deletedAt: string;
+  [key: string]: unknown;
+}
+
+export const trashApi = {
+  listResources: (tenantSlug: string) => apiRequest<TrashResource[]>('/trash', { tenantSlug, auth: true }),
+  list: (tenantSlug: string, resource: string) => apiRequest<TrashItem[]>(`/trash/${resource}`, { tenantSlug, auth: true }),
+  restore: (tenantSlug: string, resource: string, id: string) =>
+    apiRequest<TrashItem>(`/trash/${resource}/${id}/restore`, { method: 'PATCH', tenantSlug, auth: true }),
+};
+
 export const tenantApi = {
   getProfile: (tenantSlug: string) => apiRequest<TenantProfile>('/tenant', { tenantSlug, auth: true }),
   completeOnboarding: (tenantSlug: string, body: { headquartersName?: string; headquartersType?: string }) =>

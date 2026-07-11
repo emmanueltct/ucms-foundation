@@ -45,6 +45,7 @@ import { PlatformAuthModule } from './platform-auth/platform-auth.module';
 import { MenuItemsModule } from './menu-items/menu-items.module';
 import { NotificationTemplatesModule } from './notification-templates/notification-templates.module';
 import { NumberingSequencesModule } from './numbering-sequences/numbering-sequences.module';
+import { TrashModule } from './trash/trash.module';
 
 @Module({
   imports: [
@@ -85,6 +86,7 @@ import { NumberingSequencesModule } from './numbering-sequences/numbering-sequen
     MenuItemsModule,
     NotificationTemplatesModule,
     NumberingSequencesModule,
+    TrashModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,

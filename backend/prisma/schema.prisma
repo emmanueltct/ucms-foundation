@@ -698,6 +698,7 @@ model CustomFieldDefinition {
   validationRules Json? @map("validation_rules") // generic: { minLength?, maxLength?, min?, max?, pattern? }
   lookupEntityType String? @map("lookup_entity_type") // only for fieldType "lookup" — which entityType this field references
   isActive   Boolean  @default(true) @map("is_active")
+  deletedAt  DateTime? @map("deleted_at")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -1202,6 +1203,7 @@ model ApprovalWorkflow {
   entityType String   @map("entity_type")
   name       String
   isActive   Boolean  @default(true) @map("is_active")
+  deletedAt  DateTime? @map("deleted_at")
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -1542,6 +1544,7 @@ model MenuItem {
   visibleToBranchId  String?  @map("visible_to_branch_id")
   visibleToBranch    Branch?  @relation(fields: [visibleToBranchId], references: [id])
   isActive         Boolean  @default(true) @map("is_active")
+  deletedAt        DateTime? @map("deleted_at")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -1566,6 +1569,7 @@ model NotificationTemplate {
   subject   String?
   body      String
   isActive  Boolean  @default(true) @map("is_active")
+  deletedAt DateTime? @map("deleted_at")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

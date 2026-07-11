@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { BranchesService } from './branches.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
@@ -85,5 +85,12 @@ export class BranchesController {
   @Patch(':id/reactivate')
   async reactivate(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
     return ok(await this.branchesService.reactivate(tenantId, id));
+  }
+
+  @ApiOperation({ summary: 'Soft-delete this branch and all its descendants — restore from the Trash view' })
+  @Permissions('branch.update')
+  @Delete(':id')
+  async softDelete(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.branchesService.softDelete(tenantId, id));
   }
 }
