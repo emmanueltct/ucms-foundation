@@ -46,7 +46,9 @@ export default function DynamicModuleRecordsPage() {
   const [attachedToEntityType, setAttachedToEntityType] = useState('');
   const [attachedToEntityId, setAttachedToEntityId] = useState('');
   const [branchId, setBranchId] = useState('');
+  const [parentRecordId, setParentRecordId] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
+  const [attachableModuleRecords, setAttachableModuleRecords] = useState<DynamicModuleRecord[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -149,6 +151,18 @@ export default function DynamicModuleRecordsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleKey]);
 
+  useEffect(() => {
+    setAttachedToEntityId('');
+    if (attachedToEntityType.startsWith('dynamicmodule:')) {
+      const otherModuleId = attachedToEntityType.slice('dynamicmodule:'.length);
+      dynamicModuleRecordsApi.list(TENANT_SLUG, otherModuleId).then((res) => {
+        if (res.success && res.data) setAttachableModuleRecords(res.data);
+      });
+    } else {
+      setAttachableModuleRecords([]);
+    }
+  }, [attachedToEntityType]);
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!definition) return;
@@ -158,6 +172,7 @@ export default function DynamicModuleRecordsPage() {
         attachedToEntityType: attachedToEntityType.trim() || undefined,
         attachedToEntityId: attachedToEntityId.trim() || undefined,
         branchId: branchId || undefined,
+        parentRecordId: parentRecordId || undefined,
         customFields: customFieldValues,
       });
       if (res.success) {
@@ -165,6 +180,7 @@ export default function DynamicModuleRecordsPage() {
         setAttachedToEntityType('');
         setAttachedToEntityId('');
         setBranchId('');
+        setParentRecordId('');
         setCustomFieldValues({});
         load();
       } else {
@@ -240,11 +256,53 @@ export default function DynamicModuleRecordsPage() {
             </div>
             <div>
               <Label htmlFor="dmr-attach-type" className="mb-1 text-slate-600">Attach to (entity type, optional)</Label>
-              <Input id="dmr-attach-type" value={attachedToEntityType} onChange={(e) => setAttachedToEntityType(e.target.value)} placeholder="branch, ministry, member…" />
+              {definition && definition.attachableToEntityTypes.length > 0 ? (
+                <select
+                  id="dmr-attach-type"
+                  value={attachedToEntityType}
+                  onChange={(e) => setAttachedToEntityType(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                >
+                  <option value="">— Standalone —</option>
+                  {definition.attachableToEntityTypes.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              ) : (
+                <Input id="dmr-attach-type" value={attachedToEntityType} onChange={(e) => setAttachedToEntityType(e.target.value)} placeholder="branch, ministry, member…" />
+              )}
             </div>
             <div>
-              <Label htmlFor="dmr-attach-id" className="mb-1 text-slate-600">Attach to (record id, optional)</Label>
-              <Input id="dmr-attach-id" value={attachedToEntityId} onChange={(e) => setAttachedToEntityId(e.target.value)} />
+              <Label htmlFor="dmr-attach-id" className="mb-1 text-slate-600">Attach to (record, optional)</Label>
+              {attachedToEntityType === 'member' ? (
+                <MemberSearchPicker members={members} value={attachedToEntityId} onChange={setAttachedToEntityId} />
+              ) : attachedToEntityType === 'branch' ? (
+                <select
+                  id="dmr-attach-id"
+                  value={attachedToEntityId}
+                  onChange={(e) => setAttachedToEntityId(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                >
+                  <option value="">— Select a branch —</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              ) : attachedToEntityType.startsWith('dynamicmodule:') ? (
+                <select
+                  id="dmr-attach-id"
+                  value={attachedToEntityId}
+                  onChange={(e) => setAttachedToEntityId(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                >
+                  <option value="">— Select a record —</option>
+                  {attachableModuleRecords.map((r) => (
+                    <option key={r.id} value={r.id}>{r.title || `Record ${r.id.slice(0, 8)}`}</option>
+                  ))}
+                </select>
+              ) : (
+                <Input id="dmr-attach-id" value={attachedToEntityId} onChange={(e) => setAttachedToEntityId(e.target.value)} disabled={!attachedToEntityType} />
+              )}
             </div>
             <div>
               <Label htmlFor="dmr-branch" className="mb-1 text-slate-600">Branch (optional)</Label>
@@ -257,6 +315,20 @@ export default function DynamicModuleRecordsPage() {
                 <option value="">— Church-wide —</option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="dmr-parent" className="mb-1 text-slate-600">Parent record (optional)</Label>
+              <select
+                id="dmr-parent"
+                value={parentRecordId}
+                onChange={(e) => setParentRecordId(e.target.value)}
+                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+              >
+                <option value="">— Top level —</option>
+                {records.map((r) => (
+                  <option key={r.id} value={r.id}>{r.title || `Record ${r.id.slice(0, 8)}`}</option>
                 ))}
               </select>
             </div>
@@ -278,32 +350,20 @@ export default function DynamicModuleRecordsPage() {
             ) : records.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">No records yet. Create your first one above.</div>
             ) : (
-              records.map((r) => (
-                <div
-                  key={r.id}
-                  onClick={() => selectRecord(r)}
-                  className={`flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0 cursor-pointer ${
-                    selectedId === r.id ? 'bg-[#1E2A44]/5' : 'hover:bg-slate-50'
-                  }`}
-                >
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">{r.title || `Record ${r.id.slice(0, 8)}`}</p>
-                    <p className="text-xs text-slate-400">
-                      {r.status} · {branchName(r.branchId)}
-                      {r.attachedToEntityType ? ` · attached to ${r.attachedToEntityType}` : ''}
-                    </p>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRemove(r.id);
-                    }}
-                    className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))
+              records
+                .filter((r) => !r.parentRecordId)
+                .map((r) => (
+                  <RecordTreeRow
+                    key={r.id}
+                    record={r}
+                    depth={0}
+                    allRecords={records}
+                    selectedId={selectedId}
+                    onSelect={selectRecord}
+                    onRemove={handleRemove}
+                    branchName={branchName}
+                  />
+                ))
             )}
           </div>
 
@@ -367,5 +427,66 @@ export default function DynamicModuleRecordsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Renders one record plus its children recursively — a flat list when nothing has a parentRecordId, a tree once something does. */
+function RecordTreeRow({
+  record,
+  depth,
+  allRecords,
+  selectedId,
+  onSelect,
+  onRemove,
+  branchName,
+}: {
+  record: DynamicModuleRecord;
+  depth: number;
+  allRecords: DynamicModuleRecord[];
+  selectedId: string | null;
+  onSelect: (record: DynamicModuleRecord) => void;
+  onRemove: (id: string) => void;
+  branchName: (id: string | null) => string;
+}) {
+  const children = allRecords.filter((r) => r.parentRecordId === record.id);
+  return (
+    <>
+      <div
+        onClick={() => onSelect(record)}
+        style={{ paddingLeft: `${1 + depth * 1.25}rem` }}
+        className={`flex items-center justify-between pr-4 py-3 border-b border-slate-50 last:border-0 cursor-pointer ${
+          selectedId === record.id ? 'bg-[#1E2A44]/5' : 'hover:bg-slate-50'
+        }`}
+      >
+        <div>
+          <p className="text-sm font-medium text-slate-800">{record.title || `Record ${record.id.slice(0, 8)}`}</p>
+          <p className="text-xs text-slate-400">
+            {record.status} · {branchName(record.branchId)}
+            {record.attachedToEntityType ? ` · attached to ${record.attachedToEntityType}` : ''}
+          </p>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(record.id);
+          }}
+          className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
+        >
+          Remove
+        </button>
+      </div>
+      {children.map((child) => (
+        <RecordTreeRow
+          key={child.id}
+          record={child}
+          depth={depth + 1}
+          allRecords={allRecords}
+          selectedId={selectedId}
+          onSelect={onSelect}
+          onRemove={onRemove}
+          branchName={branchName}
+        />
+      ))}
+    </>
   );
 }

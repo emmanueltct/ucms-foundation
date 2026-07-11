@@ -43,6 +43,8 @@ import { DynamicModulesModule } from './dynamic-modules/dynamic-modules.module';
 import { EntityMembershipsModule } from './entity-memberships/entity-memberships.module';
 import { PlatformAuthModule } from './platform-auth/platform-auth.module';
 import { MenuItemsModule } from './menu-items/menu-items.module';
+import { NotificationTemplatesModule } from './notification-templates/notification-templates.module';
+import { NumberingSequencesModule } from './numbering-sequences/numbering-sequences.module';
 
 @Module({
   imports: [
@@ -81,6 +83,8 @@ import { MenuItemsModule } from './menu-items/menu-items.module';
     EntityMembershipsModule,
     PlatformAuthModule,
     MenuItemsModule,
+    NotificationTemplatesModule,
+    NumberingSequencesModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,

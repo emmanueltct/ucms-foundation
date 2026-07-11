@@ -21,8 +21,20 @@ import {
   KeyRound,
   Workflow,
   Menu as MenuIcon,
+  Mail,
+  Hash,
 } from 'lucide-react';
-import { auditLogsApi, AuditLogEntry, getCurrentTenant, tenantApi, TenantProfile } from '../../../lib/api';
+import {
+  auditLogsApi,
+  AuditLogEntry,
+  getCurrentTenant,
+  notificationTemplatesApi,
+  NotificationTemplate,
+  numberingSequencesApi,
+  NumberingSequence,
+  tenantApi,
+  TenantProfile,
+} from '../../../lib/api';
 
 const SECTIONS = [
   { href: '/admin/branches', label: 'Branches', description: 'Organizational hierarchy — the church tree.', icon: Building2 },
@@ -36,7 +48,15 @@ const SECTIONS = [
   { href: '/admin/settings/security', label: 'Security', description: 'Sessions, devices, and login history.', icon: ShieldCheck },
 ];
 
-type Tab = 'overview' | 'branding' | 'audit';
+type Tab = 'overview' | 'branding' | 'audit' | 'templates' | 'sequences';
+
+const TAB_LABELS: Record<Tab, string> = {
+  overview: 'Overview',
+  branding: 'Branding',
+  audit: 'Audit Log',
+  templates: 'Notification Templates',
+  sequences: 'Numbering Sequences',
+};
 
 export default function ConfigurationCenterPage() {
   const [tab, setTab] = useState<Tab>('overview');
@@ -53,8 +73,8 @@ export default function ConfigurationCenterPage() {
         </p>
       </header>
 
-      <div className="flex gap-2 mb-8 border-b border-slate-200">
-        {(['overview', 'branding', 'audit'] as Tab[]).map((t) => (
+      <div className="flex gap-2 mb-8 border-b border-slate-200 flex-wrap">
+        {(['overview', 'branding', 'audit', 'templates', 'sequences'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -62,7 +82,7 @@ export default function ConfigurationCenterPage() {
               tab === t ? 'border-[#1E2A44] text-[#1E2A44]' : 'border-transparent text-slate-500 hover:text-slate-700'
             }`}
           >
-            {t === 'overview' ? 'Overview' : t === 'branding' ? 'Branding' : 'Audit Log'}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
@@ -85,6 +105,8 @@ export default function ConfigurationCenterPage() {
 
       {tab === 'branding' && tenant && <BrandingTab tenantSlug={tenant.slug} />}
       {tab === 'audit' && tenant && <AuditLogTab tenantSlug={tenant.slug} />}
+      {tab === 'templates' && tenant && <NotificationTemplatesTab tenantSlug={tenant.slug} />}
+      {tab === 'sequences' && tenant && <NumberingSequencesTab tenantSlug={tenant.slug} />}
     </div>
   );
 }
@@ -257,6 +279,245 @@ function AuditLogTab({ tenantSlug }: { tenantSlug: string }) {
                 {entry.user ? `${entry.user.firstName} ${entry.user.lastName}` : 'System'}
               </p>
               {entry.reason && <p className="text-xs text-slate-500 mt-1 italic">&ldquo;{entry.reason}&rdquo;</p>}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotificationTemplatesTab({ tenantSlug }: { tenantSlug: string }) {
+  const [templates, setTemplates] = useState<NotificationTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [channel, setChannel] = useState<'email' | 'sms' | 'push'>('email');
+  const [key, setKey] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const res = await notificationTemplatesApi.list(tenantSlug);
+    if (res.success && res.data) setTemplates(res.data);
+    else setError(res.error?.message ?? 'Could not load templates.');
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantSlug]);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!key.trim() || !body.trim()) return;
+    setSaving(true);
+    setError(null);
+    const res = await notificationTemplatesApi.create(tenantSlug, { channel, key: key.trim(), subject: subject.trim() || undefined, body: body.trim() });
+    if (res.success) {
+      setKey('');
+      setSubject('');
+      setBody('');
+      load();
+    } else {
+      setError(res.error?.message ?? 'Could not create the template.');
+    }
+    setSaving(false);
+  }
+
+  async function handleToggleActive(t: NotificationTemplate) {
+    const res = await notificationTemplatesApi.update(tenantSlug, t.id, { isActive: !t.isActive });
+    if (res.success) load();
+  }
+
+  async function handleDelete(t: NotificationTemplate) {
+    if (!confirm(`Delete template "${t.key}"?`)) return;
+    const res = await notificationTemplatesApi.remove(tenantSlug, t.id);
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not delete the template.');
+  }
+
+  return (
+    <div className="grid md:grid-cols-[1fr_1.3fr] gap-8">
+      <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-5 h-fit space-y-3">
+        <h2 className="font-serif text-lg text-[#1E2A44] flex items-center gap-1.5">
+          <Mail className="h-4 w-4" /> New template
+        </h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Channel</label>
+            <select value={channel} onChange={(e) => setChannel(e.target.value as 'email' | 'sms' | 'push')} className="w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm text-slate-700">
+              <option value="email">Email</option>
+              <option value="sms">SMS</option>
+              <option value="push">Push</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Key</label>
+            <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="welcome_new_member" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20" required />
+          </div>
+        </div>
+        {channel === 'email' && (
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Subject</label>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Welcome to {{churchName}}!" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20" />
+          </div>
+        )}
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Body</label>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Hi {{firstName}}, welcome to {{churchName}}."
+            rows={4}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+            required
+          />
+          <p className="text-xs text-slate-400 mt-1">Use {'{{placeholder}}'} tokens — filled in when the notification is sent.</p>
+        </div>
+
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+        <button type="submit" disabled={saving} className="rounded-lg px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: '#1E2A44' }}>
+          {saving ? 'Creating…' : 'Create template'}
+        </button>
+      </form>
+
+      <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden h-fit">
+        {loading ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-400">Loading…</div>
+        ) : templates.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-400">No templates yet.</div>
+        ) : (
+          templates.map((t) => (
+            <div key={t.id} className="px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-slate-800">{t.key}</p>
+                  <p className="text-xs text-slate-400">{t.channel}{t.subject ? ` · ${t.subject}` : ''}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleActive(t)}
+                    className={`text-xs font-medium px-2.5 py-1 rounded-full border ${t.isActive ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}
+                  >
+                    {t.isActive ? 'Active' : 'Inactive'}
+                  </button>
+                  <button onClick={() => handleDelete(t)} className="text-xs text-red-500 hover:underline">
+                    Delete
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">{t.body}</p>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NumberingSequencesTab({ tenantSlug }: { tenantSlug: string }) {
+  const [sequences, setSequences] = useState<NumberingSequence[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [key, setKey] = useState('');
+  const [prefix, setPrefix] = useState('');
+  const [padding, setPadding] = useState(4);
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const res = await numberingSequencesApi.list(tenantSlug);
+    if (res.success && res.data) setSequences(res.data);
+    else setError(res.error?.message ?? 'Could not load sequences.');
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantSlug]);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!key.trim()) return;
+    setSaving(true);
+    setError(null);
+    const res = await numberingSequencesApi.create(tenantSlug, { key: key.trim(), prefix: prefix.trim() || undefined, padding });
+    if (res.success) {
+      setKey('');
+      setPrefix('');
+      setPadding(4);
+      load();
+    } else {
+      setError(res.error?.message ?? 'Could not create the sequence.');
+    }
+    setSaving(false);
+  }
+
+  async function handleDelete(s: NumberingSequence) {
+    if (!confirm(`Delete sequence "${s.key}"?`)) return;
+    const res = await numberingSequencesApi.remove(tenantSlug, s.id);
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not delete the sequence.');
+  }
+
+  return (
+    <div className="grid md:grid-cols-[1fr_1.3fr] gap-8">
+      <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-5 h-fit space-y-3">
+        <h2 className="font-serif text-lg text-[#1E2A44] flex items-center gap-1.5">
+          <Hash className="h-4 w-4" /> New sequence
+        </h2>
+        <p className="text-xs text-slate-400">
+          Auto-fills membership/receipt numbers left blank on creation — use key{' '}
+          <code className="text-[11px] bg-slate-100 px-1 rounded">member_membership_number</code> or{' '}
+          <code className="text-[11px] bg-slate-100 px-1 rounded">contribution_receipt_number</code>.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Key</label>
+          <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="member_membership_number" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20" required />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Prefix</label>
+            <input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="MEM-" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Padding</label>
+            <input type="number" min={1} value={padding} onChange={(e) => setPadding(Number(e.target.value))} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20" />
+          </div>
+        </div>
+
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+
+        <button type="submit" disabled={saving} className="rounded-lg px-4 py-2.5 text-sm font-medium text-white disabled:opacity-60" style={{ backgroundColor: '#1E2A44' }}>
+          {saving ? 'Creating…' : 'Create sequence'}
+        </button>
+      </form>
+
+      <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden h-fit">
+        {loading ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-400">Loading…</div>
+        ) : sequences.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-400">No sequences yet.</div>
+        ) : (
+          sequences.map((s) => (
+            <div key={s.id} className="flex items-center justify-between px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-slate-800">{s.key}</p>
+                <p className="text-xs text-slate-400">
+                  Next: {s.prefix}
+                  {String(s.nextValue).padStart(s.padding, '0')}
+                </p>
+              </div>
+              <button onClick={() => handleDelete(s)} className="text-xs text-red-500 hover:underline">
+                Delete
+              </button>
             </div>
           ))
         )}

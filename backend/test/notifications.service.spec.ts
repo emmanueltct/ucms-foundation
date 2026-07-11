@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { NotificationsService } from '../src/communication/notifications.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { QueueService } from '../src/queue/queue.service';
+import { NotificationTemplatesService } from '../src/notification-templates/notification-templates.service';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
@@ -15,14 +16,18 @@ describe('NotificationsService', () => {
     member: { findFirst: jest.fn() },
   };
   const mockQueue = { enqueueNotification: jest.fn() };
+  const mockTemplates = { findByKey: jest.fn(), render: jest.fn((text: string) => text) };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // No templateKey resolves by default — existing tests' ad-hoc subject/body pass through unchanged.
+    mockTemplates.findByKey.mockResolvedValue(null);
     const moduleRef = await Test.createTestingModule({
       providers: [
         NotificationsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: mockQueue },
+        { provide: NotificationTemplatesService, useValue: mockTemplates },
       ],
     }).compile();
     service = moduleRef.get(NotificationsService);

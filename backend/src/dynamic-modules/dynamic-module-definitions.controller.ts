@@ -21,11 +21,20 @@ export class DynamicModuleDefinitionsController {
     return ok(await this.service.create(tenantId, dto));
   }
 
-  @ApiOperation({ summary: 'List active modules (?showInNav=true for the sidebar)' })
+  @ApiOperation({ summary: 'List modules (?showInNav=true for the sidebar, ?includeInactive=true for the builder page)' })
   @Permissions('dynamic_module.read')
   @Get()
-  async findAll(@CurrentTenantId() tenantId: string, @Query('showInNav') showInNav?: string) {
-    return ok(await this.service.findAll(tenantId, { showInNav: showInNav === undefined ? undefined : showInNav === 'true' }));
+  async findAll(
+    @CurrentTenantId() tenantId: string,
+    @Query('showInNav') showInNav?: string,
+    @Query('includeInactive') includeInactive?: string,
+  ) {
+    return ok(
+      await this.service.findAll(tenantId, {
+        showInNav: showInNav === undefined ? undefined : showInNav === 'true',
+        includeInactive: includeInactive === 'true',
+      }),
+    );
   }
 
   @ApiOperation({ summary: 'Get one module definition by its stable key' })

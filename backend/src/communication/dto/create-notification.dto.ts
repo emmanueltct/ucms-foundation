@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsIn, IsObject, IsOptional, IsString, IsUUID } from 'class-validator';
 
 const CHANNELS = ['email', 'sms', 'push'] as const;
 
@@ -27,7 +27,18 @@ export class CreateNotificationDto {
   @IsString()
   subject?: string;
 
-  @ApiProperty({ example: 'Service starts at 9am this Sunday.' })
+  @ApiPropertyOptional({ description: 'When given, subject/body are resolved from this NotificationTemplate key instead — subject/body below become optional and are ignored if the template exists.' })
+  @IsOptional()
   @IsString()
-  body: string;
+  templateKey?: string;
+
+  @ApiPropertyOptional({ description: 'Values substituted into the template\'s {{placeholder}} tokens' })
+  @IsOptional()
+  @IsObject()
+  variables?: Record<string, string>;
+
+  @ApiPropertyOptional({ example: 'Service starts at 9am this Sunday.', description: 'Required unless templateKey resolves to an existing template' })
+  @IsOptional()
+  @IsString()
+  body?: string;
 }

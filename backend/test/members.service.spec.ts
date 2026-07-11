@@ -6,6 +6,7 @@ import { FamiliesService } from '../src/families/families.service';
 import { CustomFieldsService } from '../src/custom-fields/custom-fields.service';
 import { AuditService } from '../src/audit/audit.service';
 import { ApprovalWorkflowsService } from '../src/approval-workflows/approval-workflows.service';
+import { NumberingSequencesService } from '../src/numbering-sequences/numbering-sequences.service';
 
 describe('MembersService', () => {
   let service: MembersService;
@@ -42,6 +43,7 @@ describe('MembersService', () => {
 
   const mockAudit = { record: jest.fn() };
   const mockApprovalWorkflows = { startRequest: jest.fn(), decide: jest.fn() };
+  const mockNumberingSequences = { getNext: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -50,6 +52,8 @@ describe('MembersService', () => {
     mockCustomFields.getValues.mockResolvedValue({});
     mockCustomFields.getValuesForMany.mockResolvedValue({});
     mockPrisma.approvalWorkflow.findFirst.mockResolvedValue(null);
+    // No sequence configured by default — existing tests' manual membershipNumber values pass through unchanged.
+    mockNumberingSequences.getNext.mockResolvedValue(null);
     const moduleRef = await Test.createTestingModule({
       providers: [
         MembersService,
@@ -58,6 +62,7 @@ describe('MembersService', () => {
         { provide: CustomFieldsService, useValue: mockCustomFields },
         { provide: AuditService, useValue: mockAudit },
         { provide: ApprovalWorkflowsService, useValue: mockApprovalWorkflows },
+        { provide: NumberingSequencesService, useValue: mockNumberingSequences },
       ],
     }).compile();
     service = moduleRef.get(MembersService);

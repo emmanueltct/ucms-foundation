@@ -149,6 +149,16 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'menu.update', module: 'menu', description: 'Edit or reorder a menu item' },
   { code: 'menu.delete', module: 'menu', description: 'Delete a menu item' },
 
+  { code: 'notification_template.create', module: 'notification_template', description: 'Create a reusable notification template' },
+  { code: 'notification_template.read', module: 'notification_template', description: 'View notification templates' },
+  { code: 'notification_template.update', module: 'notification_template', description: 'Edit or retire a notification template' },
+  { code: 'notification_template.delete', module: 'notification_template', description: 'Delete a notification template' },
+
+  { code: 'numbering_sequence.create', module: 'numbering_sequence', description: 'Create a numbering sequence' },
+  { code: 'numbering_sequence.read', module: 'numbering_sequence', description: 'View numbering sequences' },
+  { code: 'numbering_sequence.update', module: 'numbering_sequence', description: 'Edit a numbering sequence' },
+  { code: 'numbering_sequence.delete', module: 'numbering_sequence', description: 'Delete a numbering sequence' },
+
   { code: 'hierarchy_requirement.create', module: 'governance', description: "Define a parent level's requirement of a child level" },
   { code: 'hierarchy_requirement.read', module: 'governance', description: 'View hierarchy requirements' },
   { code: 'hierarchy_requirement.update', module: 'governance', description: 'Edit a hierarchy requirement' },

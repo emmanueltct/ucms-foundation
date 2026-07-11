@@ -76,6 +76,12 @@ export class DynamicModuleRecordsController {
     return ok(await this.service.statusHistory(tenantId, moduleDefinitionId, id, user));
   }
 
+  @ApiOperation({ summary: "Every descendant of a record within the same module (Region -> District -> Parish nesting)" })
+  @Get(':id/descendants')
+  async descendants(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('moduleDefinitionId') moduleDefinitionId: string, @Param('id') id: string) {
+    return ok(await this.service.descendants(tenantId, moduleDefinitionId, id, user));
+  }
+
   @ApiOperation({ summary: 'Get one record' })
   @Get(':id')
   async findOne(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('moduleDefinitionId') moduleDefinitionId: string, @Param('id') id: string) {

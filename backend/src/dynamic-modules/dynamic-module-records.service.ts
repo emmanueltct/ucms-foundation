@@ -37,6 +37,8 @@ export class DynamicModuleRecordsService {
     const entityType = this.fieldsEntityType(moduleDefinitionId);
     await this.customFields.assertRequiredFieldsProvided(tenantId, entityType, dto.customFields);
 
+    if (dto.parentRecordId) await this.findRecordRaw(tenantId, moduleDefinitionId, dto.parentRecordId);
+
     const record = await this.prisma.dynamicModuleRecord.create({
       data: {
         tenantId,
@@ -46,6 +48,7 @@ export class DynamicModuleRecordsService {
         status: definition.statuses[0] ?? 'open',
         title: dto.title,
         branchId: dto.branchId,
+        parentRecordId: dto.parentRecordId,
         createdByUserId: user.userId,
       },
     });
@@ -94,13 +97,46 @@ export class DynamicModuleRecordsService {
     await this.findRecordRaw(tenantId, moduleDefinitionId, id);
     const entityType = this.fieldsEntityType(moduleDefinitionId);
 
+    if (dto.parentRecordId) {
+      if (dto.parentRecordId === id) {
+        throw new BadRequestException({ code: 'DYNAMIC_MODULE_RECORD_INVALID_PARENT', message: 'A record cannot be its own parent.' });
+      }
+      await this.findRecordRaw(tenantId, moduleDefinitionId, dto.parentRecordId);
+      const descendants = await this.descendants(tenantId, moduleDefinitionId, id, user);
+      if (descendants.some((d) => d.id === dto.parentRecordId)) {
+        throw new BadRequestException({ code: 'DYNAMIC_MODULE_RECORD_INVALID_PARENT', message: 'Cannot set a descendant as this record\'s parent.' });
+      }
+    }
+
     const record = await this.prisma.dynamicModuleRecord.update({
       where: { id },
-      data: { title: dto.title, branchId: dto.branchId },
+      data: { title: dto.title, branchId: dto.branchId, parentRecordId: dto.parentRecordId },
     });
     if (dto.customFields) await this.customFields.setValues(tenantId, entityType, id, dto.customFields);
 
     return this.withCustomFields(tenantId, entityType, record);
+  }
+
+  /** Every descendant of a record within the same module — mirrors `BranchesService.findDescendants`, used for cycle prevention and (frontend) tree rendering. */
+  async descendants(tenantId: string, moduleDefinitionId: string, id: string, user: AuthenticatedUser): Promise<DynamicModuleRecord[]> {
+    this.assertPermission(user, moduleDefinitionId, 'read');
+    const all = await this.prisma.dynamicModuleRecord.findMany({ where: { tenantId, moduleDefinitionId, deletedAt: null } });
+    const childrenByParent = new Map<string, DynamicModuleRecord[]>();
+    for (const record of all) {
+      if (!record.parentRecordId) continue;
+      const siblings = childrenByParent.get(record.parentRecordId) ?? [];
+      siblings.push(record);
+      childrenByParent.set(record.parentRecordId, siblings);
+    }
+
+    const result: DynamicModuleRecord[] = [];
+    const queue = [...(childrenByParent.get(id) ?? [])];
+    while (queue.length) {
+      const next = queue.shift()!;
+      result.push(next);
+      queue.push(...(childrenByParent.get(next.id) ?? []));
+    }
+    return result;
   }
 
   async softDelete(tenantId: string, moduleDefinitionId: string, id: string, user: AuthenticatedUser): Promise<DynamicModuleRecord> {

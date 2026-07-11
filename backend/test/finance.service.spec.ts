@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { FinanceService } from '../src/finance/finance.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { NumberingSequencesService } from '../src/numbering-sequences/numbering-sequences.service';
 
 describe('FinanceService', () => {
   let service: FinanceService;
@@ -23,10 +24,18 @@ describe('FinanceService', () => {
     tenant: { findUnique: jest.fn() },
   };
 
+  const mockNumberingSequences = { getNext: jest.fn() };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    // No sequence configured by default — existing tests' manual receiptNumber values pass through unchanged.
+    mockNumberingSequences.getNext.mockResolvedValue(null);
     const moduleRef = await Test.createTestingModule({
-      providers: [FinanceService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        FinanceService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: NumberingSequencesService, useValue: mockNumberingSequences },
+      ],
     }).compile();
     service = moduleRef.get(FinanceService);
   });

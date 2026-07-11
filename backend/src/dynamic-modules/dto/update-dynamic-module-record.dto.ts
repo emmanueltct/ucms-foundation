@@ -12,6 +12,11 @@ export class UpdateDynamicModuleRecordDto {
   @IsUUID()
   branchId?: string;
 
+  @ApiPropertyOptional({ description: 'Parent record within the same module, for nesting (e.g. Region -> District -> Parish)' })
+  @IsOptional()
+  @IsUUID()
+  parentRecordId?: string;
+
   @ApiPropertyOptional({ type: 'object', additionalProperties: true })
   @IsOptional()
   @IsObject()

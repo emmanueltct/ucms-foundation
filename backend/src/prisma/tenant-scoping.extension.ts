@@ -50,6 +50,8 @@ const TENANT_SCOPED_MODELS = new Set([
   'DynamicModuleRecordStatusHistory',
   'EntityMembership',
   'MenuItem',
+  'NotificationTemplate',
+  'NumberingSequence',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

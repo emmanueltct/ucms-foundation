@@ -74,6 +74,8 @@ model Tenant {
   dynamicModuleRecordStatusHistory DynamicModuleRecordStatusHistory[]
   entityMemberships      EntityMembership[]
   menuItems              MenuItem[]
+  notificationTemplates  NotificationTemplate[]
+  numberingSequences     NumberingSequence[]
 
   @@map("tenants")
 }
@@ -1436,6 +1438,14 @@ model DynamicModuleRecord {
   title            String?
   branchId         String?  @map("branch_id")
   branch           Branch?  @relation(fields: [branchId], references: [id])
+  /// Optional parent record WITHIN THE SAME module definition, for nesting
+  /// an admin-created entity (e.g. Region -> District -> Parish), mirroring
+  /// `Branch.parentBranchId`. Distinct from `attachedToEntityType`/
+  /// `attachedToEntityId` (which attach a record to a DIFFERENT kind of
+  /// thing) — this is same-module hierarchy.
+  parentRecordId   String?  @map("parent_record_id")
+  parentRecord     DynamicModuleRecord?  @relation("DynamicModuleRecordHierarchy", fields: [parentRecordId], references: [id])
+  childRecords     DynamicModuleRecord[] @relation("DynamicModuleRecordHierarchy")
   createdByUserId  String?  @map("created_by_user_id")
   createdByUser    User?    @relation("DynamicModuleRecordCreatedBy", fields: [createdByUserId], references: [id])
   createdAt        DateTime @default(now()) @map("created_at")
@@ -1447,6 +1457,7 @@ model DynamicModuleRecord {
   @@index([tenantId])
   @@index([tenantId, moduleDefinitionId])
   @@index([tenantId, attachedToEntityType, attachedToEntityId])
+  @@index([tenantId, parentRecordId])
   @@map("dynamic_module_records")
 }
 
@@ -1537,4 +1548,50 @@ model MenuItem {
   @@index([tenantId])
   @@index([tenantId, parentMenuItemId])
   @@map("menu_items")
+}
+
+/// A reusable email/SMS/push template, resolved by `key` — additive to
+/// `NotificationsService.create`'s existing ad-hoc subject/body path (still
+/// works unchanged when no `templateKey` is given). `{{placeholder}}` tokens
+/// in `subject`/`body` are substituted from a caller-supplied variables map;
+/// unresolved tokens are left as-is rather than erroring, since a template
+/// author may reasonably reuse one template across slightly different call
+/// sites that don't all supply every variable.
+model NotificationTemplate {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  channel   String // "email" | "sms" | "push"
+  key       String
+  subject   String?
+  body      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("notification_templates")
+}
+
+/// A tenant-defined, atomically-incrementing number generator (e.g.
+/// membership numbers, receipt numbers) — `getNext` reads-increments-writes
+/// inside one transaction so concurrent callers never collide. Purely
+/// additive: `Member.membershipNumber`/`Contribution.receiptNumber` stay
+/// plain, manually-editable strings; a sequence only fills them in when left
+/// blank at creation (see MembersService/FinanceService).
+model NumberingSequence {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  key       String
+  prefix    String   @default("")
+  nextValue Int      @default(1) @map("next_value")
+  padding   Int      @default(4)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("numbering_sequences")
 }

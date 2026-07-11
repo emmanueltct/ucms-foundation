@@ -46,7 +46,7 @@ export default function DynamicModulesAdminPage() {
     setError(null);
     try {
       const [modulesRes, workflowsRes] = await Promise.all([
-        dynamicModuleDefinitionsApi.list(TENANT_SLUG),
+        dynamicModuleDefinitionsApi.list(TENANT_SLUG, undefined, true),
         approvalWorkflowsApi.list(TENANT_SLUG),
       ]);
       if (modulesRes.success && modulesRes.data) setModules(modulesRes.data);
@@ -116,6 +116,16 @@ export default function DynamicModulesAdminPage() {
       const res = await dynamicModuleDefinitionsApi.remove(TENANT_SLUG, id);
       if (res.success) load();
       else setError(res.error?.message ?? 'Could not remove the module.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function handleToggleActive(mod: DynamicModuleDefinition) {
+    try {
+      const res = await dynamicModuleDefinitionsApi.update(TENANT_SLUG, mod.id, { isActive: !mod.isActive });
+      if (res.success) load();
+      else setError(res.error?.message ?? 'Could not update the module.');
     } catch {
       setError('Could not reach the server. Check the API is running.');
     }
@@ -205,7 +215,7 @@ export default function DynamicModulesAdminPage() {
             <div className="px-4 py-8 text-center text-sm text-slate-400">No modules yet. Create your first one above.</div>
           ) : (
             modules.map((m) => (
-              <div key={m.id} className="flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0">
+              <div key={m.id} className={`flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0 ${!m.isActive ? 'opacity-60' : ''}`}>
                 <div>
                   <p className="text-sm font-medium text-slate-800">{m.label}</p>
                   <p className="text-xs text-slate-400">
@@ -225,6 +235,14 @@ export default function DynamicModulesAdminPage() {
                     className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
                   >
                     {m.showInNav ? 'Hide from nav' : 'Show in nav'}
+                  </button>
+                  <button
+                    onClick={() => handleToggleActive(m)}
+                    className={`text-xs font-medium px-3 py-1 rounded-full border ${
+                      m.isActive ? 'border-slate-200 text-slate-600 hover:border-slate-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    }`}
+                  >
+                    {m.isActive ? 'Disable' : 'Enable'}
                   </button>
                   <button
                     onClick={() => handleRemove(m.id)}

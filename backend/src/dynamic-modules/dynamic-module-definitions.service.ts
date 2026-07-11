@@ -53,9 +53,14 @@ export class DynamicModuleDefinitionsService {
     return definition;
   }
 
-  async findAll(tenantId: string, query: { showInNav?: boolean } = {}): Promise<DynamicModuleDefinition[]> {
+  async findAll(tenantId: string, query: { showInNav?: boolean; includeInactive?: boolean } = {}): Promise<DynamicModuleDefinition[]> {
     return this.prisma.dynamicModuleDefinition.findMany({
-      where: { tenantId, deletedAt: null, isActive: true, ...(query.showInNav !== undefined ? { showInNav: query.showInNav } : {}) },
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(query.includeInactive ? {} : { isActive: true }),
+        ...(query.showInNav !== undefined ? { showInNav: query.showInNav } : {}),
+      },
       orderBy: { label: 'asc' },
     });
   }

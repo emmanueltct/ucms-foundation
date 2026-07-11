@@ -5,6 +5,10 @@ import { CreateContributionDto } from './dto/create-contribution.dto';
 import { UpdateContributionDto } from './dto/update-contribution.dto';
 import { ContributionQueryDto } from './dto/contribution-query.dto';
 import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.util';
+import { NumberingSequencesService } from '../numbering-sequences/numbering-sequences.service';
+
+/** NumberingSequence key a tenant can optionally configure to auto-fill receiptNumber when left blank. */
+const RECEIPT_NUMBER_SEQUENCE_KEY = 'contribution_receipt_number';
 
 /**
  * Contribution recording — see docs/finance/business-analysis.md. Unlike
@@ -15,7 +19,10 @@ import { resolveBranchFilter } from '../common/branch-scope/branch-visibility.ut
  */
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly numberingSequences: NumberingSequencesService,
+  ) {}
 
   async create(tenantId: string, recordedByUserId: string | undefined, dto: CreateContributionDto): Promise<Contribution> {
     await this.assertBranchExists(tenantId, dto.branchId);
@@ -27,6 +34,8 @@ export class FinanceService {
     }
 
     const currency = dto.currency ?? (await this.tenantCurrency(tenantId));
+    // Auto-fill only when left blank and a sequence is configured — manual entry always wins.
+    const receiptNumber = dto.receiptNumber ?? (await this.numberingSequences.getNext(tenantId, RECEIPT_NUMBER_SEQUENCE_KEY)) ?? undefined;
 
     return this.prisma.contribution.create({
       data: {
@@ -37,7 +46,7 @@ export class FinanceService {
         amount: dto.amount,
         currency,
         paymentMethod: dto.paymentMethod,
-        receiptNumber: dto.receiptNumber,
+        receiptNumber,
         contributedAt: new Date(dto.contributedAt),
         recordedByUserId,
         notes: dto.notes,

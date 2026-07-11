@@ -1560,6 +1560,7 @@ export interface DynamicModuleRecord {
   status: string;
   title: string | null;
   branchId: string | null;
+  parentRecordId: string | null;
   createdByUserId: string | null;
   createdAt: string;
   customFields: Record<string, unknown>;
@@ -1576,8 +1577,13 @@ export interface DynamicModuleRecordStatusHistoryEntry {
 }
 
 export const dynamicModuleDefinitionsApi = {
-  list: (tenantSlug: string, showInNav?: boolean) =>
-    apiRequest<DynamicModuleDefinition[]>(`/dynamic-modules${showInNav !== undefined ? `?showInNav=${showInNav}` : ''}`, { tenantSlug, auth: true }),
+  list: (tenantSlug: string, showInNav?: boolean, includeInactive?: boolean) => {
+    const qs = new URLSearchParams();
+    if (showInNav !== undefined) qs.set('showInNav', String(showInNav));
+    if (includeInactive) qs.set('includeInactive', 'true');
+    const query = qs.toString();
+    return apiRequest<DynamicModuleDefinition[]>(`/dynamic-modules${query ? `?${query}` : ''}`, { tenantSlug, auth: true });
+  },
   getByKey: (tenantSlug: string, key: string) =>
     apiRequest<DynamicModuleDefinition>(`/dynamic-modules/by-key/${key}`, { tenantSlug, auth: true }),
   get: (tenantSlug: string, id: string) => apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { tenantSlug, auth: true }),
@@ -1611,14 +1617,16 @@ export const dynamicModuleRecordsApi = {
   create: (
     tenantSlug: string,
     moduleDefinitionId: string,
-    body: { attachedToEntityType?: string; attachedToEntityId?: string; title?: string; branchId?: string; customFields?: Record<string, unknown> },
+    body: { attachedToEntityType?: string; attachedToEntityId?: string; title?: string; branchId?: string; parentRecordId?: string; customFields?: Record<string, unknown> },
   ) => apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records`, { method: 'POST', tenantSlug, auth: true, body }),
   update: (
     tenantSlug: string,
     moduleDefinitionId: string,
     id: string,
-    body: { title?: string; branchId?: string; customFields?: Record<string, unknown> },
+    body: { title?: string; branchId?: string; parentRecordId?: string; customFields?: Record<string, unknown> },
   ) => apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  descendants: (tenantSlug: string, moduleDefinitionId: string, id: string) =>
+    apiRequest<DynamicModuleRecord[]>(`/dynamic-modules/${moduleDefinitionId}/records/${id}/descendants`, { tenantSlug, auth: true }),
   remove: (tenantSlug: string, moduleDefinitionId: string, id: string) =>
     apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
   changeStatus: (tenantSlug: string, moduleDefinitionId: string, id: string, toStatus: string, reason: string) =>
@@ -1709,6 +1717,43 @@ export const menuItemsApi = {
   update: (tenantSlug: string, id: string, body: Partial<CreateMenuItemInput & { isActive: boolean }>) =>
     apiRequest<MenuItem>(`/menu-items/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) => apiRequest<{ id: string }>(`/menu-items/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export interface NotificationTemplate {
+  id: string;
+  channel: 'email' | 'sms' | 'push';
+  key: string;
+  subject: string | null;
+  body: string;
+  isActive: boolean;
+}
+
+export const notificationTemplatesApi = {
+  list: (tenantSlug: string) => apiRequest<NotificationTemplate[]>('/notification-templates', { tenantSlug, auth: true }),
+  create: (tenantSlug: string, body: { channel: 'email' | 'sms' | 'push'; key: string; subject?: string; body: string }) =>
+    apiRequest<NotificationTemplate>('/notification-templates', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ subject: string; body: string; isActive: boolean }>) =>
+    apiRequest<NotificationTemplate>(`/notification-templates/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<{ id: string }>(`/notification-templates/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export interface NumberingSequence {
+  id: string;
+  key: string;
+  prefix: string;
+  nextValue: number;
+  padding: number;
+}
+
+export const numberingSequencesApi = {
+  list: (tenantSlug: string) => apiRequest<NumberingSequence[]>('/numbering-sequences', { tenantSlug, auth: true }),
+  create: (tenantSlug: string, body: { key: string; prefix?: string; nextValue?: number; padding?: number }) =>
+    apiRequest<NumberingSequence>('/numbering-sequences', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (tenantSlug: string, id: string, body: Partial<{ prefix: string; nextValue: number; padding: number }>) =>
+    apiRequest<NumberingSequence>(`/numbering-sequences/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<{ id: string }>(`/numbering-sequences/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
 export const tenantApi = {

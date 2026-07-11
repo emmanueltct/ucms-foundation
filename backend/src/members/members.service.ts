@@ -5,6 +5,7 @@ import { FamiliesService } from '../families/families.service';
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { AuditService } from '../audit/audit.service';
 import { ApprovalWorkflowsService } from '../approval-workflows/approval-workflows.service';
+import { NumberingSequencesService } from '../numbering-sequences/numbering-sequences.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
@@ -19,6 +20,9 @@ const CUSTOM_FIELD_ENTITY_TYPE = 'member';
 
 /** entityType key a tenant-defined ApprovalWorkflow (Module 15) may target to gate member-registration decisions. */
 const REGISTRATION_ENTITY_TYPE = 'member_registration';
+
+/** NumberingSequence key a tenant can optionally configure to auto-fill membershipNumber when left blank. */
+const MEMBERSHIP_NUMBER_SEQUENCE_KEY = 'member_membership_number';
 
 /**
  * Member profiles — see docs/member-management/business-analysis.md. Every
@@ -38,6 +42,7 @@ export class MembersService {
     private readonly customFieldsService: CustomFieldsService,
     private readonly auditService: AuditService,
     private readonly approvalWorkflowsService: ApprovalWorkflowsService,
+    private readonly numberingSequences: NumberingSequencesService,
   ) {}
 
   async create(tenantId: string, dto: CreateMemberDto): Promise<MemberWithCustomFields> {
@@ -51,13 +56,16 @@ export class MembersService {
     // Fail before writing the member row at all if a required custom field is missing.
     await this.customFieldsService.assertRequiredFieldsProvided(tenantId, CUSTOM_FIELD_ENTITY_TYPE, dto.customFields);
 
+    // Auto-fill only when left blank and a sequence is configured — manual entry always wins.
+    const membershipNumber = dto.membershipNumber ?? (await this.numberingSequences.getNext(tenantId, MEMBERSHIP_NUMBER_SEQUENCE_KEY)) ?? undefined;
+
     const member = await this.prisma.member.create({
       data: {
         tenantId,
         branchId: dto.branchId,
         familyId: dto.familyId ?? null,
         familyRole: dto.familyRole,
-        membershipNumber: dto.membershipNumber,
+        membershipNumber,
         firstName: dto.firstName,
         lastName: dto.lastName,
         gender: dto.gender,
