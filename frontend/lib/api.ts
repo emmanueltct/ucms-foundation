@@ -290,16 +290,20 @@ export interface Role {
   name: string;
   description: string | null;
   isSystem: boolean;
+  isDelegable: boolean;
   rolePermissions: RolePermission[];
 }
 
 export const rolesApi = {
   list: (tenantSlug: string) => apiRequest<Role[]>('/roles', { tenantSlug, auth: true }),
   get: (tenantSlug: string, id: string) => apiRequest<Role>(`/roles/${id}`, { tenantSlug, auth: true }),
-  create: (tenantSlug: string, body: { name: string; description?: string; permissionCodes?: string[] }) =>
+  create: (tenantSlug: string, body: { name: string; description?: string; permissionCodes?: string[]; isDelegable?: boolean }) =>
     apiRequest<Role>('/roles', { method: 'POST', tenantSlug, auth: true, body }),
-  update: (tenantSlug: string, id: string, body: Partial<{ name: string; description: string; permissionCodes: string[] }>) =>
-    apiRequest<Role>(`/roles/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  update: (
+    tenantSlug: string,
+    id: string,
+    body: Partial<{ name: string; description: string; permissionCodes: string[]; isDelegable: boolean }>,
+  ) => apiRequest<Role>(`/roles/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) => apiRequest<Role>(`/roles/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
@@ -1112,6 +1116,9 @@ export interface AppUser {
   emailVerifiedAt: string | null;
   assignedBranchId: string | null;
   assignedBranch: { id: string; name: string } | null;
+  assignedDepartmentRecordId: string | null;
+  assignedDepartmentRecord: { id: string; title: string | null } | null;
+  departmentRole: 'leader' | 'staff' | null;
   userRoles: { role: { id: string; name: string } }[];
 }
 
@@ -1121,8 +1128,17 @@ export const usersApi = {
     tenantSlug: string,
     body: { email: string; password: string; firstName: string; lastName: string; roleIds?: string[]; assignedBranchId?: string },
   ) => apiRequest<AppUser>('/users', { method: 'POST', tenantSlug, auth: true, body }),
-  update: (tenantSlug: string, id: string, body: Partial<{ firstName: string; lastName: string; assignedBranchId: string | null }>) =>
-    apiRequest<AppUser>(`/users/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  update: (
+    tenantSlug: string,
+    id: string,
+    body: Partial<{
+      firstName: string;
+      lastName: string;
+      assignedBranchId: string | null;
+      assignedDepartmentRecordId: string | null;
+      departmentRole: 'leader' | 'staff' | null;
+    }>,
+  ) => apiRequest<AppUser>(`/users/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   assignRoles: (tenantSlug: string, id: string, roleIds: string[]) =>
     apiRequest<AppUser>(`/users/${id}/roles`, { method: 'PATCH', tenantSlug, auth: true, body: { roleIds } }),
   deactivate: (tenantSlug: string, id: string) =>

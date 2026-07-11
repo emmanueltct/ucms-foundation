@@ -7,7 +7,7 @@
 // the default, so existing single-branch churches are unaffected.
 
 import { useEffect, useState } from 'react';
-import { branchesApi, Branch, getCurrentTenant, rolesApi, Role, usersApi, AppUser } from '../../../../lib/api';
+import { branchesApi, Branch, departmentsApi, Department, getCurrentTenant, rolesApi, Role, usersApi, AppUser } from '../../../../lib/api';
 
 export default function UsersAdminPage() {
   const tenant = getCurrentTenant();
@@ -16,6 +16,7 @@ export default function UsersAdminPage() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -23,15 +24,17 @@ export default function UsersAdminPage() {
   async function load() {
     setLoading(true);
     setError(null);
-    const [usersRes, rolesRes, branchesRes] = await Promise.all([
+    const [usersRes, rolesRes, branchesRes, departmentsRes] = await Promise.all([
       usersApi.list(tenantSlug),
       rolesApi.list(tenantSlug),
       branchesApi.list(tenantSlug),
+      departmentsApi.list(tenantSlug),
     ]);
     if (usersRes.success && usersRes.data) setUsers(usersRes.data);
     else setError(usersRes.error?.message ?? 'Could not load users.');
     if (rolesRes.success && rolesRes.data) setRoles(rolesRes.data);
     if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
+    if (departmentsRes.success && departmentsRes.data) setDepartments(departmentsRes.data);
     setLoading(false);
   }
 
@@ -45,6 +48,25 @@ export default function UsersAdminPage() {
     const res = await usersApi.update(tenantSlug, user.id, { assignedBranchId: branchId || null });
     if (res.success) load();
     else setError(res.error?.message ?? 'Could not update branch assignment.');
+    setSavingId(null);
+  }
+
+  async function handleDepartmentChange(user: AppUser, departmentRecordId: string) {
+    setSavingId(user.id);
+    const res = await usersApi.update(tenantSlug, user.id, {
+      assignedDepartmentRecordId: departmentRecordId || null,
+      departmentRole: departmentRecordId ? (user.departmentRole ?? 'staff') : null,
+    });
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not update department assignment.');
+    setSavingId(null);
+  }
+
+  async function handleDepartmentRoleChange(user: AppUser, departmentRole: 'leader' | 'staff') {
+    setSavingId(user.id);
+    const res = await usersApi.update(tenantSlug, user.id, { departmentRole });
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not update department role.');
     setSavingId(null);
   }
 
@@ -83,8 +105,9 @@ export default function UsersAdminPage() {
         <p className="text-xs uppercase tracking-wide text-[#C9A24B] font-medium mb-1">Configuration Center</p>
         <h1 className="font-serif text-3xl text-[#1E2A44]">Users</h1>
         <p className="text-sm text-slate-500 mt-2 max-w-2xl">
-          Assign roles and, optionally, a branch — assigning a branch scopes what that user sees across Members,
-          Contributions, Attendance, and other roll-up-aware lists to that branch and its descendants.
+          Assign roles and, optionally, a branch and/or a department — assigning a branch scopes what that user sees
+          across Members, Contributions, Attendance, and other roll-up-aware lists to that branch and its
+          descendants. A department&apos;s Leader can manage its resource assignments and delegate roles to its Staff.
         </p>
       </header>
 
@@ -145,6 +168,30 @@ export default function UsersAdminPage() {
                       </option>
                     ))}
                   </select>
+                  <select
+                    value={user.assignedDepartmentRecordId ?? ''}
+                    onChange={(e) => handleDepartmentChange(user, e.target.value)}
+                    disabled={savingId === user.id}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                  >
+                    <option value="">No department</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title}
+                      </option>
+                    ))}
+                  </select>
+                  {user.assignedDepartmentRecordId && (
+                    <select
+                      value={user.departmentRole ?? 'staff'}
+                      onChange={(e) => handleDepartmentRoleChange(user, e.target.value as 'leader' | 'staff')}
+                      disabled={savingId === user.id}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="leader">Leader</option>
+                    </select>
+                  )}
                 </div>
               </div>
               <div className="flex flex-wrap gap-1.5">

@@ -6,8 +6,10 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignRolesDto } from './dto/assign-roles.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
+import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -45,11 +47,18 @@ export class UsersController {
     return ok(await this.usersService.update(tenantId, id, dto));
   }
 
-  @ApiOperation({ summary: "Replace a user's role assignments" })
-  @Permissions('user.update')
+  @ApiOperation({
+    summary:
+      "Replace a user's role assignments — either a caller with user.update (any user, any role), or a Department Leader assigning only isDelegable roles to staff within their own department",
+  })
   @Patch(':id/roles')
-  async assignRoles(@CurrentTenantId() tenantId: string, @Param('id') id: string, @Body() dto: AssignRolesDto) {
-    return ok(await this.usersService.assignRoles(tenantId, id, dto.roleIds));
+  async assignRoles(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AssignRolesDto,
+  ) {
+    return ok(await this.usersService.assignRoles(tenantId, id, dto.roleIds, user));
   }
 
   @ApiOperation({ summary: 'Disable login for a user' })

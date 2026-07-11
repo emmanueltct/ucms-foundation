@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { DynamicModuleDefinitionsService } from '../dynamic-modules/dynamic-module-definitions.service';
 import { DynamicModuleRecordsService } from '../dynamic-modules/dynamic-module-records.service';
 import { ResourceAssignmentsService } from '../resource-assignments/resource-assignments.service';
+import { DepartmentScopeService } from '../common/department-scope/department-scope.service';
 import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
@@ -32,6 +33,7 @@ export class DepartmentsService {
     private readonly definitions: DynamicModuleDefinitionsService,
     private readonly records: DynamicModuleRecordsService,
     private readonly resourceAssignments: ResourceAssignmentsService,
+    private readonly departmentScope: DepartmentScopeService,
   ) {}
 
   async create(tenantId: string, dto: CreateDepartmentDto, user: AuthenticatedUser) {
@@ -78,8 +80,8 @@ export class DepartmentsService {
 
   async assignResource(tenantId: string, id: string, dto: AssignDepartmentResourceDto, user: AuthenticatedUser) {
     const moduleDefinitionId = await this.moduleDefinitionId(tenantId);
-    this.assertManagePermission(user, moduleDefinitionId);
     await this.records.findOne(tenantId, moduleDefinitionId, id, user);
+    await this.assertLeaderOf(tenantId, user, moduleDefinitionId, id);
     return this.resourceAssignments.create(tenantId, {
       scopeEntityType: SCOPE_ENTITY_TYPE,
       scopeEntityId: id,
@@ -90,8 +92,8 @@ export class DepartmentsService {
 
   async removeResource(tenantId: string, id: string, assignmentId: string, user: AuthenticatedUser) {
     const moduleDefinitionId = await this.moduleDefinitionId(tenantId);
-    this.assertManagePermission(user, moduleDefinitionId);
     await this.records.findOne(tenantId, moduleDefinitionId, id, user);
+    await this.assertLeaderOf(tenantId, user, moduleDefinitionId, id);
     return this.resourceAssignments.remove(tenantId, assignmentId);
   }
 
@@ -100,12 +102,25 @@ export class DepartmentsService {
     return definition.id;
   }
 
-  /** Mirrors DynamicModuleRecordsService's own dynamic per-module permission check — assigning a resource is treated as an "update" action on the department. */
-  private assertManagePermission(user: AuthenticatedUser, moduleDefinitionId: string): void {
+  /**
+   * `dynamicmodule.{moduleDefinitionId}.update`-style permissions are
+   * scoped to the whole departments *module* (every department shares one
+   * moduleDefinitionId) — a role with that permission can manage every
+   * department, not just one, which is correct for a Church Administrator
+   * but too broad for a Department Leader who should only manage their own.
+   * This is the row-level check that turns the module-wide grant into
+   * scoped-to-one-department access: allow if the caller has the
+   * module-wide permission (or is a platform admin) OR is specifically the
+   * leader of *this* department.
+   */
+  private async assertLeaderOf(tenantId: string, user: AuthenticatedUser, moduleDefinitionId: string, departmentRecordId: string): Promise<void> {
     if (user.isPlatformAdmin) return;
-    const code = `dynamicmodule.${moduleDefinitionId}.update`;
-    if (!user.permissions.includes(code)) {
-      throw new ForbiddenException({ code: 'PERMISSION_FORBIDDEN', message: `Requires permission: ${code}` });
-    }
+    if (user.permissions.includes(`dynamicmodule.${moduleDefinitionId}.update`)) return;
+    if (await this.departmentScope.isLeaderOf(tenantId, user.userId, departmentRecordId)) return;
+
+    throw new ForbiddenException({
+      code: 'DEPARTMENT_LEADER_FORBIDDEN',
+      message: 'You can only manage resources for a department you lead.',
+    });
   }
 }

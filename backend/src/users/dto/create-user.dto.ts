@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsIn, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 
 export class CreateUserDto {
   @ApiProperty({ example: 'member@demo-church.test' })
@@ -39,4 +39,17 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   assignedBranchId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'Which department (Dynamic Module Record) this user is assigned to — see DepartmentScopeService. Omit/null for unrestricted.',
+  })
+  @IsOptional()
+  @IsString()
+  assignedDepartmentRecordId?: string | null;
+
+  @ApiPropertyOptional({ enum: ['leader', 'staff'], nullable: true, description: 'Only meaningful when assignedDepartmentRecordId is set.' })
+  @IsOptional()
+  @IsIn(['leader', 'staff'])
+  departmentRole?: 'leader' | 'staff' | null;
 }

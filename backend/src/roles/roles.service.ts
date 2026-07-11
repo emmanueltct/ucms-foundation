@@ -20,6 +20,7 @@ export class RolesService {
         tenantId,
         name: dto.name,
         description: dto.description,
+        isDelegable: dto.isDelegable ?? false,
         rolePermissions: { create: permissionIds.map((permissionId) => ({ permissionId })) },
       },
       include: { rolePermissions: { include: { permission: true } } },
@@ -56,6 +57,7 @@ export class RolesService {
       data: {
         name: dto.name,
         description: dto.description,
+        isDelegable: dto.isDelegable,
         ...(permissionIds
           ? { rolePermissions: { deleteMany: {}, create: permissionIds.map((permissionId) => ({ permissionId })) } }
           : {}),

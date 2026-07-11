@@ -21,6 +21,7 @@ export default function RolesAdminPage() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [isDelegable, setIsDelegable] = useState(false);
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
 
@@ -43,6 +44,7 @@ export default function RolesAdminPage() {
     setSelectedRoleId(null);
     setName('');
     setDescription('');
+    setIsDelegable(false);
     setSelectedCodes(new Set());
   }
 
@@ -50,6 +52,7 @@ export default function RolesAdminPage() {
     setSelectedRoleId(role.id);
     setName(role.name);
     setDescription(role.description ?? '');
+    setIsDelegable(role.isDelegable);
     setSelectedCodes(new Set(role.rolePermissions.map((rp) => rp.permission.code)));
   }
 
@@ -76,7 +79,12 @@ export default function RolesAdminPage() {
     setSaving(true);
     setError(null);
 
-    const body = { name: name.trim(), description: description.trim() || undefined, permissionCodes: Array.from(selectedCodes) };
+    const body = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      permissionCodes: Array.from(selectedCodes),
+      isDelegable,
+    };
     const res = selectedRoleId ? await rolesApi.update(tenantSlug, selectedRoleId, body) : await rolesApi.create(tenantSlug, body);
 
     if (res.success) {
@@ -173,6 +181,23 @@ export default function RolesAdminPage() {
               />
             </div>
           </div>
+
+          <label className="flex items-start gap-2 text-sm text-slate-700 mb-4">
+            <input
+              type="checkbox"
+              checked={isDelegable}
+              onChange={(e) => setIsDelegable(e.target.checked)}
+              disabled={isLocked}
+              className="mt-0.5"
+            />
+            <span>
+              Delegable
+              <span className="block text-xs text-slate-400">
+                A Department Leader may assign this role to staff within their own department, without needing full
+                user-management access.
+              </span>
+            </span>
+          </label>
 
           {isLocked && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 mb-4">

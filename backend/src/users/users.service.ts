@@ -1,9 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -30,6 +31,8 @@ export class UsersService {
         lastName: dto.lastName,
         phone: dto.phone,
         assignedBranchId: dto.assignedBranchId,
+        assignedDepartmentRecordId: dto.assignedDepartmentRecordId,
+        departmentRole: dto.departmentRole,
         userRoles: dto.roleIds ? { create: dto.roleIds.map((roleId) => ({ roleId })) } : undefined,
       },
       select: this.publicSelect(),
@@ -90,11 +93,60 @@ export class UsersService {
     });
   }
 
-  async assignRoles(tenantId: string, id: string, roleIds: string[]) {
-    await this.findOne(tenantId, id);
+  /**
+   * Two ways to reach this: a caller with the tenant-wide `user.update`
+   * permission (or a platform admin) may assign any role to any user,
+   * unchanged from before. A Department Leader with no such permission may
+   * still reach it — this is the "reuse the existing role-assignment
+   * endpoint" delegated path (see design decision) — but only for users
+   * within their own department, and only for roles the Denomination Admin
+   * marked `isDelegable`. `UsersController` deliberately has no static
+   * `@Permissions()` on this route so both paths can share it; this method
+   * is where that split actually happens.
+   */
+  async assignRoles(tenantId: string, id: string, roleIds: string[], caller: AuthenticatedUser) {
+    const target = await this.findOne(tenantId, id);
+
+    if (!caller.isPlatformAdmin && !caller.permissions.includes('user.update')) {
+      await this.assertDelegatedRoleAssignment(tenantId, caller, target, roleIds);
+    }
+
     await this.prisma.userRole.deleteMany({ where: { userId: id } });
     await this.prisma.userRole.createMany({ data: roleIds.map((roleId) => ({ userId: id, roleId })) });
     return this.findOne(tenantId, id);
+  }
+
+  private async assertDelegatedRoleAssignment(
+    tenantId: string,
+    caller: AuthenticatedUser,
+    target: { assignedDepartmentRecordId: string | null },
+    roleIds: string[],
+  ): Promise<void> {
+    const callerRecord = await this.prisma.user.findFirst({
+      where: { id: caller.userId, tenantId },
+      select: { assignedDepartmentRecordId: true, departmentRole: true },
+    });
+
+    if (
+      !callerRecord?.assignedDepartmentRecordId ||
+      callerRecord.departmentRole !== 'leader' ||
+      target.assignedDepartmentRecordId !== callerRecord.assignedDepartmentRecordId
+    ) {
+      throw new ForbiddenException({
+        code: 'DEPARTMENT_ROLE_ASSIGNMENT_FORBIDDEN',
+        message: 'You can only assign roles to staff within your own department.',
+      });
+    }
+
+    if (roleIds.length > 0) {
+      const delegableCount = await this.prisma.role.count({ where: { id: { in: roleIds }, tenantId, isDelegable: true } });
+      if (delegableCount !== roleIds.length) {
+        throw new ForbiddenException({
+          code: 'DEPARTMENT_ROLE_ASSIGNMENT_FORBIDDEN',
+          message: 'You can only assign roles your Denomination Admin has marked delegable.',
+        });
+      }
+    }
   }
 
   async deactivate(tenantId: string, id: string) {
@@ -145,6 +197,9 @@ export class UsersService {
       createdAt: true,
       assignedBranchId: true,
       assignedBranch: { select: { id: true, name: true } },
+      assignedDepartmentRecordId: true,
+      assignedDepartmentRecord: { select: { id: true, title: true } },
+      departmentRole: true,
       userRoles: { select: { role: { select: { id: true, name: true } } } },
     };
   }

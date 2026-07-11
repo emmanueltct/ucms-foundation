@@ -128,6 +128,14 @@ model User {
   /// or flat churches are entirely unaffected.
   assignedBranchId String? @map("assigned_branch_id")
   assignedBranch   Branch? @relation("UserAssignedBranch", fields: [assignedBranchId], references: [id])
+  /// Mirrors `assignedBranchId` exactly, but for Departments (Phase 6) —
+  /// see DepartmentScopeService. Branch and Department scope are
+  /// independent, not hierarchical: a user can have either, both, or
+  /// neither. null means unrestricted for department-scoped visibility too.
+  assignedDepartmentRecordId String? @map("assigned_department_record_id")
+  assignedDepartmentRecord   DynamicModuleRecord? @relation("UserAssignedDepartmentRecord", fields: [assignedDepartmentRecordId], references: [id])
+  /// "leader" | "staff" — only meaningful when assignedDepartmentRecordId is set.
+  departmentRole   String?   @map("department_role")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   deletedAt    DateTime? @map("deleted_at")
@@ -169,6 +177,11 @@ model Role {
   name        String
   description String?
   isSystem    Boolean  @default(false) @map("is_system")
+  /// Whether a Department Leader may assign this role to staff within their
+  /// own department (via UsersService.assignRoles's delegated-caller path)
+  /// — set by the Denomination Admin on the Roles admin page. Default false
+  /// so no existing role becomes delegable without an explicit opt-in.
+  isDelegable Boolean  @default(false) @map("is_delegable")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
@@ -1482,6 +1495,7 @@ model DynamicModuleRecord {
   deletedAt        DateTime? @map("deleted_at")
 
   statusHistory DynamicModuleRecordStatusHistory[]
+  assignedUsers User[] @relation("UserAssignedDepartmentRecord")
 
   @@index([tenantId])
   @@index([tenantId, moduleDefinitionId])

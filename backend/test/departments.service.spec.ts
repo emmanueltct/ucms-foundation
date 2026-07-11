@@ -4,6 +4,7 @@ import { DepartmentsService } from '../src/departments/departments.service';
 import { DynamicModuleDefinitionsService } from '../src/dynamic-modules/dynamic-module-definitions.service';
 import { DynamicModuleRecordsService } from '../src/dynamic-modules/dynamic-module-records.service';
 import { ResourceAssignmentsService } from '../src/resource-assignments/resource-assignments.service';
+import { DepartmentScopeService } from '../src/common/department-scope/department-scope.service';
 import { AuthenticatedUser } from '../src/common/interfaces/request-context.interface';
 
 describe('DepartmentsService', () => {
@@ -24,10 +25,13 @@ describe('DepartmentsService', () => {
   const mockDefinitions = { findByKey: jest.fn() };
   const mockRecords = { create: jest.fn(), findAll: jest.fn(), findOne: jest.fn(), update: jest.fn(), softDelete: jest.fn() };
   const mockResourceAssignments = { resolveForScope: jest.fn(), create: jest.fn(), remove: jest.fn() };
+  const mockDepartmentScope = { isLeaderOf: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     mockDefinitions.findByKey.mockResolvedValue({ id: MODULE_ID, key: 'departments' });
+    mockRecords.findOne.mockResolvedValue({ id: 'dept-1' });
+    mockDepartmentScope.isLeaderOf.mockResolvedValue(false);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -35,6 +39,7 @@ describe('DepartmentsService', () => {
         { provide: DynamicModuleDefinitionsService, useValue: mockDefinitions },
         { provide: DynamicModuleRecordsService, useValue: mockRecords },
         { provide: ResourceAssignmentsService, useValue: mockResourceAssignments },
+        { provide: DepartmentScopeService, useValue: mockDepartmentScope },
       ],
     }).compile();
     service = moduleRef.get(DepartmentsService);
@@ -88,13 +93,24 @@ describe('DepartmentsService', () => {
       expect(result).toEqual([{ id: 'ra-1' }]);
     });
 
-    it('assignResource rejects a caller without the module-scoped update permission', async () => {
+    it('assignResource rejects a caller with neither the module-scoped update permission nor leadership of this department', async () => {
       const scopedUser = { ...baseUser, permissions: [] };
 
       await expect(
         service.assignResource(TENANT_ID, 'dept-1', { resourceType: 'module', resourceKey: 'mod-1' }, scopedUser),
       ).rejects.toThrow(ForbiddenException);
       expect(mockResourceAssignments.create).not.toHaveBeenCalled();
+    });
+
+    it('assignResource succeeds for a caller who leads this specific department, even without the module-wide permission', async () => {
+      const leaderUser = { ...baseUser, permissions: [] };
+      mockDepartmentScope.isLeaderOf.mockResolvedValue(true);
+      mockResourceAssignments.create.mockResolvedValue({ id: 'ra-1' });
+
+      const result = await service.assignResource(TENANT_ID, 'dept-1', { resourceType: 'module', resourceKey: 'mod-1' }, leaderUser);
+
+      expect(mockDepartmentScope.isLeaderOf).toHaveBeenCalledWith(TENANT_ID, leaderUser.userId, 'dept-1');
+      expect(result).toEqual({ id: 'ra-1' });
     });
 
     it('assignResource succeeds for a caller with the module-scoped update permission', async () => {

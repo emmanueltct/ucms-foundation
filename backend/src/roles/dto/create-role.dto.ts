@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class CreateRoleDto {
   @ApiProperty({ example: 'Finance Officer' })
@@ -16,4 +16,9 @@ export class CreateRoleDto {
   @IsArray()
   @IsString({ each: true })
   permissionCodes?: string[];
+
+  @ApiPropertyOptional({ default: false, description: 'Whether a Department Leader may assign this role to staff within their own department.' })
+  @IsOptional()
+  @IsBoolean()
+  isDelegable?: boolean;
 }
