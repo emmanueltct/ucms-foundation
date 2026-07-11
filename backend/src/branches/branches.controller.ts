@@ -5,8 +5,10 @@ import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { MoveBranchDto } from './dto/move-branch.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
+import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
 
 @ApiTags('branches')
 @ApiBearerAuth()
@@ -15,11 +17,11 @@ import { ok } from '../common/interfaces/api-response.interface';
 export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
 
-  @ApiOperation({ summary: 'Create a branch (root-level or nested under a parent)' })
+  @ApiOperation({ summary: 'Create a branch (root-level or nested under a parent) — branch-scoped callers (Branch Administrators) may only create sub-branches under their own assigned branch' })
   @Permissions('branch.create')
   @Post()
-  async create(@CurrentTenantId() tenantId: string, @Body() dto: CreateBranchDto) {
-    return ok(await this.branchesService.create(tenantId, dto));
+  async create(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Body() dto: CreateBranchDto) {
+    return ok(await this.branchesService.create(tenantId, dto, user.userId));
   }
 
   @ApiOperation({ summary: 'List branches as a flat, ordered list' })

@@ -1,5 +1,5 @@
 import { Test } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { BranchesService } from '../src/branches/branches.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { HierarchyLevelsService } from '../src/hierarchy-levels/hierarchy-levels.service';
@@ -16,6 +16,9 @@ describe('BranchesService', () => {
       findFirst: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
+    },
+    user: {
+      findFirst: jest.fn(),
     },
   };
 
@@ -106,6 +109,70 @@ describe('BranchesService', () => {
         service.create(TENANT_ID, { name: 'Untyped Branch', parentBranchId: parentBranch.id }),
       ).resolves.toBeDefined();
       expect(mockHierarchyLevels.findForType).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('branch-scoped delegation', () => {
+    const districtBranch = { id: 'district-1', tenantId: TENANT_ID, name: 'District', branchType: null };
+    const parishBranch = { id: 'parish-1', tenantId: TENANT_ID, name: 'Parish', branchType: null, parentBranchId: 'district-1' };
+    const unrelatedBranch = { id: 'other-1', tenantId: TENANT_ID, name: 'Unrelated', branchType: null };
+
+    beforeEach(() => {
+      mockPrisma.branch.findFirst.mockImplementation(async ({ where }: any) => {
+        if (where.id === districtBranch.id) return districtBranch;
+        if (where.id === parishBranch.id) return parishBranch;
+        if (where.id === unrelatedBranch.id) return unrelatedBranch;
+        return null;
+      });
+      mockPrisma.branch.findMany.mockResolvedValue([districtBranch, parishBranch, unrelatedBranch]);
+      mockPrisma.branch.create.mockResolvedValue({ id: 'new-branch' });
+    });
+
+    it('skips the check entirely when no callerUserId is passed (system-initiated create)', async () => {
+      await expect(
+        service.create(TENANT_ID, { name: 'HQ' }),
+      ).resolves.toBeDefined();
+      expect(mockPrisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('is unrestricted for a caller with no assignedBranchId (church-wide staff)', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: null });
+
+      await expect(
+        service.create(TENANT_ID, { name: 'New Branch', parentBranchId: unrelatedBranch.id }, 'caller-1'),
+      ).resolves.toBeDefined();
+    });
+
+    it('rejects a branch-scoped caller creating a root-level branch', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: districtBranch.id });
+
+      await expect(
+        service.create(TENANT_ID, { name: 'New Root Branch' }, 'caller-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it("rejects a branch-scoped caller creating a sub-branch outside their own visible scope", async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: districtBranch.id });
+
+      await expect(
+        service.create(TENANT_ID, { name: 'Sneaky Branch', parentBranchId: unrelatedBranch.id }, 'caller-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('allows a branch-scoped caller to create a sub-branch under their own assigned branch', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: districtBranch.id });
+
+      await expect(
+        service.create(TENANT_ID, { name: 'Sub Branch', parentBranchId: districtBranch.id }, 'caller-1'),
+      ).resolves.toBeDefined();
+    });
+
+    it('allows a branch-scoped caller to create a sub-branch under a descendant of their assigned branch', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: districtBranch.id });
+
+      await expect(
+        service.create(TENANT_ID, { name: 'Grandchild Branch', parentBranchId: parishBranch.id }, 'caller-1'),
+      ).resolves.toBeDefined();
     });
   });
 

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Branch } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
@@ -23,10 +23,20 @@ export class BranchesService {
     private readonly hierarchyLevels: HierarchyLevelsService,
   ) {}
 
-  async create(tenantId: string, dto: CreateBranchDto): Promise<Branch> {
+  /**
+   * `callerUserId` is optional and, when omitted, skips the caller-scope
+   * check entirely — system-initiated creates (e.g. onboarding's
+   * auto-provisioned headquarters branch) aren't acting on behalf of a
+   * specific delegated Branch Administrator and should never be scoped.
+   */
+  async create(tenantId: string, dto: CreateBranchDto, callerUserId?: string): Promise<Branch> {
     if (dto.parentBranchId) {
       const parent = await this.findOne(tenantId, dto.parentBranchId);
       await this.assertHierarchyRules(tenantId, dto.branchType, parent.branchType);
+    }
+
+    if (callerUserId) {
+      await this.assertCallerScope(tenantId, callerUserId, dto.parentBranchId ?? null);
     }
 
     if (dto.isHeadquarters) {
@@ -192,6 +202,38 @@ export class BranchesService {
     const now = new Date();
     await this.prisma.branch.updateMany({ where: { id: { in: idsToDelete }, tenantId }, data: { deletedAt: now, isActive: false } });
     return { ...branch, deletedAt: now, isActive: false };
+  }
+
+  /**
+   * Branch-scoped delegation guard — a "Branch Administrator"/"Branch
+   * Leader" is just a `User` with `assignedBranchId` set plus an
+   * appropriately-permissioned Role (no new model). Such a caller may only
+   * create sub-branches under their own visible scope (their branch or one
+   * of its descendants — the same roll-up `BranchScopeService` computes,
+   * inlined here rather than injected to avoid a circular dependency, since
+   * `BranchScopeService` itself depends on `BranchesService`). A caller with
+   * no `assignedBranchId` (the default — church-wide staff/admin) is
+   * unrestricted, exactly matching `BranchScopeService`'s own convention.
+   */
+  private async assertCallerScope(tenantId: string, callerUserId: string, parentBranchId: string | null): Promise<void> {
+    const caller = await this.prisma.user.findFirst({ where: { id: callerUserId, tenantId }, select: { assignedBranchId: true } });
+    if (!caller?.assignedBranchId) return;
+
+    if (!parentBranchId) {
+      throw new ForbiddenException({
+        code: 'BRANCH_SCOPE_FORBIDDEN',
+        message: 'You can only create branches within your own assigned branch.',
+      });
+    }
+
+    const descendants = await this.findDescendants(tenantId, caller.assignedBranchId);
+    const visibleIds = new Set([caller.assignedBranchId, ...descendants.map((d) => d.id)]);
+    if (!visibleIds.has(parentBranchId)) {
+      throw new ForbiddenException({
+        code: 'BRANCH_SCOPE_FORBIDDEN',
+        message: 'You can only create sub-branches under your own assigned branch.',
+      });
+    }
   }
 
   /**
