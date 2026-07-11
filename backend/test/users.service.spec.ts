@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { UsersService } from '../src/users/users.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AuditService } from '../src/audit/audit.service';
 import { AuthenticatedUser } from '../src/common/interfaces/request-context.interface';
 
 describe('UsersService', () => {
@@ -10,10 +11,13 @@ describe('UsersService', () => {
   const TENANT_ID = 'tenant-1';
 
   const mockPrisma = {
-    user: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn(), update: jest.fn() },
     userRole: { deleteMany: jest.fn(), createMany: jest.fn() },
     role: { count: jest.fn() },
+    refreshToken: { updateMany: jest.fn() },
   };
+
+  const mockAudit = { record: jest.fn() };
 
   const fullAccessUser: AuthenticatedUser = {
     userId: 'admin-1',
@@ -27,7 +31,11 @@ describe('UsersService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     const moduleRef = await Test.createTestingModule({
-      providers: [UsersService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        UsersService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: AuditService, useValue: mockAudit },
+      ],
     }).compile();
     service = moduleRef.get(UsersService);
   });
@@ -114,5 +122,48 @@ describe('UsersService', () => {
 
       await expect(service.assignRoles(TENANT_ID, 'target-1', ['role-1'], staffUser)).rejects.toThrow(ForbiddenException);
     });
+  });
+
+  describe('forcePasswordReset', () => {
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'target-1', deletedAt: null });
+      mockPrisma.user.update.mockResolvedValue({ id: 'target-1' });
+    });
+
+    // bcrypt.hash is real (not mocked) here, same as AuthService's register/
+    // login tests — occasionally exceeds Jest's 5000ms default under CPU
+    // load during a full-suite run; bumped to match mfa.service.spec.ts's
+    // existing convention for its own CPU-bound (QR code) test.
+    it('generates a new temporary password, hashes it, and returns the plaintext once', async () => {
+      const result = await service.forcePasswordReset(TENANT_ID, 'target-1', 'admin-1');
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'target-1', tenantId: TENANT_ID } }),
+      );
+      expect(typeof result.temporaryPassword).toBe('string');
+      expect(result.temporaryPassword.length).toBeGreaterThan(0);
+      expect(result.user).toEqual({ id: 'target-1' });
+    }, 15000);
+
+    it("revokes every active refresh token for the user", async () => {
+      await service.forcePasswordReset(TENANT_ID, 'target-1', 'admin-1');
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'target-1', tenantId: TENANT_ID, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    }, 15000);
+
+    it('audits the action when an actorUserId is given (tenant-scoped caller)', async () => {
+      await service.forcePasswordReset(TENANT_ID, 'target-1', 'admin-1');
+
+      expect(mockAudit.record).toHaveBeenCalledWith(TENANT_ID, 'admin-1', 'user.password_force_reset', 'User', 'target-1');
+    }, 15000);
+
+    it('skips auditing when no actorUserId is given (cross-tenant Platform Admin caller)', async () => {
+      await service.forcePasswordReset(TENANT_ID, 'target-1');
+
+      expect(mockAudit.record).not.toHaveBeenCalled();
+    }, 15000);
   });
 });

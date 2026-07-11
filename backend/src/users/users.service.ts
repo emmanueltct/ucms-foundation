@@ -1,6 +1,8 @@
+import { randomBytes } from 'crypto';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
@@ -10,7 +12,10 @@ const BCRYPT_ROUNDS = 12;
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async create(tenantId: string, dto: CreateUserDto) {
     const existing = await this.prisma.user.findUnique({
@@ -171,6 +176,32 @@ export class UsersService {
   async forceVerifyEmail(tenantId: string, id: string) {
     await this.findOne(tenantId, id);
     return this.prisma.user.update({ where: { id, tenantId }, data: { emailVerifiedAt: new Date() }, select: this.publicSelect() });
+  }
+
+  /**
+   * Admin-forced password reset — generates a fresh one-time temporary
+   * password (same convention as `TenantsService.bootstrapAdminUser`'s
+   * initial admin password) for when a user is locked out and the
+   * self-service forgot-password email flow is unavailable or
+   * insufficient (e.g. the church's only admin account is the one that
+   * needs resetting). Revokes every active refresh token for this user
+   * first, mirroring `AuthService.resetPassword`, so a stale session can't
+   * outlive the reset. `actorUserId` is omitted when called cross-tenant
+   * by a Platform Admin (not itself a tenant `User`), matching how
+   * `force-verify-email`/`force-activate` already skip auditing there.
+   */
+  async forcePasswordReset(tenantId: string, id: string, actorUserId?: string) {
+    await this.findOne(tenantId, id);
+    const temporaryPassword = randomBytes(9).toString('base64url');
+    const passwordHash = await bcrypt.hash(temporaryPassword, BCRYPT_ROUNDS);
+
+    const user = await this.prisma.user.update({ where: { id, tenantId }, data: { passwordHash }, select: this.publicSelect() });
+    await this.prisma.refreshToken.updateMany({ where: { userId: id, tenantId, revokedAt: null }, data: { revokedAt: new Date() } });
+    if (actorUserId) {
+      await this.audit.record(tenantId, actorUserId, 'user.password_force_reset', 'User', id);
+    }
+
+    return { user, temporaryPassword };
   }
 
   async softDelete(tenantId: string, id: string) {

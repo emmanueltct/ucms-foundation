@@ -82,6 +82,16 @@ export class UsersController {
     return ok(await this.usersService.forceVerifyEmail(tenantId, id));
   }
 
+  @ApiOperation({
+    summary:
+      'Admin-forced password reset — generates a fresh one-time temporary password (share it out of band) and revokes the user\'s active sessions, for when they\'re locked out and the self-service forgot-password email is unavailable',
+  })
+  @Permissions('user.update')
+  @Patch(':id/force-reset-password')
+  async forcePasswordReset(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return ok(await this.usersService.forcePasswordReset(tenantId, id, user.userId));
+  }
+
   @ApiOperation({ summary: 'Soft-delete a user' })
   @Permissions('user.delete')
   @Delete(':id')

@@ -1165,6 +1165,9 @@ export const usersApi = {
     apiRequest<AppUser>(`/users/${id}/activate`, { method: 'PATCH', tenantSlug, auth: true }),
   forceVerifyEmail: (tenantSlug: string, id: string) =>
     apiRequest<AppUser>(`/users/${id}/force-verify-email`, { method: 'PATCH', tenantSlug, auth: true }),
+  /** Generates a fresh one-time temporary password (returned in the response, shown once) and revokes the user's active sessions. */
+  forcePasswordReset: (tenantSlug: string, id: string) =>
+    apiRequest<{ user: AppUser; temporaryPassword: string }>(`/users/${id}/force-reset-password`, { method: 'PATCH', tenantSlug, auth: true }),
 };
 
 export interface Visitor {
@@ -2084,5 +2087,11 @@ export const platformTenantAdminApi = {
     platformApiRequest<AppUser>(`/platform/tenants/${tenantId}/users/${userId}/force-verify-email`, { method: 'PATCH', auth: true }),
   forceActivate: (tenantId: string, userId: string) =>
     platformApiRequest<AppUser>(`/platform/tenants/${tenantId}/users/${userId}/force-activate`, { method: 'PATCH', auth: true }),
+  /** Generates a fresh one-time temporary password (returned in the response, shown once) — for when the church's own admin is locked out. */
+  forcePasswordReset: (tenantId: string, userId: string) =>
+    platformApiRequest<{ user: AppUser; temporaryPassword: string }>(`/platform/tenants/${tenantId}/users/${userId}/force-reset-password`, {
+      method: 'PATCH',
+      auth: true,
+    }),
   health: (tenantId: string) => platformApiRequest<TenantHealth>(`/platform/tenants/${tenantId}/health`, { auth: true }),
 };

@@ -53,6 +53,16 @@ export class PlatformTenantAdminController {
     return ok(await this.usersService.activate(tenantId, userId));
   }
 
+  @ApiOperation({
+    summary:
+      "Force-reset a user's password — generates a fresh one-time temporary password to hand off out of band, for when the church's own admin is locked out and can't use the self-service forgot-password email",
+  })
+  @Permissions('platform.tenant.update')
+  @Patch('users/:userId/force-reset-password')
+  async forcePasswordReset(@Param('id') tenantId: string, @Param('userId') userId: string) {
+    return ok(await this.usersService.forcePasswordReset(tenantId, userId));
+  }
+
   @ApiOperation({ summary: "A church's overall health snapshot — members, staff, branches, upcoming events, giving and attendance" })
   @Permissions('platform.tenant.read')
   @Get('health')

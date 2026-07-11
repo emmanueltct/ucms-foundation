@@ -3,8 +3,9 @@
 // app/platform/tenants/[id]/page.tsx
 // Platform Admin's detail view for one church: lifecycle actions
 // (deactivate/reactivate, restore if soft-deleted), a health snapshot, and
-// cross-tenant user management (force-verify-email/force-activate) for when
-// the church's own admin is unreachable or locked out.
+// cross-tenant user management (force-verify-email/force-activate/
+// force-reset-password) for when the church's own admin is unreachable or
+// locked out.
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -31,6 +32,7 @@ export default function PlatformTenantDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [resetHandoff, setResetHandoff] = useState<{ email: string; temporaryPassword: string } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -82,6 +84,16 @@ export default function PlatformTenantDetailPage() {
     setBusy(false);
   }
 
+  async function handleForceResetPassword(user: AppUser) {
+    if (!confirm(`Reset ${user.email}'s password? Their current sessions will be signed out.`)) return;
+    setBusy(true);
+    setResetHandoff(null);
+    const res = await platformTenantAdminApi.forcePasswordReset(tenantId, user.id);
+    if (res.success && res.data) setResetHandoff({ email: user.email, temporaryPassword: res.data.temporaryPassword });
+    else setError(res.error?.message ?? 'Could not reset this password.');
+    setBusy(false);
+  }
+
   if (!checkedAuth) return null;
 
   return (
@@ -123,6 +135,20 @@ export default function PlatformTenantDetailPage() {
             </header>
 
             {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-6">{error}</div>}
+
+            {resetHandoff && (
+              <div className="mb-6 rounded-xl border border-[#C9A24B]/40 bg-[#C9A24B]/10 px-5 py-4">
+                <p className="text-sm font-medium text-[#1E2A44] mb-1">
+                  Password reset for {resetHandoff.email} — hand this to them directly (shown only once)
+                </p>
+                <p className="text-sm text-slate-700 font-mono">
+                  Temporary password: <span className="font-semibold">{resetHandoff.temporaryPassword}</span>
+                </p>
+                <button onClick={() => setResetHandoff(null)} className="text-xs text-slate-500 underline mt-2">
+                  Dismiss
+                </button>
+              </div>
+            )}
 
             {health && (
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 mb-8">
@@ -180,6 +206,13 @@ export default function PlatformTenantDetailPage() {
                           Force-activate
                         </button>
                       )}
+                      <button
+                        onClick={() => handleForceResetPassword(u)}
+                        disabled={busy}
+                        className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                      >
+                        Force-reset password
+                      </button>
                     </div>
                   </div>
                 ))

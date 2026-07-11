@@ -20,6 +20,7 @@ export default function UsersAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [resetHandoff, setResetHandoff] = useState<{ email: string; temporaryPassword: string } | null>(null);
 
   async function load() {
     setLoading(true);
@@ -99,6 +100,16 @@ export default function UsersAdminPage() {
     setSavingId(null);
   }
 
+  async function handleForceResetPassword(user: AppUser) {
+    if (!confirm(`Reset ${user.email}'s password? Their current sessions will be signed out, and you'll need to hand them the new temporary password directly.`)) return;
+    setSavingId(user.id);
+    setResetHandoff(null);
+    const res = await usersApi.forcePasswordReset(tenantSlug, user.id);
+    if (res.success && res.data) setResetHandoff({ email: user.email, temporaryPassword: res.data.temporaryPassword });
+    else setError(res.error?.message ?? 'Could not reset this password.');
+    setSavingId(null);
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-12">
       <header className="mb-8">
@@ -112,6 +123,20 @@ export default function UsersAdminPage() {
       </header>
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
+
+      {resetHandoff && (
+        <div className="mb-4 rounded-xl border border-[#C9A24B]/40 bg-[#C9A24B]/10 px-5 py-4">
+          <p className="text-sm font-medium text-[#1E2A44] mb-1">
+            Password reset for {resetHandoff.email} — hand this to them directly (shown only once)
+          </p>
+          <p className="text-sm text-slate-700 font-mono">
+            Temporary password: <span className="font-semibold">{resetHandoff.temporaryPassword}</span>
+          </p>
+          <button onClick={() => setResetHandoff(null)} className="text-xs text-slate-500 underline mt-2">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
         {loading ? (
@@ -154,6 +179,13 @@ export default function UsersAdminPage() {
                     className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
                   >
                     {user.isActive ? 'Deactivate' : 'Force-activate'}
+                  </button>
+                  <button
+                    onClick={() => handleForceResetPassword(user)}
+                    disabled={savingId === user.id}
+                    className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                  >
+                    Force-reset password
                   </button>
                   <select
                     value={user.assignedBranchId ?? ''}
