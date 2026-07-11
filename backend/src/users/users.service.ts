@@ -79,7 +79,7 @@ export class UsersService {
     const { roleIds, ...rest } = dto;
 
     return this.prisma.user.update({
-      where: { id },
+      where: { id, tenantId },
       data: {
         ...rest,
         ...(roleIds
@@ -99,13 +99,32 @@ export class UsersService {
 
   async deactivate(tenantId: string, id: string) {
     await this.findOne(tenantId, id);
-    return this.prisma.user.update({ where: { id }, data: { isActive: false }, select: this.publicSelect() });
+    return this.prisma.user.update({ where: { id, tenantId }, data: { isActive: false }, select: this.publicSelect() });
+  }
+
+  /** Reverses `deactivate`. Also used as "force account activation" (spec requirement) when a user is stuck otherwise. */
+  async activate(tenantId: string, id: string) {
+    await this.findOne(tenantId, id);
+    return this.prisma.user.update({ where: { id, tenantId }, data: { isActive: true }, select: this.publicSelect() });
+  }
+
+  /**
+   * Admin override for when self-service email verification isn't working
+   * (broken mail gateway, user lost access to the inbox, etc.) — everywhere
+   * else `emailVerifiedAt` is only ever set by the token-based flow in
+   * AuthService.verifyEmail. Verification itself is informational only (see
+   * AuthService's own docs) so this doesn't change what the user can do,
+   * only clears the "please verify your email" nudge.
+   */
+  async forceVerifyEmail(tenantId: string, id: string) {
+    await this.findOne(tenantId, id);
+    return this.prisma.user.update({ where: { id, tenantId }, data: { emailVerifiedAt: new Date() }, select: this.publicSelect() });
   }
 
   async softDelete(tenantId: string, id: string) {
     await this.findOne(tenantId, id);
     return this.prisma.user.update({
-      where: { id },
+      where: { id, tenantId },
       data: { deletedAt: new Date(), isActive: false },
       select: this.publicSelect(),
     });
@@ -121,6 +140,7 @@ export class UsersService {
       phone: true,
       isActive: true,
       mfaEnabled: true,
+      emailVerifiedAt: true,
       lastLoginAt: true,
       createdAt: true,
       assignedBranchId: true,

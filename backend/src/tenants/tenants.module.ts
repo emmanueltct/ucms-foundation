@@ -1,13 +1,16 @@
 import { Module } from '@nestjs/common';
 import { BranchesModule } from '../branches/branches.module';
+import { UsersModule } from '../users/users.module';
+import { ReportsModule } from '../reports/reports.module';
 import { TenantsService } from './tenants.service';
 import { TenantsController } from './tenants.controller';
 import { TenantProfileService } from './tenant-profile.service';
 import { TenantProfileController } from './tenant-profile.controller';
+import { PlatformTenantAdminController } from './platform-tenant-admin.controller';
 
 @Module({
-  imports: [BranchesModule],
-  controllers: [TenantsController, TenantProfileController],
+  imports: [BranchesModule, UsersModule, ReportsModule],
+  controllers: [TenantsController, TenantProfileController, PlatformTenantAdminController],
   providers: [TenantsService, TenantProfileService],
   exports: [TenantsService],
 })

@@ -1109,6 +1109,7 @@ export interface AppUser {
   lastName: string;
   email: string;
   isActive: boolean;
+  emailVerifiedAt: string | null;
   assignedBranchId: string | null;
   assignedBranch: { id: string; name: string } | null;
   userRoles: { role: { id: string; name: string } }[];
@@ -1124,6 +1125,12 @@ export const usersApi = {
     apiRequest<AppUser>(`/users/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   assignRoles: (tenantSlug: string, id: string, roleIds: string[]) =>
     apiRequest<AppUser>(`/users/${id}/roles`, { method: 'PATCH', tenantSlug, auth: true, body: { roleIds } }),
+  deactivate: (tenantSlug: string, id: string) =>
+    apiRequest<AppUser>(`/users/${id}/deactivate`, { method: 'PATCH', tenantSlug, auth: true }),
+  activate: (tenantSlug: string, id: string) =>
+    apiRequest<AppUser>(`/users/${id}/activate`, { method: 'PATCH', tenantSlug, auth: true }),
+  forceVerifyEmail: (tenantSlug: string, id: string) =>
+    apiRequest<AppUser>(`/users/${id}/force-verify-email`, { method: 'PATCH', tenantSlug, auth: true }),
 };
 
 export interface Visitor {
@@ -1917,4 +1924,29 @@ export const platformTenantsApi = {
     platformApiRequest<CreatePlatformTenantResult>('/platform/tenants', { method: 'POST', auth: true, body }),
   deactivate: (id: string) =>
     platformApiRequest<PlatformTenant>(`/platform/tenants/${id}/deactivate`, { method: 'PATCH', auth: true }),
+  reactivate: (id: string) =>
+    platformApiRequest<PlatformTenant>(`/platform/tenants/${id}/reactivate`, { method: 'PATCH', auth: true }),
+  remove: (id: string) => platformApiRequest<PlatformTenant>(`/platform/tenants/${id}`, { method: 'DELETE', auth: true }),
+  restore: (id: string) =>
+    platformApiRequest<PlatformTenant>(`/platform/tenants/${id}/restore`, { method: 'PATCH', auth: true }),
+};
+
+export interface TenantHealth {
+  members: number;
+  activeStaff: number;
+  branches: number;
+  upcomingEvents: number;
+  contributionsThisMonth: number;
+  attendanceLast30Days: number;
+}
+
+export const platformTenantAdminApi = {
+  listUsers: (tenantId: string) => platformApiRequest<AppUser[]>(`/platform/tenants/${tenantId}/users?pageSize=100`, { auth: true }),
+  getUser: (tenantId: string, userId: string) =>
+    platformApiRequest<AppUser>(`/platform/tenants/${tenantId}/users/${userId}`, { auth: true }),
+  forceVerifyEmail: (tenantId: string, userId: string) =>
+    platformApiRequest<AppUser>(`/platform/tenants/${tenantId}/users/${userId}/force-verify-email`, { method: 'PATCH', auth: true }),
+  forceActivate: (tenantId: string, userId: string) =>
+    platformApiRequest<AppUser>(`/platform/tenants/${tenantId}/users/${userId}/force-activate`, { method: 'PATCH', auth: true }),
+  health: (tenantId: string) => platformApiRequest<TenantHealth>(`/platform/tenants/${tenantId}/health`, { auth: true }),
 };

@@ -54,11 +54,18 @@ export class TenantsController {
     return ok(await this.tenantsService.update(id, dto));
   }
 
-  @ApiOperation({ summary: 'Suspend a church' })
+  @ApiOperation({ summary: 'Suspend a church — data is kept, sign-in stops working' })
   @Permissions('platform.tenant.update')
   @Patch(':id/deactivate')
   async deactivate(@Param('id') id: string) {
     return ok(await this.tenantsService.deactivate(id));
+  }
+
+  @ApiOperation({ summary: 'Reactivate a suspended church' })
+  @Permissions('platform.tenant.update')
+  @Patch(':id/reactivate')
+  async reactivate(@Param('id') id: string) {
+    return ok(await this.tenantsService.reactivate(id));
   }
 
   @ApiOperation({ summary: 'Soft-delete a church' })
@@ -66,5 +73,12 @@ export class TenantsController {
   @Delete(':id')
   async remove(@Param('id') id: string) {
     return ok(await this.tenantsService.softDelete(id));
+  }
+
+  @ApiOperation({ summary: 'Restore a soft-deleted church (still suspended — reactivate separately to fully restore sign-in)' })
+  @Permissions('platform.tenant.update')
+  @Patch(':id/restore')
+  async restore(@Param('id') id: string) {
+    return ok(await this.tenantsService.restore(id));
   }
 }

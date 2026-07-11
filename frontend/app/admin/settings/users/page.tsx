@@ -61,6 +61,22 @@ export default function UsersAdminPage() {
     setSavingId(null);
   }
 
+  async function handleToggleActive(user: AppUser) {
+    setSavingId(user.id);
+    const res = user.isActive ? await usersApi.deactivate(tenantSlug, user.id) : await usersApi.activate(tenantSlug, user.id);
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not update account status.');
+    setSavingId(null);
+  }
+
+  async function handleForceVerify(user: AppUser) {
+    setSavingId(user.id);
+    const res = await usersApi.forceVerifyEmail(tenantSlug, user.id);
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not verify email.');
+    setSavingId(null);
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-12">
       <header className="mb-8">
@@ -87,21 +103,49 @@ export default function UsersAdminPage() {
                   <p className="text-sm font-medium text-slate-800">
                     {user.firstName} {user.lastName}
                   </p>
-                  <p className="text-xs text-slate-400">{user.email}</p>
+                  <p className="text-xs text-slate-400">
+                    {user.email}
+                    {!user.emailVerifiedAt && <span className="ml-1.5 text-amber-600">· unverified</span>}
+                  </p>
                 </div>
-                <select
-                  value={user.assignedBranchId ?? ''}
-                  onChange={(e) => handleBranchChange(user, e.target.value)}
-                  disabled={savingId === user.id}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
-                >
-                  <option value="">Church-wide (unassigned)</option>
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`text-xs font-medium px-2.5 py-1 rounded-full ${
+                      user.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {user.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                  {!user.emailVerifiedAt && (
+                    <button
+                      onClick={() => handleForceVerify(user)}
+                      disabled={savingId === user.id}
+                      className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                    >
+                      Force-verify email
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleToggleActive(user)}
+                    disabled={savingId === user.id}
+                    className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                  >
+                    {user.isActive ? 'Deactivate' : 'Force-activate'}
+                  </button>
+                  <select
+                    value={user.assignedBranchId ?? ''}
+                    onChange={(e) => handleBranchChange(user, e.target.value)}
+                    disabled={savingId === user.id}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                  >
+                    <option value="">Church-wide (unassigned)</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {roles.map((role) => {

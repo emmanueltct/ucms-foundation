@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   getCurrentPlatformAdmin,
   platformTenantsApi,
@@ -173,7 +174,11 @@ export default function PlatformTenantsPage() {
             <div className="px-4 py-8 text-center text-sm text-slate-400">No churches registered yet.</div>
           ) : (
             tenants.map((t) => (
-              <div key={t.id} className="flex items-center justify-between px-4 py-3">
+              <Link
+                key={t.id}
+                href={`/platform/tenants/${t.id}`}
+                className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors"
+              >
                 <div>
                   <p className="text-sm font-medium text-slate-800">{t.name}</p>
                   <p className="text-xs text-slate-400">
@@ -187,7 +192,7 @@ export default function PlatformTenantsPage() {
                 >
                   {t.isActive ? 'Active' : 'Inactive'}
                 </span>
-              </div>
+              </Link>
             ))
           )}
         </div>

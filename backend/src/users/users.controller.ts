@@ -59,6 +59,20 @@ export class UsersController {
     return ok(await this.usersService.deactivate(tenantId, id));
   }
 
+  @ApiOperation({ summary: 'Re-enable login for a user — also doubles as "force account activation" when a user is otherwise stuck' })
+  @Permissions('user.update')
+  @Patch(':id/activate')
+  async activate(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.usersService.activate(tenantId, id));
+  }
+
+  @ApiOperation({ summary: "Admin override: mark a user's email verified without the token flow (for when email verification is unavailable)" })
+  @Permissions('user.update')
+  @Patch(':id/force-verify-email')
+  async forceVerifyEmail(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.usersService.forceVerifyEmail(tenantId, id));
+  }
+
   @ApiOperation({ summary: 'Soft-delete a user' })
   @Permissions('user.delete')
   @Delete(':id')

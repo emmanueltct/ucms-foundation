@@ -113,8 +113,17 @@ export class AppModule implements NestModule {
         // need their own RouteInfo — a single trailing 'platform/tenants*' silently
         // failed to match the bare route at all (path-to-regexp needs a '/' before a
         // wildcard segment), which is why tenant creation 400'd with TENANT_NOT_RESOLVED.
+        // Second bug found later (live-tested only now, via the Phase 1 tenant detail
+        // page): a bare trailing '*' is NOT a wildcard token in this path-to-regexp
+        // version — it compiles to a LITERAL asterisk character, so
+        // 'platform/tenants/*' never matched ANY real sub-path (confirmed by testing
+        // path-to-regexp's parse()/tokensToRegExp() directly) — every :id-suffixed
+        // platform/tenants route (findOne/update/deactivate/reactivate/restore/remove,
+        // plus the new users/health sub-routes) was silently 400ing with
+        // TENANT_NOT_RESOLVED the whole time. '(.*)' is the correct multi-segment
+        // wildcard in this version.
         { path: 'platform/tenants', method: RequestMethod.ALL, version: '1' },
-        { path: 'platform/tenants/*', method: RequestMethod.ALL, version: '1' },
+        { path: 'platform/tenants/(.*)', method: RequestMethod.ALL, version: '1' },
         { path: 'platform/auth/login', method: RequestMethod.POST, version: '1' }, // platform admin login has no tenant at all
         // Password reset is deliberately cross-tenant — the person resetting a
         // password may not remember which church workspace they're in; the

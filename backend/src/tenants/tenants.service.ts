@@ -110,8 +110,27 @@ export class TenantsService {
     return this.prisma.tenant.update({ where: { id }, data: { isActive: false } });
   }
 
+  /** Reverses `deactivate` — a suspended church keeps every row it had, this just flips the flag back. */
+  async reactivate(id: string) {
+    await this.findOne(id);
+    return this.prisma.tenant.update({ where: { id }, data: { isActive: true } });
+  }
+
   async softDelete(id: string) {
     await this.findOne(id);
     return this.prisma.tenant.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+  }
+
+  /**
+   * Reverses `softDelete` — distinct from `reactivate`: a deleted tenant is
+   * excluded from `findOne`/`findAll` entirely (see their `deletedAt: null`
+   * filters), so this has to look the row up directly rather than through
+   * `findOne`. Restoring only clears `deletedAt`; `isActive` stays false so
+   * the tenant comes back as "restored but still suspended," not silently live.
+   */
+  async restore(id: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id } });
+    if (!tenant) throw new NotFoundException({ code: 'TENANT_NOT_FOUND', message: 'Church not found.' });
+    return this.prisma.tenant.update({ where: { id }, data: { deletedAt: null } });
   }
 }
