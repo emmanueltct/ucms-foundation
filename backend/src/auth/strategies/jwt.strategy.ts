@@ -31,6 +31,24 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * on the very next request.
    */
   async validate(payload: AccessTokenPayload): Promise<AuthenticatedUser> {
+    if (payload.isPlatformAdmin) {
+      // A PlatformAdmin row, not a tenant User — has no tenantId, and
+      // RolesGuard/PermissionsGuard already special-case isPlatformAdmin to
+      // bypass RBAC/PBAC entirely, so roles/permissions are never consulted.
+      const admin = await this.prisma.platformAdmin.findUnique({ where: { id: payload.sub } });
+      if (!admin || !admin.isActive) {
+        throw new UnauthorizedException({ code: 'USER_INACTIVE', message: 'Account is inactive.' });
+      }
+      return {
+        userId: admin.id,
+        tenantId: '',
+        email: admin.email,
+        isPlatformAdmin: true,
+        roles: [],
+        permissions: [],
+      };
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {

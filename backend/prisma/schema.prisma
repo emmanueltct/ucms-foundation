@@ -78,6 +78,28 @@ model Tenant {
 }
 
 // ----------------------------------------------------------------------------
+// PLATFORM ADMIN
+// ----------------------------------------------------------------------------
+/// Deliberately NOT a tenant-scoped model and NOT related to `User` — a
+/// platform admin manages tenants themselves (see TenantsController), not
+/// anything inside one, so it lives entirely outside the tenant-scoping
+/// Prisma extension (see tenant-scoping.extension.ts's TENANT_SCOPED_MODELS,
+/// which this is intentionally absent from) and authenticates through its
+/// own login endpoint (PlatformAuthController) rather than AuthService.
+model PlatformAdmin {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  firstName    String    @map("first_name")
+  lastName     String    @map("last_name")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("platform_admins")
+}
+
+// ----------------------------------------------------------------------------
 // USERS
 // ----------------------------------------------------------------------------
 model User {

@@ -41,6 +41,7 @@ import { BranchScopeModule } from './common/branch-scope/branch-scope.module';
 import { HierarchyRequirementsModule } from './hierarchy-requirements/hierarchy-requirements.module';
 import { DynamicModulesModule } from './dynamic-modules/dynamic-modules.module';
 import { EntityMembershipsModule } from './entity-memberships/entity-memberships.module';
+import { PlatformAuthModule } from './platform-auth/platform-auth.module';
 
 @Module({
   imports: [
@@ -77,6 +78,7 @@ import { EntityMembershipsModule } from './entity-memberships/entity-memberships
     HierarchyRequirementsModule,
     DynamicModulesModule,
     EntityMembershipsModule,
+    PlatformAuthModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,
@@ -100,7 +102,14 @@ export class AppModule implements NestModule {
       .apply(TenantContextMiddleware)
       .exclude(
         { path: 'health', method: RequestMethod.GET, version: '1' },
-        { path: 'platform/tenants*', method: RequestMethod.ALL, version: '1' }, // platform-admin routes aren't tenant-scoped
+        // platform-admin routes aren't tenant-scoped. Both the bare collection route
+        // (GET/POST /platform/tenants) and its sub-paths (/platform/tenants/:id, ...)
+        // need their own RouteInfo — a single trailing 'platform/tenants*' silently
+        // failed to match the bare route at all (path-to-regexp needs a '/' before a
+        // wildcard segment), which is why tenant creation 400'd with TENANT_NOT_RESOLVED.
+        { path: 'platform/tenants', method: RequestMethod.ALL, version: '1' },
+        { path: 'platform/tenants/*', method: RequestMethod.ALL, version: '1' },
+        { path: 'platform/auth/login', method: RequestMethod.POST, version: '1' }, // platform admin login has no tenant at all
         // Password reset is deliberately cross-tenant — the person resetting a
         // password may not remember which church workspace they're in; the
         // token itself (not a header) resolves the tenant. See AuthService.

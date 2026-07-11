@@ -170,6 +170,19 @@ async function main() {
     });
   }
 
+  console.log('Seeding platform admin...');
+  const platformAdminPasswordHash = await bcrypt.hash('ChangeMe123', 12);
+  await prisma.platformAdmin.upsert({
+    where: { email: 'platform-admin@ucms.app' },
+    create: {
+      email: 'platform-admin@ucms.app',
+      passwordHash: platformAdminPasswordHash,
+      firstName: 'Platform',
+      lastName: 'Admin',
+    },
+    update: {},
+  });
+
   console.log('Seeding demo tenant...');
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'demo-church' },
@@ -573,6 +586,7 @@ async function main() {
   }
 
   console.log(`Done. Demo login: admin@demo-church.test / ChangeMe123 (tenant slug: ${tenant.slug})`);
+  console.log('Platform admin login: platform-admin@ucms.app / ChangeMe123 (no tenant slug — POST /platform/auth/login)');
 }
 
 main()

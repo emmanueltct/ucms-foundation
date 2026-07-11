@@ -1638,3 +1638,132 @@ export const tenantApi = {
   completeOnboarding: (tenantSlug: string, body: { headquartersName?: string; headquartersType?: string }) =>
     apiRequest<TenantProfile>('/tenant/onboarding/complete', { method: 'PATCH', tenantSlug, auth: true, body }),
 };
+
+// ----------------------------------------------------------------------------
+// PLATFORM ADMIN
+// Separate token store from the tenant session above — a platform admin has
+// no tenant at all, so it can't reuse setSession/apiRequest (which always
+// sends X-Tenant-Slug and reads the tenant-user token). Kept in its own
+// localStorage key so a platform-admin tab and a church-admin tab in the
+// same browser never clobber each other's session.
+// ----------------------------------------------------------------------------
+
+const PLATFORM_STORAGE_KEY = 'ucms.platformSession';
+
+export interface PlatformAdmin {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+}
+
+interface StoredPlatformSession {
+  accessToken: string;
+  admin: PlatformAdmin;
+}
+
+function readStoredPlatformSession(): StoredPlatformSession | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(PLATFORM_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as StoredPlatformSession) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPlatformSession(session: StoredPlatformSession | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (session) window.localStorage.setItem(PLATFORM_STORAGE_KEY, JSON.stringify(session));
+    else window.localStorage.removeItem(PLATFORM_STORAGE_KEY);
+  } catch {
+    // Storage unavailable — session just won't survive a reload there.
+  }
+}
+
+const storedPlatform = readStoredPlatformSession();
+let platformAccessToken: string | null = storedPlatform?.accessToken ?? null;
+let currentPlatformAdmin: PlatformAdmin | null = storedPlatform?.admin ?? null;
+
+export function setPlatformSession(accessToken: string, admin: PlatformAdmin) {
+  platformAccessToken = accessToken;
+  currentPlatformAdmin = admin;
+  writeStoredPlatformSession({ accessToken, admin });
+}
+
+export function clearPlatformSession() {
+  platformAccessToken = null;
+  currentPlatformAdmin = null;
+  writeStoredPlatformSession(null);
+}
+
+export function getCurrentPlatformAdmin(): PlatformAdmin | null {
+  return currentPlatformAdmin;
+}
+
+async function platformApiRequest<T>(
+  path: string,
+  opts: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; auth?: boolean } = {},
+): Promise<ApiEnvelope<T>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (opts.auth !== false && platformAccessToken) headers.Authorization = `Bearer ${platformAccessToken}`;
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: opts.method ?? 'GET',
+    headers,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+
+  return (await res.json()) as ApiEnvelope<T>;
+}
+
+export interface PlatformAuthResult {
+  admin: PlatformAdmin;
+  accessToken: string;
+  expiresIn: number;
+}
+
+export const platformAuthApi = {
+  login: (email: string, password: string) =>
+    platformApiRequest<PlatformAuthResult>('/platform/auth/login', { method: 'POST', auth: false, body: { email, password } }),
+};
+
+export interface PlatformTenant {
+  id: string;
+  name: string;
+  slug: string;
+  currency: string;
+  language: string;
+  timezone: string;
+  subscriptionPlan: string;
+  isActive: boolean;
+  onboardedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreatePlatformTenantInput {
+  name: string;
+  slug: string;
+  currency?: string;
+  language?: string;
+  timezone?: string;
+  subscriptionPlan?: string;
+  /** If given, bootstraps a "Church Administrator" role + user and returns a one-time temporary password to hand off. */
+  adminEmail?: string;
+}
+
+export interface CreatePlatformTenantResult {
+  tenant: PlatformTenant;
+  temporaryPassword: string | null;
+}
+
+export const platformTenantsApi = {
+  list: (search = '') =>
+    platformApiRequest<PlatformTenant[]>(`/platform/tenants?pageSize=100${search ? `&search=${encodeURIComponent(search)}` : ''}`, { auth: true }),
+  get: (id: string) => platformApiRequest<PlatformTenant>(`/platform/tenants/${id}`, { auth: true }),
+  create: (body: CreatePlatformTenantInput) =>
+    platformApiRequest<CreatePlatformTenantResult>('/platform/tenants', { method: 'POST', auth: true, body }),
+  deactivate: (id: string) =>
+    platformApiRequest<PlatformTenant>(`/platform/tenants/${id}/deactivate`, { method: 'PATCH', auth: true }),
+};
