@@ -716,6 +716,11 @@ function GuestAccessTab({ tenantSlug }: { tenantSlug: string }) {
               <p className="text-xs text-slate-400 mt-0.5">
                 Lets a guest register themselves as a visitor from a public form (no login required).
               </p>
+              {isEnabled(GUEST_ACCESS_VISITOR_REGISTRATION_KEY) && (
+                <a href="/visitor-register" target="_blank" rel="noreferrer" className="text-xs text-[#1E2A44] underline mt-1 inline-block">
+                  /visitor-register ↗
+                </a>
+              )}
             </div>
             <button
               onClick={() => handleToggle(GUEST_ACCESS_VISITOR_REGISTRATION_KEY)}
@@ -760,7 +765,13 @@ function GuestAccessTab({ tenantSlug }: { tenantSlug: string }) {
                 {publicModules.map((m) => (
                   <li key={m.id} className="flex items-center justify-between">
                     <span>{m.label}</span>
-                    <code className="text-[11px] text-slate-400">/modules/{m.key}/submit</code>
+                    {isEnabled(GUEST_ACCESS_MODULES_KEY) ? (
+                      <a href={`/guest/${m.key}`} target="_blank" rel="noreferrer" className="text-[11px] text-[#1E2A44] underline">
+                        /guest/{m.key} ↗
+                      </a>
+                    ) : (
+                      <code className="text-[11px] text-slate-400">/guest/{m.key} (toggle off)</code>
+                    )}
                   </li>
                 ))}
               </ul>
