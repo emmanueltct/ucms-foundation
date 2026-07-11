@@ -244,6 +244,35 @@ async function main() {
     skipDuplicates: true,
   });
 
+  console.log('Seeding departments module (Phase 6 backfill for pre-existing tenants)...');
+  const departmentsModule = await prisma.dynamicModuleDefinition.upsert({
+    where: { tenantId_key: { tenantId: tenant.id, key: 'departments' } },
+    create: {
+      tenantId: tenant.id,
+      key: 'departments',
+      label: 'Departments',
+      description: 'Finance, HR, Customer Care, Logistics, or any custom department this church needs.',
+      showInNav: true,
+    },
+    update: {},
+  });
+  {
+    // Mirrors DynamicModuleDefinitionsService.grantPermissions — seed.ts calls Prisma directly rather than the Nest service.
+    const actions = ['create', 'read', 'update', 'delete', 'approve'];
+    const codes = actions.map((action) => ({
+      code: `dynamicmodule.${departmentsModule.id}.${action}`,
+      module: `dynamic_module:${departmentsModule.id}`,
+      description: `${action[0].toUpperCase()}${action.slice(1)} Departments records`,
+    }));
+    await prisma.permission.createMany({ data: codes, skipDuplicates: true });
+    const createdDeptPerms = await prisma.permission.findMany({ where: { code: { in: codes.map((c) => c.code) } } });
+    const systemRoles = await prisma.role.findMany({ where: { tenantId: tenant.id, isSystem: true } });
+    await prisma.rolePermission.createMany({
+      data: systemRoles.flatMap((role) => createdDeptPerms.map((permission) => ({ roleId: role.id, permissionId: permission.id }))),
+      skipDuplicates: true,
+    });
+  }
+
   const passwordHash = await bcrypt.hash('ChangeMe123', 12);
   const adminUser = await prisma.user.upsert({
     where: { tenantId_email: { tenantId: tenant.id, email: 'admin@demo-church.test' } },

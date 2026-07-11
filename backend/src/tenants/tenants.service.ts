@@ -5,6 +5,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
+import { DynamicModuleDefinitionsService } from '../dynamic-modules/dynamic-module-definitions.service';
+
+/** Must match `DEPARTMENTS_MODULE_KEY` in `../departments/departments.service.ts` — not imported directly to avoid a cross-module coupling for one string constant. */
+const DEPARTMENTS_MODULE_KEY = 'departments';
 
 /**
  * Platform-Admin-only operations. Provisions and manages tenants themselves
@@ -12,7 +16,10 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
  */
 @Injectable()
 export class TenantsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly dynamicModuleDefinitions: DynamicModuleDefinitionsService,
+  ) {}
 
   async create(dto: CreateTenantDto) {
     const existing = await this.prisma.tenant.findUnique({ where: { slug: dto.slug } });
@@ -60,6 +67,20 @@ export class TenantsService {
         isSystem: true,
         rolePermissions: { create: tenantPermissions.map((p) => ({ permissionId: p.id })) },
       },
+    });
+
+    // Pre-seeded so Department Leader features (Phase 7) are never in a
+    // broken "no departments module exists yet" state — a Denomination
+    // Admin creates department records ("Finance", "HR", ...) into this the
+    // same way they'd create any Dynamic Module record. Runs after
+    // `adminRole` exists so DynamicModuleDefinitionsService.create's
+    // permission grant (to every isSystem role) reaches this tenant's new
+    // Church Administrator role too.
+    await this.dynamicModuleDefinitions.create(tenantId, {
+      key: DEPARTMENTS_MODULE_KEY,
+      label: 'Departments',
+      description: 'Finance, HR, Customer Care, Logistics, or any custom department this church needs.',
+      showInNav: true,
     });
 
     await this.prisma.user.create({

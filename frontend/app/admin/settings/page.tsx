@@ -24,6 +24,7 @@ import {
   Mail,
   Hash,
   Trash2,
+  Briefcase,
 } from 'lucide-react';
 import {
   auditLogsApi,
@@ -44,6 +45,7 @@ const SECTIONS = [
   { href: '/admin/branches', label: 'Branches', description: 'Organizational hierarchy — the church tree.', icon: Building2 },
   { href: '/admin/settings/roles', label: 'Roles & Permissions', description: 'Custom roles and what each can do.', icon: KeyRound },
   { href: '/admin/settings/users', label: 'Users', description: 'Assign roles and branch scope per user.', icon: Users },
+  { href: '/admin/settings/departments', label: 'Departments', description: 'Finance, HR, or any custom department — with assigned resources.', icon: Briefcase },
   { href: '/admin/settings/dynamic-modules', label: 'Dynamic Modules', description: 'Create no-code modules and entities.', icon: Puzzle },
   { href: '/admin/settings/workflows', label: 'Workflow Builder', description: 'Ordered approval chains for anything.', icon: Workflow },
   { href: '/admin/settings/menus', label: 'Menu Builder', description: 'Configure navigation without code.', icon: MenuIcon },

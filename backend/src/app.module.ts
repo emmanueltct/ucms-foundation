@@ -48,6 +48,7 @@ import { NumberingSequencesModule } from './numbering-sequences/numbering-sequen
 import { TrashModule } from './trash/trash.module';
 import { HierarchyLevelsModule } from './hierarchy-levels/hierarchy-levels.module';
 import { ResourceAssignmentsModule } from './resource-assignments/resource-assignments.module';
+import { DepartmentsModule } from './departments/departments.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { ResourceAssignmentsModule } from './resource-assignments/resource-assig
     TrashModule,
     HierarchyLevelsModule,
     ResourceAssignmentsModule,
+    DepartmentsModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,

@@ -1806,6 +1806,52 @@ export const hierarchyLevelsApi = {
     apiRequest<{ id: string }>(`/hierarchy-levels/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
+export interface ResourceAssignment {
+  id: string;
+  scopeEntityType: string;
+  scopeEntityId: string;
+  resourceType: string;
+  resourceKey: string;
+  createdAt: string;
+}
+
+export const resourceAssignmentsApi = {
+  list: (tenantSlug: string, filters?: { scopeEntityType?: string; scopeEntityId?: string; resourceType?: string }) => {
+    const qs = new URLSearchParams();
+    if (filters?.scopeEntityType) qs.set('scopeEntityType', filters.scopeEntityType);
+    if (filters?.scopeEntityId) qs.set('scopeEntityId', filters.scopeEntityId);
+    if (filters?.resourceType) qs.set('resourceType', filters.resourceType);
+    const query = qs.toString();
+    return apiRequest<ResourceAssignment[]>(`/resource-assignments${query ? `?${query}` : ''}`, { tenantSlug, auth: true });
+  },
+  create: (tenantSlug: string, body: { scopeEntityType: string; scopeEntityId: string; resourceType: string; resourceKey: string }) =>
+    apiRequest<ResourceAssignment>('/resource-assignments', { method: 'POST', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<{ id: string }>(`/resource-assignments/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+/** A department is a Dynamic Module Record under the tenant's pre-seeded "departments" module — same shape, dedicated routes. */
+export type Department = DynamicModuleRecord;
+
+export const departmentsApi = {
+  list: (tenantSlug: string) => apiRequest<Department[]>('/departments', { tenantSlug, auth: true }),
+  get: (tenantSlug: string, id: string) => apiRequest<Department>(`/departments/${id}`, { tenantSlug, auth: true }),
+  create: (tenantSlug: string, body: { name: string; parentDepartmentId?: string; customFields?: Record<string, unknown> }) =>
+    apiRequest<Department>('/departments', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (
+    tenantSlug: string,
+    id: string,
+    body: Partial<{ name: string; parentDepartmentId: string; customFields: Record<string, unknown> }>,
+  ) => apiRequest<Department>(`/departments/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) => apiRequest<Department>(`/departments/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  listResources: (tenantSlug: string, id: string) =>
+    apiRequest<ResourceAssignment[]>(`/departments/${id}/resources`, { tenantSlug, auth: true }),
+  assignResource: (tenantSlug: string, id: string, body: { resourceType: string; resourceKey: string }) =>
+    apiRequest<ResourceAssignment>(`/departments/${id}/resources`, { method: 'POST', tenantSlug, auth: true, body }),
+  removeResource: (tenantSlug: string, id: string, assignmentId: string) =>
+    apiRequest<{ id: string }>(`/departments/${id}/resources/${assignmentId}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
 export const tenantApi = {
   getProfile: (tenantSlug: string) => apiRequest<TenantProfile>('/tenant', { tenantSlug, auth: true }),
   completeOnboarding: (tenantSlug: string, body: { headquartersName?: string; headquartersType?: string }) =>
