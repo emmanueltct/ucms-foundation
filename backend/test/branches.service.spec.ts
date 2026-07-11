@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { BranchesService } from '../src/branches/branches.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { HierarchyLevelsService } from '../src/hierarchy-levels/hierarchy-levels.service';
 
 describe('BranchesService', () => {
   let service: BranchesService;
@@ -18,10 +19,18 @@ describe('BranchesService', () => {
     },
   };
 
+  // No existing test defines any HierarchyLevelDefinition rows, so every type is unconstrained (`findForType` -> null) — matches pre-Phase-3 behavior exactly.
+  const mockHierarchyLevels = { findForType: jest.fn().mockResolvedValue(null) };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockHierarchyLevels.findForType.mockResolvedValue(null);
     const moduleRef = await Test.createTestingModule({
-      providers: [BranchesService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        BranchesService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: HierarchyLevelsService, useValue: mockHierarchyLevels },
+      ],
     }).compile();
     service = moduleRef.get(BranchesService);
   });
@@ -47,6 +56,56 @@ describe('BranchesService', () => {
       expect(mockPrisma.branch.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ isHeadquarters: true }) }),
       );
+    });
+  });
+
+  describe('hierarchy level rules', () => {
+    const parentBranch = { id: 'parent-1', tenantId: TENANT_ID, name: 'HQ', branchType: 'district' };
+
+    beforeEach(() => {
+      mockPrisma.branch.findFirst.mockImplementation(async ({ where }: any) =>
+        where.id === parentBranch.id ? parentBranch : null,
+      );
+    });
+
+    it('rejects a child whose allowedParentTypeKeys does not include the parent\'s branchType', async () => {
+      mockHierarchyLevels.findForType.mockImplementation(async (_tenantId: string, key: string) =>
+        key === 'parish' ? { label: 'Parish', allowedParentTypeKeys: ['diocese'], allowedChildTypeKeys: [] } : null,
+      );
+
+      await expect(
+        service.create(TENANT_ID, { name: 'St. Mark', branchType: 'parish', parentBranchId: parentBranch.id }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("rejects a parent whose allowedChildTypeKeys does not include the child's branchType", async () => {
+      mockHierarchyLevels.findForType.mockImplementation(async (_tenantId: string, key: string) =>
+        key === 'district' ? { label: 'District', allowedParentTypeKeys: [], allowedChildTypeKeys: ['cell'] } : null,
+      );
+
+      await expect(
+        service.create(TENANT_ID, { name: 'St. Mark', branchType: 'parish', parentBranchId: parentBranch.id }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('allows creation when the rule permits the pairing', async () => {
+      mockHierarchyLevels.findForType.mockImplementation(async (_tenantId: string, key: string) =>
+        key === 'parish' ? { label: 'Parish', allowedParentTypeKeys: ['district'], allowedChildTypeKeys: [] } : null,
+      );
+      mockPrisma.branch.create.mockResolvedValue({ id: 'new-parish', branchType: 'parish' });
+
+      await expect(
+        service.create(TENANT_ID, { name: 'St. Mark', branchType: 'parish', parentBranchId: parentBranch.id }),
+      ).resolves.toBeDefined();
+    });
+
+    it('skips validation entirely when neither side has a branchType', async () => {
+      mockPrisma.branch.create.mockResolvedValue({ id: 'new-branch' });
+
+      await expect(
+        service.create(TENANT_ID, { name: 'Untyped Branch', parentBranchId: parentBranch.id }),
+      ).resolves.toBeDefined();
+      expect(mockHierarchyLevels.findForType).not.toHaveBeenCalled();
     });
   });
 

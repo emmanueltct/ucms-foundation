@@ -1782,6 +1782,30 @@ export const trashApi = {
     apiRequest<TrashItem>(`/trash/${resource}/${id}/restore`, { method: 'PATCH', tenantSlug, auth: true }),
 };
 
+export interface HierarchyLevelDefinition {
+  id: string;
+  branchTypeKey: string;
+  label: string;
+  allowedParentTypeKeys: string[];
+  allowedChildTypeKeys: string[];
+  sortOrder: number;
+}
+
+export const hierarchyLevelsApi = {
+  list: (tenantSlug: string) => apiRequest<HierarchyLevelDefinition[]>('/hierarchy-levels', { tenantSlug, auth: true }),
+  create: (
+    tenantSlug: string,
+    body: { branchTypeKey: string; label: string; allowedParentTypeKeys?: string[]; allowedChildTypeKeys?: string[]; sortOrder?: number },
+  ) => apiRequest<HierarchyLevelDefinition>('/hierarchy-levels', { method: 'POST', tenantSlug, auth: true, body }),
+  update: (
+    tenantSlug: string,
+    id: string,
+    body: Partial<{ label: string; allowedParentTypeKeys: string[]; allowedChildTypeKeys: string[]; sortOrder: number }>,
+  ) => apiRequest<HierarchyLevelDefinition>(`/hierarchy-levels/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<{ id: string }>(`/hierarchy-levels/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
 export const tenantApi = {
   getProfile: (tenantSlug: string) => apiRequest<TenantProfile>('/tenant', { tenantSlug, auth: true }),
   completeOnboarding: (tenantSlug: string, body: { headquartersName?: string; headquartersType?: string }) =>

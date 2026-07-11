@@ -46,6 +46,7 @@ import { MenuItemsModule } from './menu-items/menu-items.module';
 import { NotificationTemplatesModule } from './notification-templates/notification-templates.module';
 import { NumberingSequencesModule } from './numbering-sequences/numbering-sequences.module';
 import { TrashModule } from './trash/trash.module';
+import { HierarchyLevelsModule } from './hierarchy-levels/hierarchy-levels.module';
 
 @Module({
   imports: [
@@ -87,6 +88,7 @@ import { TrashModule } from './trash/trash.module';
     NotificationTemplatesModule,
     NumberingSequencesModule,
     TrashModule,
+    HierarchyLevelsModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,

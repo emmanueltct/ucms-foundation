@@ -35,6 +35,11 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'branch.update', module: 'branch', description: 'Edit, deactivate, or reactivate a branch' },
   { code: 'branch.move', module: 'branch', description: "Re-parent a branch within the hierarchy" },
 
+  { code: 'hierarchylevel.create', module: 'branch', description: 'Define a branch-type nesting rule' },
+  { code: 'hierarchylevel.read', module: 'branch', description: 'View branch-type nesting rules' },
+  { code: 'hierarchylevel.update', module: 'branch', description: 'Edit a branch-type nesting rule' },
+  { code: 'hierarchylevel.delete', module: 'branch', description: 'Remove a branch-type nesting rule' },
+
   { code: 'tenant.profile.read', module: 'tenant', description: "View the current user's own church profile" },
   { code: 'tenant.profile.update', module: 'tenant', description: "Update the current church's profile / complete onboarding" },
 

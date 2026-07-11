@@ -3,6 +3,7 @@ import { Branch } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { HierarchyLevelsService } from '../hierarchy-levels/hierarchy-levels.service';
 
 export interface BranchTreeNode extends Branch {
   children: BranchTreeNode[];
@@ -17,11 +18,15 @@ export interface BranchTreeNode extends Branch {
  */
 @Injectable()
 export class BranchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly hierarchyLevels: HierarchyLevelsService,
+  ) {}
 
   async create(tenantId: string, dto: CreateBranchDto): Promise<Branch> {
     if (dto.parentBranchId) {
-      await this.findOne(tenantId, dto.parentBranchId);
+      const parent = await this.findOne(tenantId, dto.parentBranchId);
+      await this.assertHierarchyRules(tenantId, dto.branchType, parent.branchType);
     }
 
     if (dto.isHeadquarters) {
@@ -134,13 +139,13 @@ export class BranchesService {
 
   /** Re-parents a branch, rejecting moves that would create a cycle (a branch becoming its own descendant's child). */
   async move(tenantId: string, id: string, newParentBranchId: string | null | undefined): Promise<Branch> {
-    await this.findOne(tenantId, id);
+    const branch = await this.findOne(tenantId, id);
 
     if (newParentBranchId) {
       if (newParentBranchId === id) {
         throw new BadRequestException({ code: 'BRANCH_CIRCULAR_REFERENCE', message: 'A branch cannot be its own parent.' });
       }
-      await this.findOne(tenantId, newParentBranchId);
+      const newParent = await this.findOne(tenantId, newParentBranchId);
 
       const targetAncestors = await this.findAncestors(tenantId, newParentBranchId);
       if (targetAncestors.some((ancestor) => ancestor.id === id)) {
@@ -149,6 +154,8 @@ export class BranchesService {
           message: 'Cannot move a branch under one of its own descendants.',
         });
       }
+
+      await this.assertHierarchyRules(tenantId, branch.branchType, newParent.branchType);
     }
 
     return this.prisma.branch.update({ where: { id }, data: { parentBranchId: newParentBranchId ?? null } });
@@ -185,6 +192,39 @@ export class BranchesService {
     const now = new Date();
     await this.prisma.branch.updateMany({ where: { id: { in: idsToDelete }, tenantId }, data: { deletedAt: now, isActive: false } });
     return { ...branch, deletedAt: now, isActive: false };
+  }
+
+  /**
+   * Additive rules check — only applies when both sides have a branchType
+   * AND at least one of them has a `HierarchyLevelDefinition` row with
+   * non-empty allow-lists. Every existing tenant has zero rows, so this is
+   * fully inert (matches pre-Phase-3 behavior exactly) until a tenant opts
+   * in by defining rules. See `HierarchyLevelsService`.
+   */
+  private async assertHierarchyRules(
+    tenantId: string,
+    childBranchType: string | null | undefined,
+    parentBranchType: string | null | undefined,
+  ): Promise<void> {
+    if (!childBranchType || !parentBranchType) return;
+
+    const [childLevel, parentLevel] = await Promise.all([
+      this.hierarchyLevels.findForType(tenantId, childBranchType),
+      this.hierarchyLevels.findForType(tenantId, parentBranchType),
+    ]);
+
+    if (childLevel && childLevel.allowedParentTypeKeys.length > 0 && !childLevel.allowedParentTypeKeys.includes(parentBranchType)) {
+      throw new BadRequestException({
+        code: 'HIERARCHY_LEVEL_INVALID_PARENT',
+        message: `"${childLevel.label}" cannot be nested under a branch of type "${parentBranchType}".`,
+      });
+    }
+    if (parentLevel && parentLevel.allowedChildTypeKeys.length > 0 && !parentLevel.allowedChildTypeKeys.includes(childBranchType)) {
+      throw new BadRequestException({
+        code: 'HIERARCHY_LEVEL_INVALID_CHILD',
+        message: `A branch of type "${parentLevel.label}" cannot have a child of type "${childBranchType}".`,
+      });
+    }
   }
 
   private async clearExistingHeadquarters(tenantId: string, exceptId?: string): Promise<void> {

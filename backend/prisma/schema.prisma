@@ -76,6 +76,7 @@ model Tenant {
   menuItems              MenuItem[]
   notificationTemplates  NotificationTemplate[]
   numberingSequences     NumberingSequence[]
+  hierarchyLevelDefinitions HierarchyLevelDefinition[]
 
   @@map("tenants")
 }
@@ -371,6 +372,31 @@ model Branch {
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
   @@map("branches")
+}
+
+/// Optional nesting rules layered over `Branch.branchType`'s free-text
+/// convention — a tenant defines these to *constrain* which types can nest
+/// under which (e.g. "Parish" can only sit under "District"); a
+/// `branchType` with no matching row here is unconstrained, exactly as it
+/// was before this model existed, so every tenant ships with zero rows and
+/// fully backward-compatible behavior until they opt in. Deliberately not a
+/// replacement for `branchType`'s free-text convention — see design
+/// decision in the platform-admin business-analysis doc.
+model HierarchyLevelDefinition {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id])
+  branchTypeKey          String   @map("branch_type_key") // a ConfigItem key in namespace "branch_type"
+  label                  String
+  allowedParentTypeKeys  String[] @default([]) @map("allowed_parent_type_keys") // empty = any parent type (or none) allowed
+  allowedChildTypeKeys   String[] @default([]) @map("allowed_child_type_keys") // empty = any child type allowed
+  sortOrder              Int      @default(0) @map("sort_order")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, branchTypeKey])
+  @@index([tenantId])
+  @@map("hierarchy_level_definitions")
 }
 
 // ----------------------------------------------------------------------------

@@ -9,10 +9,13 @@ import { useEffect, useState } from 'react';
 import {
   branchesApi,
   hierarchyRequirementsApi,
+  hierarchyLevelsApi,
+  configApi,
   Branch,
   BranchTreeNode,
   HierarchyRequirement,
   HierarchyRequirementSubmission,
+  HierarchyLevelDefinition,
 } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
@@ -334,6 +337,201 @@ export default function BranchesAdminPage() {
               </>
             )}
           </div>
+        </div>
+
+        <HierarchyRulesSection />
+      </div>
+    </div>
+  );
+}
+
+interface BranchTypeOption {
+  key: string;
+  label: string;
+}
+
+function HierarchyRulesSection() {
+  const [branchTypes, setBranchTypes] = useState<BranchTypeOption[]>([]);
+  const [rules, setRules] = useState<HierarchyLevelDefinition[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [branchTypeKey, setBranchTypeKey] = useState('');
+  const [label, setLabel] = useState('');
+  const [allowedParentTypeKeys, setAllowedParentTypeKeys] = useState<string[]>([]);
+  const [allowedChildTypeKeys, setAllowedChildTypeKeys] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    const [typesRes, rulesRes] = await Promise.all([
+      configApi.listByNamespace(TENANT_SLUG, 'branch_type'),
+      hierarchyLevelsApi.list(TENANT_SLUG),
+    ]);
+    if (typesRes.success && typesRes.data) {
+      setBranchTypes(typesRes.data.map((t: { key: string; label: string }) => ({ key: t.key, label: t.label })));
+    }
+    if (rulesRes.success && rulesRes.data) setRules(rulesRes.data);
+    else setError(rulesRes.error?.message ?? 'Could not load hierarchy rules.');
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  function toggleKey(list: string[], setList: (v: string[]) => void, key: string) {
+    setList(list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
+  }
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!branchTypeKey || !label.trim()) return;
+    setSaving(true);
+    setError(null);
+    const res = await hierarchyLevelsApi.create(TENANT_SLUG, {
+      branchTypeKey,
+      label: label.trim(),
+      allowedParentTypeKeys,
+      allowedChildTypeKeys,
+    });
+    if (res.success) {
+      setBranchTypeKey('');
+      setLabel('');
+      setAllowedParentTypeKeys([]);
+      setAllowedChildTypeKeys([]);
+      load();
+    } else {
+      setError(res.error?.message ?? 'Could not create the rule.');
+    }
+    setSaving(false);
+  }
+
+  async function handleDelete(rule: HierarchyLevelDefinition) {
+    if (!confirm(`Remove the nesting rule for "${rule.label}"? That branch type goes back to unconstrained nesting.`)) return;
+    const res = await hierarchyLevelsApi.remove(TENANT_SLUG, rule.id);
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not remove the rule.');
+  }
+
+  function typeLabel(key: string): string {
+    return branchTypes.find((t) => t.key === key)?.label ?? key;
+  }
+
+  return (
+    <div className="mt-10">
+      <header className="mb-4">
+        <h2 className="font-serif text-xl text-[#1E2A44]">Hierarchy level rules</h2>
+        <p className="text-sm text-slate-500 mt-1 max-w-xl">
+          Optional — constrain which branch types can nest under which. A type with no rule here stays
+          unconstrained, exactly as before. Types come from{' '}
+          <span className="font-medium">Configuration &rarr; Lookup Values &rarr; Branch Types</span>.
+        </p>
+      </header>
+
+      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">{error}</div>}
+
+      <div className="grid md:grid-cols-[1fr_1.3fr] gap-6">
+        <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-4 h-fit space-y-3">
+          {branchTypes.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              No branch types defined yet — add some under Configuration &rarr; Lookup Values &rarr; Branch Types first.
+            </p>
+          ) : (
+            <>
+              <div>
+                <Label className="mb-1 text-slate-600">Branch type</Label>
+                <select
+                  value={branchTypeKey}
+                  onChange={(e) => {
+                    setBranchTypeKey(e.target.value);
+                    if (!label) setLabel(typeLabel(e.target.value));
+                  }}
+                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
+                >
+                  <option value="">— Select —</option>
+                  {branchTypes.map((t) => (
+                    <option key={t.key} value={t.key}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="rule-label" className="mb-1 text-slate-600">
+                  Label
+                </Label>
+                <Input id="rule-label" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. District" />
+              </div>
+              <div>
+                <Label className="mb-1 text-slate-600">Allowed parent types (empty = any)</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {branchTypes.filter((t) => t.key !== branchTypeKey).map((t) => (
+                    <button
+                      type="button"
+                      key={t.key}
+                      onClick={() => toggleKey(allowedParentTypeKeys, setAllowedParentTypeKeys, t.key)}
+                      className={`text-xs px-2.5 py-1 rounded-full border ${
+                        allowedParentTypeKeys.includes(t.key)
+                          ? 'bg-[#1E2A44] text-white border-[#1E2A44]'
+                          : 'border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Label className="mb-1 text-slate-600">Allowed child types (empty = any)</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {branchTypes.filter((t) => t.key !== branchTypeKey).map((t) => (
+                    <button
+                      type="button"
+                      key={t.key}
+                      onClick={() => toggleKey(allowedChildTypeKeys, setAllowedChildTypeKeys, t.key)}
+                      className={`text-xs px-2.5 py-1 rounded-full border ${
+                        allowedChildTypeKeys.includes(t.key)
+                          ? 'bg-[#1E2A44] text-white border-[#1E2A44]'
+                          : 'border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Button type="submit" disabled={saving} style={{ backgroundColor: '#1E2A44' }}>
+                {saving ? 'Saving…' : 'Add rule'}
+              </Button>
+            </>
+          )}
+        </form>
+
+        <div className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden h-fit">
+          {loading ? (
+            <div className="px-4 py-8 text-center text-sm text-slate-400">Loading…</div>
+          ) : rules.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-slate-400">No rules defined — every branch type nests freely.</div>
+          ) : (
+            rules.map((r) => (
+              <div key={r.id} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-slate-800">{r.label}</p>
+                  <button onClick={() => handleDelete(r)} className="text-xs text-red-500 hover:underline">
+                    Remove
+                  </button>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Parents: {r.allowedParentTypeKeys.length ? r.allowedParentTypeKeys.map(typeLabel).join(', ') : 'any'}
+                </p>
+                <p className="text-xs text-slate-400">
+                  Children: {r.allowedChildTypeKeys.length ? r.allowedChildTypeKeys.map(typeLabel).join(', ') : 'any'}
+                </p>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
