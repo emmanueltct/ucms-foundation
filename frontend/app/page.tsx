@@ -27,6 +27,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { ThemeToggle } from '../components/theme-toggle';
 
 const DENOMINATIONS = [
   'Catholic',
@@ -68,24 +69,25 @@ const MODULES: { icon: LucideIcon; title: string; description: string }[] = [
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-[#F7F6F2]">
-      <header className="border-b border-slate-200/70">
+    <div className="min-h-screen bg-[#F7F6F2] dark:bg-slate-950">
+      <header className="border-b border-slate-200/70 dark:border-slate-800/70">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="h-8 w-8 rounded-full bg-[#1E2A44] flex items-center justify-center">
               <span className="text-[#C9A24B] text-sm font-serif">✝</span>
             </div>
-            <span className="font-serif text-lg text-[#1E2A44] tracking-tight">UCMS</span>
+            <span className="font-serif text-lg text-[#1E2A44] dark:text-slate-100 tracking-tight">UCMS</span>
           </div>
           <nav className="flex items-center gap-3">
-            <Link href="/login" className="text-sm text-slate-600 hover:text-[#1E2A44] transition-colors">
+            <Link href="/login" className="text-sm text-slate-600 dark:text-slate-300 hover:text-[#1E2A44] dark:hover:text-white transition-colors">
               Sign in
             </Link>
-            <Link href="/onboarding">
+            <Link href="/register">
               <Button size="sm" style={{ backgroundColor: '#1E2A44' }}>
-                Start onboarding
+                Register
               </Button>
             </Link>
+            <ThemeToggle />
           </nav>
         </div>
       </header>
@@ -108,17 +110,17 @@ export default function HomePage() {
             <p className="text-xs uppercase tracking-widest text-[#C9A24B] font-medium mb-4">
               Unified Church Management System
             </p>
-            <h1 className="font-serif text-4xl sm:text-5xl text-[#1E2A44] tracking-tight max-w-3xl mx-auto leading-tight">
+            <h1 className="font-serif text-4xl sm:text-5xl text-[#1E2A44] dark:text-slate-100 tracking-tight max-w-3xl mx-auto leading-tight">
               One platform, configured for every church
             </h1>
-            <p className="text-slate-500 mt-5 max-w-xl mx-auto text-[15px] leading-relaxed">
+            <p className="text-slate-500 dark:text-slate-400 mt-5 max-w-xl mx-auto text-[15px] leading-relaxed">
               A multi-tenant SaaS built for churches across Rwanda and East Africa — hierarchy,
               membership, finance, and attendance, each shaped by your church&rsquo;s own structure and
               workflows, never hard-coded into ours.
             </p>
             <div className="mt-8 flex items-center justify-center gap-3">
-              <Link href="/onboarding">
-                <Button style={{ backgroundColor: '#1E2A44' }}>Start onboarding</Button>
+              <Link href="/register">
+                <Button style={{ backgroundColor: '#1E2A44' }}>Register</Button>
               </Link>
               <Link href="/login">
                 <Button variant="outline">Sign in to your church</Button>
@@ -127,12 +129,12 @@ export default function HomePage() {
 
             <div className="mt-14 grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto">
               {HIGHLIGHTS.map((h) => (
-                <div key={h.label} className="rounded-xl border border-slate-200 bg-white/80 backdrop-blur-sm px-5 py-4">
-                  <div className="mx-auto mb-2 h-9 w-9 rounded-full bg-[#1E2A44]/5 flex items-center justify-center">
-                    <h.icon className="h-4 w-4 text-[#1E2A44]" strokeWidth={2} />
+                <div key={h.label} className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 backdrop-blur-sm px-5 py-4">
+                  <div className="mx-auto mb-2 h-9 w-9 rounded-full bg-[#1E2A44]/5 dark:bg-white/5 flex items-center justify-center">
+                    <h.icon className="h-4 w-4 text-[#1E2A44] dark:text-slate-300" strokeWidth={2} />
                   </div>
-                  <p className="font-serif text-2xl text-[#1E2A44]">{h.stat}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{h.label}</p>
+                  <p className="font-serif text-2xl text-[#1E2A44] dark:text-slate-100">{h.stat}</p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{h.label}</p>
                 </div>
               ))}
             </div>
@@ -140,7 +142,7 @@ export default function HomePage() {
         </section>
 
         <section className="max-w-4xl mx-auto px-6 pb-16">
-          <p className="text-center text-xs uppercase tracking-wide text-slate-400 mb-4 flex items-center justify-center gap-1.5">
+          <p className="text-center text-xs uppercase tracking-wide text-slate-400 dark:text-slate-500 mb-4 flex items-center justify-center gap-1.5">
             <Globe className="h-3.5 w-3.5" strokeWidth={2} />
             Built for every denomination
           </p>
@@ -148,7 +150,7 @@ export default function HomePage() {
             {DENOMINATIONS.map((d) => (
               <span
                 key={d}
-                className="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-600"
+                className="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300"
               >
                 {d}
               </span>
@@ -158,8 +160,8 @@ export default function HomePage() {
 
         <section className="max-w-6xl mx-auto px-6 pb-24">
           <div className="text-center mb-10">
-            <h2 className="font-serif text-2xl text-[#1E2A44]">What&rsquo;s live today</h2>
-            <p className="text-sm text-slate-500 mt-2">
+            <h2 className="font-serif text-2xl text-[#1E2A44] dark:text-slate-100">What&rsquo;s live today</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
               Built module by module — each one production-ready before the next begins.
             </p>
           </div>
@@ -167,21 +169,21 @@ export default function HomePage() {
             {MODULES.map((m) => (
               <div
                 key={m.title}
-                className="rounded-xl border border-slate-200 bg-white p-4 hover:border-[#1E2A44]/30 hover:shadow-sm transition-all"
+                className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 hover:border-[#1E2A44]/30 dark:hover:border-slate-600 hover:shadow-sm transition-all"
               >
-                <div className="h-9 w-9 rounded-lg bg-[#1E2A44]/5 flex items-center justify-center mb-3">
-                  <m.icon className="h-4 w-4 text-[#1E2A44]" strokeWidth={2} />
+                <div className="h-9 w-9 rounded-lg bg-[#1E2A44]/5 dark:bg-white/5 flex items-center justify-center mb-3">
+                  <m.icon className="h-4 w-4 text-[#1E2A44] dark:text-slate-300" strokeWidth={2} />
                 </div>
-                <h3 className="font-serif text-[15px] text-[#1E2A44] mb-1">{m.title}</h3>
-                <p className="text-xs text-slate-500 leading-relaxed">{m.description}</p>
+                <h3 className="font-serif text-[15px] text-[#1E2A44] dark:text-slate-100 mb-1">{m.title}</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">{m.description}</p>
               </div>
             ))}
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-slate-200/70">
-        <div className="max-w-6xl mx-auto px-6 py-8 text-center text-xs text-slate-400">
+      <footer className="border-t border-slate-200/70 dark:border-slate-800/70">
+        <div className="max-w-6xl mx-auto px-6 py-8 text-center text-xs text-slate-400 dark:text-slate-500">
           UCMS — a configurable, multi-tenant church management platform. No tenant&rsquo;s data,
           branding, or configuration is ever visible to another.
         </div>

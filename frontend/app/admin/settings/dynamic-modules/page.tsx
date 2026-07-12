@@ -28,6 +28,7 @@ import {
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
+import { IconPicker } from '../../../../components/icon-picker';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -237,8 +238,8 @@ export default function DynamicModulesAdminPage() {
               />
             </div>
             <div>
-              <Label htmlFor="dm-icon" className="mb-1 text-slate-600">Icon name (optional)</Label>
-              <Input id="dm-icon" value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="clipboard-list" />
+              <Label htmlFor="dm-icon" className="mb-1 text-slate-600">Icon (optional)</Label>
+              <IconPicker id="dm-icon" value={icon} onChange={setIcon} />
             </div>
             <div className="sm:col-span-2 lg:col-span-3">
               <Label htmlFor="dm-description" className="mb-1 text-slate-600">Description (optional)</Label>

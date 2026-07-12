@@ -10,7 +10,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={cn('font-sans', GeistSans.variable)}>
+    <html lang="en" className={cn('font-sans', GeistSans.variable)} suppressHydrationWarning>
+      <head>
+        <script
+          // Sets the .dark class before first paint so there's no light-mode
+          // flash for users who previously chose (or whose OS prefers) dark mode.
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem('theme');var d=window.matchMedia('(prefers-color-scheme: dark)').matches;if(s==='dark'||(!s&&d)){document.documentElement.classList.add('dark');}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );
