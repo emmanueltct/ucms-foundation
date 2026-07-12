@@ -4,6 +4,8 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { AssignRolesDto } from './dto/assign-roles.dto';
+import { LockUserDto } from './dto/lock-user.dto';
+import { MoveDepartmentDto } from './dto/move-department.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -18,11 +20,13 @@ import { AuthenticatedUser } from '../common/interfaces/request-context.interfac
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @ApiOperation({ summary: 'Create a user within the current tenant' })
-  @Permissions('user.create')
+  @ApiOperation({
+    summary:
+      "Create a user within the current tenant — either a caller with user.create (any user, any branch), or a Branch Administrator registering a user into a branch they administer",
+  })
   @Post()
-  async create(@CurrentTenantId() tenantId: string, @Body() dto: CreateUserDto) {
-    return ok(await this.usersService.create(tenantId, dto));
+  async create(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Body() dto: CreateUserDto) {
+    return ok(await this.usersService.create(tenantId, dto, user));
   }
 
   @ApiOperation({ summary: 'List users (paginated, searchable)' })
@@ -61,18 +65,22 @@ export class UsersController {
     return ok(await this.usersService.assignRoles(tenantId, id, dto.roleIds, user));
   }
 
-  @ApiOperation({ summary: 'Disable login for a user' })
-  @Permissions('user.update')
+  @ApiOperation({
+    summary:
+      'Disable login for a user — either a caller with user.update, or a Department Leader acting on staff within their own department',
+  })
   @Patch(':id/deactivate')
-  async deactivate(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
-    return ok(await this.usersService.deactivate(tenantId, id));
+  async deactivate(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return ok(await this.usersService.deactivate(tenantId, id, user));
   }
 
-  @ApiOperation({ summary: 'Re-enable login for a user — also doubles as "force account activation" when a user is otherwise stuck' })
-  @Permissions('user.update')
+  @ApiOperation({
+    summary:
+      'Re-enable login for a user (also doubles as "force account activation") — either a caller with user.update, or a Department Leader acting on staff within their own department',
+  })
   @Patch(':id/activate')
-  async activate(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
-    return ok(await this.usersService.activate(tenantId, id));
+  async activate(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return ok(await this.usersService.activate(tenantId, id, user));
   }
 
   @ApiOperation({ summary: "Admin override: mark a user's email verified without the token flow (for when email verification is unavailable)" })
@@ -84,12 +92,45 @@ export class UsersController {
 
   @ApiOperation({
     summary:
-      'Admin-forced password reset — generates a fresh one-time temporary password (share it out of band) and revokes the user\'s active sessions, for when they\'re locked out and the self-service forgot-password email is unavailable',
+      'Admin-forced password reset — generates a fresh one-time temporary password (share it out of band) and revokes the user\'s active sessions, for when they\'re locked out and the self-service forgot-password email is unavailable. Either a caller with user.update, or a Department Leader acting on staff within their own department.',
   })
-  @Permissions('user.update')
   @Patch(':id/force-reset-password')
   async forcePasswordReset(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
-    return ok(await this.usersService.forcePasswordReset(tenantId, id, user.userId));
+    return ok(await this.usersService.forcePasswordReset(tenantId, id, user));
+  }
+
+  @ApiOperation({
+    summary:
+      'Lock a user account (a security hold, distinct from deactivating) — signs out every active session immediately. Either a caller with user.update, or a Department Leader acting on staff within their own department.',
+  })
+  @Patch(':id/lock')
+  async lock(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: LockUserDto,
+  ) {
+    return ok(await this.usersService.lock(tenantId, id, dto.reason, user));
+  }
+
+  @ApiOperation({ summary: 'Unlock a previously locked user account' })
+  @Patch(':id/unlock')
+  async unlock(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return ok(await this.usersService.unlock(tenantId, id, user));
+  }
+
+  @ApiOperation({
+    summary:
+      'Move a user to a different department (or clear their department assignment). Either a caller with user.update, or a Department Leader moving staff out of their own department.',
+  })
+  @Patch(':id/department')
+  async moveDepartment(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: MoveDepartmentDto,
+  ) {
+    return ok(await this.usersService.moveDepartment(tenantId, id, dto.departmentRecordId ?? null, user));
   }
 
   @ApiOperation({ summary: 'Soft-delete a user' })

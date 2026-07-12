@@ -71,4 +71,20 @@ describe('TenantProfileService', () => {
       expect(result).toBe(onboardedTenant);
     });
   });
+
+  describe('updateSystemSettings', () => {
+    it('rejects when the tenant cannot be found', async () => {
+      mockPrisma.tenant.findFirst.mockResolvedValue(null);
+      await expect(service.updateSystemSettings(TENANT_ID, { currency: 'USD' })).rejects.toThrow(NotFoundException);
+    });
+
+    it('updates whichever of currency/language/timezone were provided', async () => {
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: TENANT_ID });
+      mockPrisma.tenant.update.mockResolvedValue({ id: TENANT_ID, currency: 'USD', language: 'en', timezone: 'Africa/Kigali' });
+
+      await service.updateSystemSettings(TENANT_ID, { currency: 'USD' });
+
+      expect(mockPrisma.tenant.update).toHaveBeenCalledWith({ where: { id: TENANT_ID }, data: { currency: 'USD' } });
+    });
+  });
 });

@@ -43,18 +43,23 @@ The actors most relevant here:
   `recipientMemberId` — so a notification's history stays accurate even if the member's contact
   info changes afterward, the same reasoning `Contribution.currency` already established for
   "capture a fact at the time it happened, don't make history float."
-- **Real gateway delivery is an explicitly documented stub, not a partial implementation.**
-  `NotificationsProcessor` logs the job and flips `Notification.status`, but does not call any
-  actual SMS/Email/Push provider — there are no MTN-style/Twilio/SES/FCM credentials available in
-  this environment. This mirrors the Foundation module's precedent for Finance's payment-gateway
-  integration and Module 1's onboarding-password delivery: the *pipeline* is real and fully
-  wired, the *last-mile* dispatch is a swappable stub.
+- **Email delivery is real once SMTP credentials are configured; SMS/push remain a documented
+  stub.** `NotificationsProcessor` sends a real message via `nodemailer` for `channel: "email"`
+  whenever `SMTP_HOST` is set (see `.env.example`) — any standard SMTP provider works (Gmail, SES
+  SMTP, SendGrid SMTP, Mailgun, a church's own mail server). Without `SMTP_HOST` configured, email
+  falls back to the original log-and-mark-sent stub, so a fresh checkout with no mail credentials
+  keeps working exactly as before. SMS and push still have no equivalent gateway credentials in
+  this environment (no MTN-style/Twilio/FCM account), so those two channels always use the stub.
+  This mirrors the Foundation module's precedent for Finance's payment-gateway integration and
+  Module 1's onboarding-password delivery: the *pipeline* is real and fully wired; the last-mile
+  dispatch is swappable per channel, and email's is now swapped in.
 
 ## 4. Out of Scope for This Module
 
-- **Real gateway integration** (MTN MoMo/Airtel-style SMS, SES/SMTP email, FCM/APNs push) — the
-  `NotificationsProcessor.process` method is the single, intentional seam where a real
-  implementation replaces the log statement; nothing else in this module needs to change.
+- **Real SMS/push gateway integration** (MTN MoMo/Airtel-style SMS, FCM/APNs push) — email's
+  dispatch seam in `NotificationsProcessor.process` is now real; SMS/push are the same
+  intentional seam, just not yet wired to a provider (no credentials available in this
+  environment).
 - **Push device-token registry** — there's no `DeviceToken` model yet tying a member to their
   phone's push token, so `channel: "push"` always requires an explicit `recipient` today. A
   future Mobile API module registering tokens per member/device would let push resolve the same

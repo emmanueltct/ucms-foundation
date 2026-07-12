@@ -11,9 +11,11 @@ data that already exists in those modules — it introduces no new system of rec
 
 This is Module 9 — it depends on Finance (Module 3), Attendance (Module 4), Member & Family
 Management (Module 2), Events (Module 7), HR & Payroll (Module 8), Ministry & Volunteer
-Management (Module 5), Small Groups (Module 13), and Member Activities (Module 14) as data
-sources, but none of those modules depend on it. Deleting this module entirely would not
-affect any other module's correctness; it only reads.
+Management (Module 5), Small Groups (Module 13), Member Activities (Module 14), and (as of
+§15's Form Submissions report and cross-record status-history endpoint) the Dynamic Module
+engine's `DynamicModuleRecord`/`DynamicModuleRecordStatusHistory` tables, as data sources —
+none of those modules depend on it. Deleting this module entirely would not affect any other
+module's correctness; it only reads.
 
 `GET /reports/members/:id/activity-history` (added alongside Module 14) is the one endpoint
 here that reports on a single record rather than a tenant-wide trend — see
@@ -57,13 +59,25 @@ The actor most relevant here:
   A raw "new members per month" chart alone can't answer "how big is the church now" without
   the reader doing mental arithmetic; `cumulativeActive` on each month's bucket answers both
   questions from one series.
-- **An export re-serializes an existing summary — it never re-queries.** Each of the four
+- **An export re-serializes an existing summary — it never re-queries.** Each of the five
   summary endpoints has a `.../export` sibling that calls the exact same service method as its
   JSON counterpart and hands the resulting buckets to `common/exports/export.util.ts` for
   CSV/XLSX/PDF serialization. This is the one place this module's "no new Prisma models" rule
   meets a genuinely new dependency: CSV is written by hand, but XLSX (`exceljs`) and PDF
   (`pdfkit`) would be a much larger undertaking to hand-roll than either library is worth
   pulling in. See design decision #35 in the root [README.md](../../README.md).
+- **Form Submissions (§15) buckets `DynamicModuleRecord` rows the same way every other summary
+  buckets its own rows** — by month and by a key (here, `status`, since every tenant defines its
+  own `DynamicModuleDefinition.statuses`, there's no fixed enum to bucket by instead). It always
+  scopes to one `moduleDefinitionId` (a report only makes sense for one form at a time); "restrict
+  to one department" is expressed with the record's own `attachedToEntityType`/
+  `attachedToEntityId` columns (already used to attach a submission to an org unit) rather than
+  a new "department" column — no schema change was needed.
+- **The audit-trail requirement is a filtered read over the already-existing
+  `DynamicModuleRecordStatusHistory` table**, not a new audit mechanism. `GET
+  /reports/status-history` filters by module, record, changed-by user, and date range, capped at
+  500 rows (the same "most recent window" tradeoff every other export/listing endpoint in this
+  codebase makes rather than requiring pagination for what's fundamentally a spot-check tool).
 
 ## 4. Out of Scope for This Module
 

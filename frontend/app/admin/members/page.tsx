@@ -18,11 +18,13 @@ import {
   Family,
   CustomFieldDefinition,
   MemberActivityHistory,
+  isAccessDeniedResponse,
 } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import { DynamicCustomFields } from '../../../components/dynamic-custom-fields';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church'; // in production this comes from the resolved workspace/domain
 
@@ -50,6 +52,7 @@ export default function MembersAdminPage() {
   const [families, setFamilies] = useState<Family[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('');
@@ -120,6 +123,10 @@ export default function MembersAdminPage() {
         customFieldDefinitionsApi.list(TENANT_SLUG, { entityType: 'member' }),
         configApi.listByNamespace(TENANT_SLUG, 'member_activity_type'),
       ]);
+      if (isAccessDeniedResponse(membersRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (membersRes.success && membersRes.data) setMembers(membersRes.data);
       else setError(membersRes.error?.message ?? 'Could not load members.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
@@ -256,6 +263,8 @@ export default function MembersAdminPage() {
     if (!id) return '—';
     return families.find((f) => f.id === id)?.name ?? '—';
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

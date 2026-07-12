@@ -2,10 +2,15 @@
 
 // app/admin/settings/page.tsx
 // The Configuration Center — one place linking out to every admin
-// configuration surface (Branches, Dynamic Modules, Custom Fields, Lookup
-// Values, Security), plus two tabs that live directly here: Branding and
-// the Audit Log viewer. Existing settings pages keep their own URLs (no
-// links break) — this is a navigational hub, not a relocation.
+// configuration surface (§4): Modules, Dynamic Modules, Custom Fields, Form
+// Builder, Entity Builder, Dropdown Values, Lookup Tables, Organizational
+// Structure, Departments, Ministries, Roles & Permissions, Security
+// Settings, Branding, Reports, Workflows, Notification Templates, and
+// System Settings — plus Users and Menu Builder, which predate that list
+// and stay available below it. Branding/Notification Templates/Audit
+// Log/Numbering Sequences/Trash/Guest Access render as tabs directly on
+// this page; everything else is a Link to its own existing route — no
+// links break, this is a navigational hub, not a relocation.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -13,7 +18,6 @@ import {
   Building2,
   ListPlus,
   Puzzle,
-  ShieldCheck,
   SlidersHorizontal,
   Palette,
   ScrollText,
@@ -26,6 +30,13 @@ import {
   Trash2,
   Briefcase,
   Globe,
+  Lock,
+  LayoutGrid,
+  FormInput,
+  ListTree,
+  HeartHandshake,
+  BarChart3,
+  Settings2,
 } from 'lucide-react';
 import {
   auditLogsApi,
@@ -46,20 +57,50 @@ import {
   DynamicModuleDefinition,
 } from '../../../lib/api';
 
-const SECTIONS = [
-  { href: '/admin/branches', label: 'Branches', description: 'Organizational hierarchy — the church tree.', icon: Building2 },
-  { href: '/admin/settings/roles', label: 'Roles & Permissions', description: 'Custom roles and what each can do.', icon: KeyRound },
-  { href: '/admin/settings/users', label: 'Users', description: 'Assign roles and branch scope per user.', icon: Users },
-  { href: '/admin/settings/departments', label: 'Departments', description: 'Finance, HR, or any custom department — with assigned resources.', icon: Briefcase },
-  { href: '/admin/settings/dynamic-modules', label: 'Dynamic Modules', description: 'Create no-code modules and entities.', icon: Puzzle },
-  { href: '/admin/settings/workflows', label: 'Workflow Builder', description: 'Ordered approval chains for anything.', icon: Workflow },
-  { href: '/admin/settings/menus', label: 'Menu Builder', description: 'Configure navigation without code.', icon: MenuIcon },
-  { href: '/admin/settings/custom-fields', label: 'Form Builder', description: 'Custom fields for any record type.', icon: ListPlus },
-  { href: '/admin/config', label: 'Lookup Values', description: 'Ministries, categories, and other tenant-defined lists.', icon: SlidersHorizontal },
-  { href: '/admin/settings/security', label: 'Security', description: 'Sessions, devices, and login history.', icon: ShieldCheck },
-];
-
 type Tab = 'overview' | 'branding' | 'audit' | 'templates' | 'sequences' | 'trash' | 'guestAccess';
+
+interface Section {
+  label: string;
+  description: string;
+  icon: typeof Building2;
+  href?: string;
+  tab?: Tab;
+}
+
+/**
+ * The §4 target list — Modules, Dynamic Modules, Custom Fields, Form
+ * Builder, Entity Builder, Dropdown Values, Lookup Tables, Organizational
+ * Structure, Departments, Ministries, Roles & Permissions, Security
+ * Settings, Branding, Reports, Workflows, Notification Templates, System
+ * Settings — in that order, each reusing an existing page/tab wherever one
+ * already covers it (only Modules, Entity Builder, Lookup Tables, and
+ * System Settings are new routes — see
+ * docs/dynamic-modules/business-analysis.md for why Entity Builder/Lookup
+ * Tables are thin landing pages rather than new mechanisms). Users and Menu
+ * Builder aren't part of the §4 list but stay listed below it — nothing
+ * that already worked is removed.
+ */
+const SECTIONS: Section[] = [
+  { href: '/admin/settings/modules', label: 'Modules', description: 'Every Dynamic Module this church has, built-in or custom.', icon: LayoutGrid },
+  { href: '/admin/settings/dynamic-modules', label: 'Dynamic Modules', description: 'Create no-code modules and entities.', icon: Puzzle },
+  { href: '/admin/settings/custom-fields', label: 'Custom Fields', description: 'Custom fields for any record type.', icon: ListPlus },
+  { href: '/admin/settings/custom-fields', label: 'Form Builder', description: 'Design forms, reports, and approval flows — no code.', icon: FormInput },
+  { href: '/admin/settings/entity-builder', label: 'Entity Builder', description: 'Model a new kind of record this church wants to track.', icon: Settings2 },
+  { href: '/admin/config', label: 'Dropdown Values', description: 'Ministries, categories, and other tenant-defined lists.', icon: SlidersHorizontal },
+  { href: '/admin/settings/lookup-tables', label: 'Lookup Tables', description: 'Named lists of allowed values used across forms.', icon: ListTree },
+  { href: '/admin/branches', label: 'Organizational Structure', description: 'The church tree — branches and sub-branches, any depth.', icon: Building2 },
+  { href: '/admin/settings/departments', label: 'Departments', description: 'Finance, HR, or any custom department — with assigned resources.', icon: Briefcase },
+  { href: '/admin/ministries', label: 'Ministries', description: 'Choirs, outreach teams, and other ministries.', icon: HeartHandshake },
+  { href: '/admin/settings/roles', label: 'Roles & Permissions', description: 'Custom roles and what each can do.', icon: KeyRound },
+  { href: '/admin/settings/security-settings', label: 'Security Settings', description: 'Session/token expiration, inactivity auto-logout, and max concurrent sessions for this church.', icon: Lock },
+  { tab: 'branding', label: 'Branding', description: 'Logo, theme colors, and custom domain.', icon: Palette },
+  { href: '/admin/reports', label: 'Reports', description: 'Trends, exports, and form submission analytics.', icon: BarChart3 },
+  { href: '/admin/settings/workflows', label: 'Workflows', description: 'Ordered approval chains for anything.', icon: Workflow },
+  { tab: 'templates', label: 'Notification Templates', description: 'Reusable email/SMS templates for automated messages.', icon: Mail },
+  { href: '/admin/settings/system', label: 'System Settings', description: 'Default currency, language, and timezone.', icon: Globe },
+  { href: '/admin/settings/users', label: 'Users', description: 'Assign roles and branch scope per user.', icon: Users },
+  { href: '/admin/settings/menus', label: 'Menu Builder', description: 'Configure navigation without code.', icon: MenuIcon },
+];
 
 const TAB_LABELS: Record<Tab, string> = {
   overview: 'Overview',
@@ -105,17 +146,29 @@ export default function ConfigurationCenterPage() {
 
       {tab === 'overview' && (
         <div className="grid sm:grid-cols-2 gap-4">
-          {SECTIONS.map((s) => (
-            <Link
-              key={s.href}
-              href={s.href}
-              className="rounded-xl border border-slate-200 bg-white p-5 hover:border-[#1E2A44]/30 hover:shadow-sm transition-all"
-            >
-              <s.icon className="h-5 w-5 text-[#C9A24B] mb-2" />
-              <p className="text-sm font-medium text-[#1E2A44]">{s.label}</p>
-              <p className="text-xs text-slate-500 mt-1">{s.description}</p>
-            </Link>
-          ))}
+          {SECTIONS.map((s) =>
+            s.tab ? (
+              <button
+                key={s.label}
+                onClick={() => setTab(s.tab!)}
+                className="text-left rounded-xl border border-slate-200 bg-white p-5 hover:border-[#1E2A44]/30 hover:shadow-sm transition-all"
+              >
+                <s.icon className="h-5 w-5 text-[#C9A24B] mb-2" />
+                <p className="text-sm font-medium text-[#1E2A44]">{s.label}</p>
+                <p className="text-xs text-slate-500 mt-1">{s.description}</p>
+              </button>
+            ) : (
+              <Link
+                key={s.label}
+                href={s.href!}
+                className="rounded-xl border border-slate-200 bg-white p-5 hover:border-[#1E2A44]/30 hover:shadow-sm transition-all"
+              >
+                <s.icon className="h-5 w-5 text-[#C9A24B] mb-2" />
+                <p className="text-sm font-medium text-[#1E2A44]">{s.label}</p>
+                <p className="text-xs text-slate-500 mt-1">{s.description}</p>
+              </Link>
+            ),
+          )}
         </div>
       )}
 

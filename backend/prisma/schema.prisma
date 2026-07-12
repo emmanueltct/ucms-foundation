@@ -32,52 +32,54 @@ model Tenant {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  users          User[]
-  roles          Role[]
-  configItems    ConfigItem[]
-  featureToggles FeatureToggle[]
-  refreshTokens  RefreshToken[]
-  passwordResetTokens PasswordResetToken[]
-  emailVerificationTokens EmailVerificationToken[]
-  auditLogs      AuditLog[]
-  branches           Branch[]
-  members            Member[]
-  families           Family[]
-  contributions      Contribution[]
-  attendanceRecords  AttendanceRecord[]
-  ministries         Ministry[]
-  ministryMemberships MinistryMembership[]
-  notifications      Notification[]
-  customFieldDefinitions CustomFieldDefinition[]
-  customFieldValues      CustomFieldValue[]
-  events                 Event[]
-  eventRegistrations     EventRegistration[]
-  staff                  Staff[]
-  payrollPayments        PayrollPayment[]
-  assets                 Asset[]
-  visitors               Visitor[]
-  visitorGroups          VisitorGroup[]
-  visitorActivities      VisitorActivity[]
-  memberActivities       MemberActivity[]
-  documents              Document[]
-  documentVersions       DocumentVersion[]
-  smallGroups            SmallGroup[]
-  smallGroupMemberships  SmallGroupMembership[]
-  approvalWorkflows      ApprovalWorkflow[]
-  approvalSteps          ApprovalStep[]
-  approvalRequests       ApprovalRequest[]
-  deadlines              Deadline[]
-  hierarchyRequirements  HierarchyRequirement[]
-  hierarchyRequirementSubmissions HierarchyRequirementSubmission[]
-  dynamicModuleDefinitions DynamicModuleDefinition[]
-  dynamicModuleRecords   DynamicModuleRecord[]
+  users                            User[]
+  roles                            Role[]
+  configItems                      ConfigItem[]
+  featureToggles                   FeatureToggle[]
+  refreshTokens                    RefreshToken[]
+  passwordResetTokens              PasswordResetToken[]
+  emailVerificationTokens          EmailVerificationToken[]
+  securitySettings                 TenantSecuritySettings?
+  auditLogs                        AuditLog[]
+  branches                         Branch[]
+  members                          Member[]
+  families                         Family[]
+  contributions                    Contribution[]
+  attendanceRecords                AttendanceRecord[]
+  ministries                       Ministry[]
+  ministryMemberships              MinistryMembership[]
+  notifications                    Notification[]
+  customFieldDefinitions           CustomFieldDefinition[]
+  customFieldValues                CustomFieldValue[]
+  events                           Event[]
+  eventRegistrations               EventRegistration[]
+  staff                            Staff[]
+  payrollPayments                  PayrollPayment[]
+  assets                           Asset[]
+  visitors                         Visitor[]
+  visitorGroups                    VisitorGroup[]
+  visitorActivities                VisitorActivity[]
+  memberActivities                 MemberActivity[]
+  documents                        Document[]
+  documentVersions                 DocumentVersion[]
+  smallGroups                      SmallGroup[]
+  smallGroupMemberships            SmallGroupMembership[]
+  approvalWorkflows                ApprovalWorkflow[]
+  approvalSteps                    ApprovalStep[]
+  approvalRequests                 ApprovalRequest[]
+  deadlines                        Deadline[]
+  hierarchyRequirements            HierarchyRequirement[]
+  hierarchyRequirementSubmissions  HierarchyRequirementSubmission[]
+  dynamicModuleDefinitions         DynamicModuleDefinition[]
+  dynamicModuleRecords             DynamicModuleRecord[]
   dynamicModuleRecordStatusHistory DynamicModuleRecordStatusHistory[]
-  entityMemberships      EntityMembership[]
-  menuItems              MenuItem[]
-  notificationTemplates  NotificationTemplate[]
-  numberingSequences     NumberingSequence[]
-  hierarchyLevelDefinitions HierarchyLevelDefinition[]
-  resourceAssignments    ResourceAssignment[]
+  entityMemberships                EntityMembership[]
+  menuItems                        MenuItem[]
+  notificationTemplates            NotificationTemplate[]
+  numberingSequences               NumberingSequence[]
+  hierarchyLevelDefinitions        HierarchyLevelDefinition[]
+  resourceAssignments              ResourceAssignment[]
+  leadershipAppointments           LeadershipAppointment[]
 
   @@map("tenants")
 }
@@ -92,14 +94,14 @@ model Tenant {
 /// which this is intentionally absent from) and authenticates through its
 /// own login endpoint (PlatformAuthController) rather than AuthService.
 model PlatformAdmin {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  passwordHash String    @map("password_hash")
-  firstName    String    @map("first_name")
-  lastName     String    @map("last_name")
-  isActive     Boolean   @default(true) @map("is_active")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@map("platform_admins")
 }
@@ -108,59 +110,77 @@ model PlatformAdmin {
 // USERS
 // ----------------------------------------------------------------------------
 model User {
-  id           String    @id @default(uuid())
-  tenantId     String    @map("tenant_id")
-  tenant       Tenant    @relation(fields: [tenantId], references: [id])
-  email        String
-  passwordHash String    @map("password_hash")
-  firstName    String    @map("first_name")
-  lastName     String    @map("last_name")
-  phone        String?
-  isActive     Boolean   @default(true) @map("is_active")
-  mfaEnabled   Boolean   @default(false) @map("mfa_enabled")
-  mfaSecret    String?   @map("mfa_secret")
-  emailVerifiedAt DateTime? @map("email_verified_at")
-  lastLoginAt  DateTime? @map("last_login_at")
+  id                         String               @id @default(uuid())
+  tenantId                   String               @map("tenant_id")
+  tenant                     Tenant               @relation(fields: [tenantId], references: [id])
+  email                      String
+  passwordHash               String               @map("password_hash")
+  firstName                  String               @map("first_name")
+  lastName                   String               @map("last_name")
+  phone                      String?
+  isActive                   Boolean              @default(true) @map("is_active")
+  /// A security hold, distinct from `isActive` (a business deactivation) —
+  /// either, both, or neither may apply to a user. Enforced at login,
+  /// refresh, and on every authenticated request (see AuthService/
+  /// JwtStrategy), so locking mid-session ends it on the very next use, not
+  /// just at the next fresh login. Set/cleared via UsersService.lock/unlock.
+  lockedAt                   DateTime?            @map("locked_at")
+  lockedReason               String?              @map("locked_reason")
+  mfaEnabled                 Boolean              @default(false) @map("mfa_enabled")
+  mfaSecret                  String?              @map("mfa_secret")
+  emailVerifiedAt            DateTime?            @map("email_verified_at")
+  lastLoginAt                DateTime?            @map("last_login_at")
   /// Which branch/level this user is assigned to for organizational-visibility
   /// roll-up (see BranchScopeService) — null means unrestricted (church-wide
   /// staff/admin), the default and the only behavior for every tenant that
   /// doesn't opt into per-branch user assignment, so existing single-branch
   /// or flat churches are entirely unaffected.
-  assignedBranchId String? @map("assigned_branch_id")
-  assignedBranch   Branch? @relation("UserAssignedBranch", fields: [assignedBranchId], references: [id])
+  assignedBranchId           String?              @map("assigned_branch_id")
+  assignedBranch             Branch?              @relation("UserAssignedBranch", fields: [assignedBranchId], references: [id])
   /// Mirrors `assignedBranchId` exactly, but for Departments (Phase 6) —
   /// see DepartmentScopeService. Branch and Department scope are
   /// independent, not hierarchical: a user can have either, both, or
   /// neither. null means unrestricted for department-scoped visibility too.
-  assignedDepartmentRecordId String? @map("assigned_department_record_id")
+  assignedDepartmentRecordId String?              @map("assigned_department_record_id")
   assignedDepartmentRecord   DynamicModuleRecord? @relation("UserAssignedDepartmentRecord", fields: [assignedDepartmentRecordId], references: [id])
   /// "leader" | "staff" — only meaningful when assignedDepartmentRecordId is set.
-  departmentRole   String?   @map("department_role")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-  deletedAt    DateTime? @map("deleted_at")
+  departmentRole             String?              @map("department_role")
+  /// A ConfigItem key in namespace "user_category" (e.g. "staff", "volunteer",
+  /// "leader") — used by EligibilityResolverService (§13) to resolve which
+  /// dynamic-module forms/reports a user is eligible for by user-category
+  /// assignment, alongside branch/department/leadership scope. Members/
+  /// Visitors/Guests are deliberately not user categories here — they aren't
+  /// `User` rows at all, and are served by the existing public/guest
+  /// submission mechanism instead. Nullable/unset by default so no existing
+  /// tenant is affected until it opts in.
+  userCategory               String?              @map("user_category")
+  createdAt                  DateTime             @default(now()) @map("created_at")
+  updatedAt                  DateTime             @updatedAt @map("updated_at")
+  deletedAt                  DateTime?            @map("deleted_at")
 
-  userRoles             UserRole[]
-  refreshTokens         RefreshToken[]
-  passwordResetTokens   PasswordResetToken[]
-  emailVerificationTokens EmailVerificationToken[]
-  auditLogs             AuditLog[]
-  recordedContributions Contribution[]     @relation("ContributionRecordedBy")
-  voidedContributions   Contribution[]     @relation("ContributionVoidedBy")
-  recordedAttendance    AttendanceRecord[] @relation("AttendanceRecordedBy")
-  createdNotifications  Notification[]     @relation("NotificationCreatedBy")
-  paidPayrollPayments     PayrollPayment[] @relation("PayrollPaymentPaidBy")
-  cancelledPayrollPayments PayrollPayment[] @relation("PayrollPaymentCancelledBy")
-  assignedVisitors        Visitor[]        @relation("VisitorAssignedTo")
-  assignedVisitorGroups   VisitorGroup[]   @relation("VisitorGroupAssignedTo")
-  performedVisitorActivities VisitorActivity[] @relation("VisitorActivityPerformedBy")
-  performedMemberActivities MemberActivity[] @relation("MemberActivityPerformedBy")
-  uploadedDocuments       Document[]       @relation("DocumentUploadedBy")
-  replacedDocumentVersions DocumentVersion[] @relation("DocumentVersionReplacedBy")
-  extendedDeadlines       Deadline[]       @relation("DeadlineExtendedBy")
-  submittedHierarchyRequirements HierarchyRequirementSubmission[]
-  createdDynamicModuleRecords DynamicModuleRecord[] @relation("DynamicModuleRecordCreatedBy")
+  userRoles                          UserRole[]
+  refreshTokens                      RefreshToken[]
+  passwordResetTokens                PasswordResetToken[]
+  emailVerificationTokens            EmailVerificationToken[]
+  auditLogs                          AuditLog[]
+  recordedContributions              Contribution[]                     @relation("ContributionRecordedBy")
+  voidedContributions                Contribution[]                     @relation("ContributionVoidedBy")
+  recordedAttendance                 AttendanceRecord[]                 @relation("AttendanceRecordedBy")
+  createdNotifications               Notification[]                     @relation("NotificationCreatedBy")
+  receivedNotifications              Notification[]                     @relation("NotificationRecipient")
+  paidPayrollPayments                PayrollPayment[]                   @relation("PayrollPaymentPaidBy")
+  cancelledPayrollPayments           PayrollPayment[]                   @relation("PayrollPaymentCancelledBy")
+  assignedVisitors                   Visitor[]                          @relation("VisitorAssignedTo")
+  assignedVisitorGroups              VisitorGroup[]                     @relation("VisitorGroupAssignedTo")
+  performedVisitorActivities         VisitorActivity[]                  @relation("VisitorActivityPerformedBy")
+  performedMemberActivities          MemberActivity[]                   @relation("MemberActivityPerformedBy")
+  uploadedDocuments                  Document[]                         @relation("DocumentUploadedBy")
+  replacedDocumentVersions           DocumentVersion[]                  @relation("DocumentVersionReplacedBy")
+  extendedDeadlines                  Deadline[]                         @relation("DeadlineExtendedBy")
+  submittedHierarchyRequirements     HierarchyRequirementSubmission[]
+  createdDynamicModuleRecords        DynamicModuleRecord[]              @relation("DynamicModuleRecordCreatedBy")
   changedDynamicModuleRecordStatuses DynamicModuleRecordStatusHistory[] @relation("DynamicModuleRecordStatusChangedBy")
+  leadershipAppointments             LeadershipAppointment[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -254,6 +274,12 @@ model RefreshToken {
   expiresAt  DateTime  @map("expires_at")
   revokedAt  DateTime? @map("revoked_at")
   replacedBy String?   @map("replaced_by")
+  /// Set to "now" whenever this row is created and never touched again after
+  /// that — it's the anchor `AuthService.refresh` measures a tenant's
+  /// configurable `inactivityLogoutMinutes` against before rotating into the
+  /// next token in the chain. Nullable only because rows created before this
+  /// column existed have no value; treated the same as `createdAt` in that case.
+  lastUsedAt DateTime? @map("last_used_at")
   createdAt  DateTime  @default(now()) @map("created_at")
 
   @@index([userId])
@@ -301,6 +327,31 @@ model EmailVerificationToken {
   @@index([tenantId])
   @@index([userId])
   @@map("email_verification_tokens")
+}
+
+/// A Denomination Admin's overrides of this tenant's session/token security
+/// defaults (Configuration Center > Security Settings) — at most one row per
+/// tenant. Every field is nullable and a missing row is entirely normal (every
+/// existing tenant has none post-migration): `SecuritySettingsService.getEffective`
+/// falls back to today's hardcoded `AuthService` constants field-by-field, so
+/// no tenant's session behavior changes until an admin explicitly opts in. A
+/// dedicated typed model rather than a `ConfigItem` JSON blob because
+/// `AuthService` reads this on every login/refresh — a hot path where typed
+/// columns avoid parsing/validating an arbitrary JSON shape on every request.
+model TenantSecuritySettings {
+  id                      String   @id @default(uuid())
+  tenantId                String   @unique @map("tenant_id")
+  tenant                  Tenant   @relation(fields: [tenantId], references: [id])
+  accessTokenTtlMinutes   Int?     @map("access_token_ttl_minutes")
+  refreshTokenTtlDays     Int?     @map("refresh_token_ttl_days")
+  /// null = no inactivity auto-logout enforced (today's behavior for every tenant).
+  inactivityLogoutMinutes Int?     @map("inactivity_logout_minutes")
+  /// null = unlimited concurrent sessions (today's behavior for every tenant).
+  maxConcurrentSessions   Int?     @map("max_concurrent_sessions")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_security_settings")
 }
 
 // ----------------------------------------------------------------------------
@@ -367,21 +418,21 @@ model Branch {
   updatedAt      DateTime  @updatedAt @map("updated_at")
   deletedAt      DateTime? @map("deleted_at")
 
-  members           Member[]
-  contributions     Contribution[]
-  attendanceRecords AttendanceRecord[]
-  ministries        Ministry[]
-  events            Event[]
-  staff             Staff[]
-  assets            Asset[]
-  visitors          Visitor[]
-  visitorGroups     VisitorGroup[]
-  documents         Document[]
-  smallGroups       SmallGroup[]
-  assignedUsers     User[]             @relation("UserAssignedBranch")
+  members                         Member[]
+  contributions                   Contribution[]
+  attendanceRecords               AttendanceRecord[]
+  ministries                      Ministry[]
+  events                          Event[]
+  staff                           Staff[]
+  assets                          Asset[]
+  visitors                        Visitor[]
+  visitorGroups                   VisitorGroup[]
+  documents                       Document[]
+  smallGroups                     SmallGroup[]
+  assignedUsers                   User[]                           @relation("UserAssignedBranch")
   hierarchyRequirementSubmissions HierarchyRequirementSubmission[]
-  dynamicModuleRecords DynamicModuleRecord[]
-  menuItems         MenuItem[]
+  dynamicModuleRecords            DynamicModuleRecord[]
+  menuItems                       MenuItem[]
 
   @@index([tenantId])
   @@index([tenantId, parentBranchId])
@@ -397,16 +448,20 @@ model Branch {
 /// replacement for `branchType`'s free-text convention — see design
 /// decision in the platform-admin business-analysis doc.
 model HierarchyLevelDefinition {
-  id                     String   @id @default(uuid())
-  tenantId               String   @map("tenant_id")
-  tenant                 Tenant   @relation(fields: [tenantId], references: [id])
-  branchTypeKey          String   @map("branch_type_key") // a ConfigItem key in namespace "branch_type"
-  label                  String
-  allowedParentTypeKeys  String[] @default([]) @map("allowed_parent_type_keys") // empty = any parent type (or none) allowed
-  allowedChildTypeKeys   String[] @default([]) @map("allowed_child_type_keys") // empty = any child type allowed
-  sortOrder              Int      @default(0) @map("sort_order")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
+  id                    String   @id @default(uuid())
+  tenantId              String   @map("tenant_id")
+  tenant                Tenant   @relation(fields: [tenantId], references: [id])
+  branchTypeKey         String   @map("branch_type_key") // a ConfigItem key in namespace "branch_type"
+  label                 String
+  allowedParentTypeKeys String[] @default([]) @map("allowed_parent_type_keys") // empty = any parent type (or none) allowed
+  allowedChildTypeKeys  String[] @default([]) @map("allowed_child_type_keys") // empty = any child type allowed
+  sortOrder             Int      @default(0) @map("sort_order")
+  /// A tier color for the org-chart tree UI (e.g. "#2563EB") — admin-editable,
+  /// null falls back to a depth-based color rotation in the frontend so an
+  /// unconfigured tenant still gets a visually distinct tree.
+  color                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
 
   @@unique([tenantId, branchTypeKey])
   @@index([tenantId])
@@ -477,18 +532,18 @@ model Member {
   updatedAt          DateTime  @updatedAt @map("updated_at")
   deletedAt          DateTime? @map("deleted_at")
 
-  headOfFamilyFor     Family?              @relation("FamilyHead")
-  contributions       Contribution[]
-  attendanceRecords   AttendanceRecord[]
-  ministryMemberships MinistryMembership[]
-  notifications       Notification[]
-  eventRegistrations  EventRegistration[]
-  staffRecord         Staff?
-  invitedVisitors     Visitor[]            @relation("VisitorInvitedBy")
-  convertedFromVisitor Visitor?            @relation("VisitorConvertedTo")
+  headOfFamilyFor       Family?                @relation("FamilyHead")
+  contributions         Contribution[]
+  attendanceRecords     AttendanceRecord[]
+  ministryMemberships   MinistryMembership[]
+  notifications         Notification[]
+  eventRegistrations    EventRegistration[]
+  staffRecord           Staff?
+  invitedVisitors       Visitor[]              @relation("VisitorInvitedBy")
+  convertedFromVisitor  Visitor?               @relation("VisitorConvertedTo")
   smallGroupMemberships SmallGroupMembership[]
-  memberActivities     MemberActivity[]
-  entityMemberships    EntityMembership[]
+  memberActivities      MemberActivity[]
+  entityMemberships     EntityMembership[]
 
   @@unique([tenantId, membershipNumber])
   @@index([tenantId])
@@ -510,18 +565,18 @@ model Member {
 /// `visitor_activity:{activityType}`) — see
 /// docs/member-activities/business-analysis.md.
 model MemberActivity {
-  id                String    @id @default(uuid())
-  tenantId          String    @map("tenant_id")
-  tenant            Tenant    @relation(fields: [tenantId], references: [id])
-  memberId          String    @map("member_id")
-  member            Member    @relation(fields: [memberId], references: [id])
-  activityType      String    @map("activity_type") // ConfigItem key, namespace "member_activity_type"
-  activityDate      DateTime  @default(now()) @map("activity_date")
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+  memberId          String   @map("member_id")
+  member            Member   @relation(fields: [memberId], references: [id])
+  activityType      String   @map("activity_type") // ConfigItem key, namespace "member_activity_type"
+  activityDate      DateTime @default(now()) @map("activity_date")
   outcome           String?
   notes             String?
-  performedByUserId String?   @map("performed_by_user_id")
-  performedByUser   User?     @relation("MemberActivityPerformedBy", fields: [performedByUserId], references: [id])
-  createdAt         DateTime  @default(now()) @map("created_at")
+  performedByUserId String?  @map("performed_by_user_id")
+  performedByUser   User?    @relation("MemberActivityPerformedBy", fields: [performedByUserId], references: [id])
+  createdAt         DateTime @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@index([tenantId, memberId])
@@ -585,24 +640,24 @@ model Contribution {
 /// allowed); `memberId` set means one individual's attendance (`headcount`
 /// is always 1, enforced by the service layer, not the schema).
 model AttendanceRecord {
-  id                String    @id @default(uuid())
-  tenantId          String    @map("tenant_id")
-  tenant            Tenant    @relation(fields: [tenantId], references: [id])
-  branchId          String    @map("branch_id")
-  branch            Branch    @relation(fields: [branchId], references: [id])
-  memberId          String?   @map("member_id")
-  member            Member?   @relation(fields: [memberId], references: [id])
-  serviceType       String    @map("service_type") // ConfigItem key, namespace "service_type"
-  attendanceMethod  String?   @map("attendance_method") // ConfigItem key, namespace "attendance_method"
-  headcount         Int       @default(1)
-  attendedAt        DateTime  @map("attended_at")
-  recordedByUserId  String?   @map("recorded_by_user_id")
-  recordedByUser    User?     @relation("AttendanceRecordedBy", fields: [recordedByUserId], references: [id])
-  notes             String?
-  isActive          Boolean   @default(true) @map("is_active")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-  deletedAt         DateTime? @map("deleted_at")
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id])
+  branchId         String    @map("branch_id")
+  branch           Branch    @relation(fields: [branchId], references: [id])
+  memberId         String?   @map("member_id")
+  member           Member?   @relation(fields: [memberId], references: [id])
+  serviceType      String    @map("service_type") // ConfigItem key, namespace "service_type"
+  attendanceMethod String?   @map("attendance_method") // ConfigItem key, namespace "attendance_method"
+  headcount        Int       @default(1)
+  attendedAt       DateTime  @map("attended_at")
+  recordedByUserId String?   @map("recorded_by_user_id")
+  recordedByUser   User?     @relation("AttendanceRecordedBy", fields: [recordedByUserId], references: [id])
+  notes            String?
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
 
   @@unique([tenantId, branchId, memberId, serviceType, attendedAt])
   @@index([tenantId])
@@ -684,22 +739,28 @@ model MinistryMembership {
 /// QueueModule/BullMQ pipeline (`backend/src/queue/`); `status` is updated
 /// by `NotificationsProcessor` once the (stubbed) send attempt completes.
 model Notification {
-  id               String    @id @default(uuid())
-  tenantId         String    @map("tenant_id")
-  tenant           Tenant    @relation(fields: [tenantId], references: [id])
-  channel          String // "email" | "sms" | "push"
-  recipientMemberId String?  @map("recipient_member_id")
-  recipientMember  Member?   @relation(fields: [recipientMemberId], references: [id])
-  recipient        String // resolved concrete address/token
-  subject          String?
-  body             String
-  status           String    @default("queued") // "queued" | "sent" | "failed"
-  errorMessage     String?   @map("error_message")
-  sentAt           DateTime? @map("sent_at")
-  createdByUserId  String?   @map("created_by_user_id")
-  createdByUser    User?     @relation("NotificationCreatedBy", fields: [createdByUserId], references: [id])
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  channel           String // "email" | "sms" | "push"
+  recipientMemberId String?   @map("recipient_member_id")
+  recipientMember   Member?   @relation(fields: [recipientMemberId], references: [id])
+  /// Mirrors `recipientMemberId` field-for-field — a `User` (system account)
+  /// recipient, for §14's "notify a user their assigned form is available"
+  /// (a Member has no login of their own, so form-assignment notifications
+  /// need this second recipient kind rather than reusing recipientMemberId).
+  recipientUserId   String?   @map("recipient_user_id")
+  recipientUser     User?     @relation("NotificationRecipient", fields: [recipientUserId], references: [id])
+  recipient         String // resolved concrete address/token
+  subject           String?
+  body              String
+  status            String    @default("queued") // "queued" | "sent" | "failed"
+  errorMessage      String?   @map("error_message")
+  sentAt            DateTime? @map("sent_at")
+  createdByUserId   String?   @map("created_by_user_id")
+  createdByUser     User?     @relation("NotificationCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@index([tenantId, recipientMemberId])
@@ -723,24 +784,24 @@ model Notification {
 /// schema" rule, just applied one level up (to fields themselves, not to
 /// values within a fixed field).
 model CustomFieldDefinition {
-  id         String   @id @default(uuid())
-  tenantId   String   @map("tenant_id")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
-  entityType String   @map("entity_type") // "member" | "contribution" | "attendance_record" | "ministry" | ...
-  fieldKey   String   @map("field_key") // stable machine key, e.g. "confirmation_date"
-  label      String
-  fieldType  String   @map("field_type") // "text" | "richtext" | "number" | "date" | "time" | "boolean" | "select" | "radio" | "multiselect" | "email" | "phone" | "address" | "gps" | "file" | "image" | "video" | "audio" | "signature" | "lookup"
-  options    Json? // for fieldType "select"/"radio"/"multiselect": [{ "key": "...", "label": "..." }, ...]
-  isRequired Boolean  @default(false) @map("is_required")
-  sortOrder  Int      @default(0) @map("sort_order")
-  section    String? // optional grouping label so a form can be laid out in sections, e.g. "Contact Info"
-  visibleToRoleNames String[] @default([]) @map("visible_to_role_names") // empty = visible to every role
-  validationRules Json? @map("validation_rules") // generic: { minLength?, maxLength?, min?, max?, pattern? }
-  lookupEntityType String? @map("lookup_entity_type") // only for fieldType "lookup" — which entityType this field references
-  isActive   Boolean  @default(true) @map("is_active")
-  deletedAt  DateTime? @map("deleted_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  entityType         String    @map("entity_type") // "member" | "contribution" | "attendance_record" | "ministry" | ...
+  fieldKey           String    @map("field_key") // stable machine key, e.g. "confirmation_date"
+  label              String
+  fieldType          String    @map("field_type") // "text" | "richtext" | "number" | "date" | "time" | "boolean" | "select" | "radio" | "multiselect" | "email" | "phone" | "address" | "gps" | "file" | "image" | "video" | "audio" | "signature" | "lookup"
+  options            Json? // for fieldType "select"/"radio"/"multiselect": [{ "key": "...", "label": "..." }, ...]
+  isRequired         Boolean   @default(false) @map("is_required")
+  sortOrder          Int       @default(0) @map("sort_order")
+  section            String? // optional grouping label so a form can be laid out in sections, e.g. "Contact Info"
+  visibleToRoleNames String[]  @default([]) @map("visible_to_role_names") // empty = visible to every role
+  validationRules    Json?     @map("validation_rules") // generic: { minLength?, maxLength?, min?, max?, pattern? }
+  lookupEntityType   String?   @map("lookup_entity_type") // only for fieldType "lookup" — which entityType this field references
+  isActive           Boolean   @default(true) @map("is_active")
+  deletedAt          DateTime? @map("deleted_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   @@unique([tenantId, entityType, fieldKey])
   @@index([tenantId, entityType])
@@ -807,19 +868,19 @@ model Event {
 /// `Contribution.memberId`/`AttendanceRecord.memberId` already established:
 /// a guest registration is a normal, expected case, not an edge case).
 model EventRegistration {
-  id            String    @id @default(uuid())
-  tenantId      String    @map("tenant_id")
-  tenant        Tenant    @relation(fields: [tenantId], references: [id])
-  eventId       String    @map("event_id")
-  event         Event     @relation(fields: [eventId], references: [id])
-  memberId      String?   @map("member_id")
-  member        Member?   @relation(fields: [memberId], references: [id])
-  guestName     String?   @map("guest_name") // set when memberId is omitted
-  guestContact  String?   @map("guest_contact")
-  status        String    @default("registered") @map("status") // "registered" | "attended" | "cancelled"
-  notes         String?
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  eventId      String   @map("event_id")
+  event        Event    @relation(fields: [eventId], references: [id])
+  memberId     String?  @map("member_id")
+  member       Member?  @relation(fields: [memberId], references: [id])
+  guestName    String?  @map("guest_name") // set when memberId is omitted
+  guestContact String?  @map("guest_contact")
+  status       String   @default("registered") @map("status") // "registered" | "attended" | "cancelled"
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   // Only named members are deduplicated — Postgres doesn't compare NULLs as
   // equal, so multiple guest (memberId = null) registrations are unaffected.
@@ -879,28 +940,28 @@ model Staff {
 /// correcting a mistake is `cancel` (only while still "pending", with a
 /// mandatory reason), never a field-level edit once "paid".
 model PayrollPayment {
-  id                 String    @id @default(uuid())
-  tenantId           String    @map("tenant_id")
-  tenant             Tenant    @relation(fields: [tenantId], references: [id])
-  staffId            String    @map("staff_id")
-  staff              Staff     @relation(fields: [staffId], references: [id])
-  periodStart        DateTime  @map("period_start")
-  periodEnd          DateTime  @map("period_end")
-  grossAmount        Decimal   @map("gross_amount") @db.Decimal(14, 2)
-  deductions         Decimal   @default(0) @map("deductions") @db.Decimal(14, 2)
-  netAmount          Decimal   @map("net_amount") @db.Decimal(14, 2)
-  currency           String
-  status             String    @default("pending") // "pending" | "paid" | "cancelled"
-  paidAt             DateTime? @map("paid_at")
-  paidByUserId       String?   @map("paid_by_user_id")
-  paidByUser         User?     @relation("PayrollPaymentPaidBy", fields: [paidByUserId], references: [id])
-  cancelReason       String?   @map("cancel_reason")
-  cancelledAt        DateTime? @map("cancelled_at")
-  cancelledByUserId  String?   @map("cancelled_by_user_id")
-  cancelledByUser    User?     @relation("PayrollPaymentCancelledBy", fields: [cancelledByUserId], references: [id])
-  notes              String?
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  staffId           String    @map("staff_id")
+  staff             Staff     @relation(fields: [staffId], references: [id])
+  periodStart       DateTime  @map("period_start")
+  periodEnd         DateTime  @map("period_end")
+  grossAmount       Decimal   @map("gross_amount") @db.Decimal(14, 2)
+  deductions        Decimal   @default(0) @map("deductions") @db.Decimal(14, 2)
+  netAmount         Decimal   @map("net_amount") @db.Decimal(14, 2)
+  currency          String
+  status            String    @default("pending") // "pending" | "paid" | "cancelled"
+  paidAt            DateTime? @map("paid_at")
+  paidByUserId      String?   @map("paid_by_user_id")
+  paidByUser        User?     @relation("PayrollPaymentPaidBy", fields: [paidByUserId], references: [id])
+  cancelReason      String?   @map("cancel_reason")
+  cancelledAt       DateTime? @map("cancelled_at")
+  cancelledByUserId String?   @map("cancelled_by_user_id")
+  cancelledByUser   User?     @relation("PayrollPaymentCancelledBy", fields: [cancelledByUserId], references: [id])
+  notes             String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@index([tenantId, staffId])
@@ -928,7 +989,7 @@ model Asset {
   name            String
   assetCategory   String    @map("asset_category") // ConfigItem key, namespace "asset_category" — fixed after creation
   assetTag        String?   @map("asset_tag") // optional human/barcode identifier
-  condition       String?   // ConfigItem key, namespace "asset_condition"
+  condition       String? // ConfigItem key, namespace "asset_condition"
   status          String    @default("in_use") // "in_use" | "in_storage" | "under_maintenance" | "disposed" | "lost"
   location        String?
   acquisitionDate DateTime? @map("acquisition_date")
@@ -973,7 +1034,7 @@ model VisitorGroup {
   contactPhone     String?   @map("contact_phone")
   contactEmail     String?   @map("contact_email")
   expectedSize     Int?      @map("expected_size")
-  source           String?   // ConfigItem key, namespace "visitor_source"
+  source           String? // ConfigItem key, namespace "visitor_source"
   assignedToUserId String?   @map("assigned_to_user_id")
   assignedToUser   User?     @relation("VisitorGroupAssignedTo", fields: [assignedToUserId], references: [id])
   status           String    @default("new") // "new" | "contacted" | "scheduled_visit" | "no_response" | "closed"
@@ -997,32 +1058,32 @@ model VisitorGroup {
 /// since nothing here carries a financial audit-trail obligation. See
 /// docs/visitor-management/business-analysis.md.
 model Visitor {
-  id               String    @id @default(uuid())
-  tenantId         String    @map("tenant_id")
-  tenant           Tenant    @relation(fields: [tenantId], references: [id])
-  branchId         String?   @map("branch_id")
-  branch           Branch?   @relation(fields: [branchId], references: [id])
-  visitorGroupId   String?   @map("visitor_group_id")
-  visitorGroup     VisitorGroup? @relation(fields: [visitorGroupId], references: [id])
-  firstName        String    @map("first_name")
-  lastName         String    @map("last_name")
-  phone            String?
-  email            String?
-  address          String?
-  visitDate        DateTime  @map("visit_date")
-  source           String?   // ConfigItem key, namespace "visitor_source"
-  invitedByMemberId String?  @map("invited_by_member_id")
-  invitedByMember  Member?   @relation("VisitorInvitedBy", fields: [invitedByMemberId], references: [id])
-  assignedToUserId String?   @map("assigned_to_user_id")
-  assignedToUser   User?     @relation("VisitorAssignedTo", fields: [assignedToUserId], references: [id])
-  status           String    @default("new") // "new" | "contacted" | "scheduled_visit" | "joined" | "no_response" | "closed"
-  convertedMemberId String?  @unique @map("converted_member_id")
-  convertedMember  Member?   @relation("VisitorConvertedTo", fields: [convertedMemberId], references: [id])
-  notes            String?
-  isActive         Boolean   @default(true) @map("is_active")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  deletedAt        DateTime? @map("deleted_at")
+  id                String        @id @default(uuid())
+  tenantId          String        @map("tenant_id")
+  tenant            Tenant        @relation(fields: [tenantId], references: [id])
+  branchId          String?       @map("branch_id")
+  branch            Branch?       @relation(fields: [branchId], references: [id])
+  visitorGroupId    String?       @map("visitor_group_id")
+  visitorGroup      VisitorGroup? @relation(fields: [visitorGroupId], references: [id])
+  firstName         String        @map("first_name")
+  lastName          String        @map("last_name")
+  phone             String?
+  email             String?
+  address           String?
+  visitDate         DateTime      @map("visit_date")
+  source            String? // ConfigItem key, namespace "visitor_source"
+  invitedByMemberId String?       @map("invited_by_member_id")
+  invitedByMember   Member?       @relation("VisitorInvitedBy", fields: [invitedByMemberId], references: [id])
+  assignedToUserId  String?       @map("assigned_to_user_id")
+  assignedToUser    User?         @relation("VisitorAssignedTo", fields: [assignedToUserId], references: [id])
+  status            String        @default("new") // "new" | "contacted" | "scheduled_visit" | "joined" | "no_response" | "closed"
+  convertedMemberId String?       @unique @map("converted_member_id")
+  convertedMember   Member?       @relation("VisitorConvertedTo", fields: [convertedMemberId], references: [id])
+  notes             String?
+  isActive          Boolean       @default(true) @map("is_active")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  deletedAt         DateTime?     @map("deleted_at")
 
   activities VisitorActivity[]
 
@@ -1044,20 +1105,20 @@ model Visitor {
 /// `visitor_activity:{activityType}` entityType composition Assets already
 /// established for `asset:{assetCategory}` — no activity form is hardcoded.
 model VisitorActivity {
-  id                String    @id @default(uuid())
-  tenantId          String    @map("tenant_id")
-  tenant            Tenant    @relation(fields: [tenantId], references: [id])
-  visitorId         String?   @map("visitor_id")
-  visitor           Visitor?  @relation(fields: [visitorId], references: [id])
-  visitorGroupId    String?   @map("visitor_group_id")
+  id                String        @id @default(uuid())
+  tenantId          String        @map("tenant_id")
+  tenant            Tenant        @relation(fields: [tenantId], references: [id])
+  visitorId         String?       @map("visitor_id")
+  visitor           Visitor?      @relation(fields: [visitorId], references: [id])
+  visitorGroupId    String?       @map("visitor_group_id")
   visitorGroup      VisitorGroup? @relation(fields: [visitorGroupId], references: [id])
-  activityType      String    @map("activity_type") // ConfigItem key, namespace "visitor_activity_type"
-  activityDate      DateTime  @default(now()) @map("activity_date")
+  activityType      String        @map("activity_type") // ConfigItem key, namespace "visitor_activity_type"
+  activityDate      DateTime      @default(now()) @map("activity_date")
   outcome           String?
   notes             String?
-  performedByUserId String?   @map("performed_by_user_id")
-  performedByUser   User?     @relation("VisitorActivityPerformedBy", fields: [performedByUserId], references: [id])
-  createdAt         DateTime  @default(now()) @map("created_at")
+  performedByUserId String?       @map("performed_by_user_id")
+  performedByUser   User?         @relation("VisitorActivityPerformedBy", fields: [performedByUserId], references: [id])
+  createdAt         DateTime      @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@index([tenantId, visitorId])
@@ -1084,7 +1145,7 @@ model Document {
   branch           Branch?   @relation(fields: [branchId], references: [id])
   title            String
   description      String?
-  category         String    // ConfigItem key, namespace "document_category"
+  category         String // ConfigItem key, namespace "document_category"
   fileKey          String    @map("file_key")
   fileName         String    @map("file_name")
   fileSize         Int       @map("file_size")
@@ -1111,18 +1172,18 @@ model Document {
 /// object is never deleted from storage — see
 /// docs/document-management/business-analysis.md.
 model DocumentVersion {
-  id                String   @id @default(uuid())
-  tenantId          String   @map("tenant_id")
-  tenant            Tenant   @relation(fields: [tenantId], references: [id])
-  documentId        String   @map("document_id")
-  document          Document @relation(fields: [documentId], references: [id])
-  fileKey           String   @map("file_key")
-  fileName          String   @map("file_name")
-  fileSize          Int      @map("file_size")
-  contentType       String   @map("content_type")
-  replacedByUserId  String?  @map("replaced_by_user_id")
-  replacedByUser    User?    @relation("DocumentVersionReplacedBy", fields: [replacedByUserId], references: [id])
-  createdAt         DateTime @default(now()) @map("created_at")
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  documentId       String   @map("document_id")
+  document         Document @relation(fields: [documentId], references: [id])
+  fileKey          String   @map("file_key")
+  fileName         String   @map("file_name")
+  fileSize         Int      @map("file_size")
+  contentType      String   @map("content_type")
+  replacedByUserId String?  @map("replaced_by_user_id")
+  replacedByUser   User?    @relation("DocumentVersionReplacedBy", fields: [replacedByUserId], references: [id])
+  createdAt        DateTime @default(now()) @map("created_at")
 
   @@index([tenantId])
   @@index([tenantId, documentId])
@@ -1173,18 +1234,18 @@ model SmallGroup {
 /// reasoning `MinistryMembership.role` already established, since a small
 /// group can reasonably have a co-leader.
 model SmallGroupMembership {
-  id           String    @id @default(uuid())
-  tenantId     String    @map("tenant_id")
-  tenant       Tenant    @relation(fields: [tenantId], references: [id])
-  smallGroupId String    @map("small_group_id")
+  id           String     @id @default(uuid())
+  tenantId     String     @map("tenant_id")
+  tenant       Tenant     @relation(fields: [tenantId], references: [id])
+  smallGroupId String     @map("small_group_id")
   smallGroup   SmallGroup @relation(fields: [smallGroupId], references: [id])
-  memberId     String    @map("member_id")
-  member       Member    @relation(fields: [memberId], references: [id])
-  role         String    @default("member") // "leader" | "co_leader" | "member"
-  joinedAt     DateTime? @map("joined_at")
-  isActive     Boolean   @default(true) @map("is_active")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  memberId     String     @map("member_id")
+  member       Member     @relation(fields: [memberId], references: [id])
+  role         String     @default("member") // "leader" | "co_leader" | "member"
+  joinedAt     DateTime?  @map("joined_at")
+  isActive     Boolean    @default(true) @map("is_active")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
 
   @@unique([tenantId, smallGroupId, memberId])
   @@index([tenantId])
@@ -1237,19 +1298,19 @@ model AuditLog {
 /// requirements this serves asks for conditional branching, only "who
 /// approves this, in what order." See docs/governance/business-analysis.md.
 model ApprovalWorkflow {
-  id         String   @id @default(uuid())
-  tenantId   String   @map("tenant_id")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
-  entityType String   @map("entity_type")
+  id         String    @id @default(uuid())
+  tenantId   String    @map("tenant_id")
+  tenant     Tenant    @relation(fields: [tenantId], references: [id])
+  entityType String    @map("entity_type")
   name       String
-  isActive   Boolean  @default(true) @map("is_active")
+  isActive   Boolean   @default(true) @map("is_active")
   deletedAt  DateTime? @map("deleted_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  steps    ApprovalStep[]
-  requests ApprovalRequest[]
-  hierarchyRequirements HierarchyRequirement[]
+  steps                    ApprovalStep[]
+  requests                 ApprovalRequest[]
+  hierarchyRequirements    HierarchyRequirement[]
   dynamicModuleDefinitions DynamicModuleDefinition[]
 
   @@unique([tenantId, entityType, name])
@@ -1262,16 +1323,16 @@ model ApprovalWorkflow {
 /// shape), never both, so "does this user satisfy this step" is a single
 /// lookup against data the platform already assembles at login.
 model ApprovalStep {
-  id                     String   @id @default(uuid())
-  tenantId               String   @map("tenant_id")
-  tenant                 Tenant   @relation(fields: [tenantId], references: [id])
-  workflowId             String   @map("workflow_id")
+  id                     String           @id @default(uuid())
+  tenantId               String           @map("tenant_id")
+  tenant                 Tenant           @relation(fields: [tenantId], references: [id])
+  workflowId             String           @map("workflow_id")
   workflow               ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  stepOrder              Int      @map("step_order")
+  stepOrder              Int              @map("step_order")
   label                  String
-  approverRoleName       String?  @map("approver_role_name")
-  approverPermissionCode String?  @map("approver_permission_code")
-  createdAt              DateTime @default(now()) @map("created_at")
+  approverRoleName       String?          @map("approver_role_name")
+  approverPermissionCode String?          @map("approver_permission_code")
+  createdAt              DateTime         @default(now()) @map("created_at")
 
   @@unique([workflowId, stepOrder])
   @@index([tenantId])
@@ -1286,17 +1347,17 @@ model ApprovalStep {
 /// table — the audit log is already the source of truth for "who decided
 /// what, when, why."
 model ApprovalRequest {
-  id               String   @id @default(uuid())
-  tenantId         String   @map("tenant_id")
-  tenant           Tenant   @relation(fields: [tenantId], references: [id])
-  workflowId       String   @map("workflow_id")
+  id               String           @id @default(uuid())
+  tenantId         String           @map("tenant_id")
+  tenant           Tenant           @relation(fields: [tenantId], references: [id])
+  workflowId       String           @map("workflow_id")
   workflow         ApprovalWorkflow @relation(fields: [workflowId], references: [id])
-  entityType       String   @map("entity_type")
-  entityId         String   @map("entity_id")
-  currentStepOrder Int      @default(1) @map("current_step_order")
-  status           String   @default("pending") @map("status") // "pending" | "approved" | "rejected"
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  entityType       String           @map("entity_type")
+  entityId         String           @map("entity_id")
+  currentStepOrder Int              @default(1) @map("current_step_order")
+  status           String           @default("pending") @map("status") // "pending" | "approved" | "rejected"
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
   @@unique([tenantId, entityType, entityId])
   @@index([tenantId, workflowId])
@@ -1352,23 +1413,23 @@ model Deadline {
 /// not computed automatically — see the module's Out of Scope section for
 /// why automatic period-end date math is deferred.
 model HierarchyRequirement {
-  id                 String    @id @default(uuid())
-  tenantId           String    @map("tenant_id")
-  tenant             Tenant    @relation(fields: [tenantId], references: [id])
-  parentBranchType   String    @map("parent_branch_type")
-  childBranchType    String    @map("child_branch_type")
+  id                 String            @id @default(uuid())
+  tenantId           String            @map("tenant_id")
+  tenant             Tenant            @relation(fields: [tenantId], references: [id])
+  parentBranchType   String            @map("parent_branch_type")
+  childBranchType    String            @map("child_branch_type")
   kind               String // "report" | "document" | "form" | "activity" | "compliance"
   label              String
   description        String?
-  frequency          String    @default("once") @map("frequency") // "once" | "monthly" | "quarterly" | "annually" — informational
-  dueDayOfPeriod     Int?      @map("due_day_of_period") // informational, e.g. "the 5th of every month"
-  approvalWorkflowId String?   @map("approval_workflow_id")
+  frequency          String            @default("once") @map("frequency") // "once" | "monthly" | "quarterly" | "annually" — informational
+  dueDayOfPeriod     Int?              @map("due_day_of_period") // informational, e.g. "the 5th of every month"
+  approvalWorkflowId String?           @map("approval_workflow_id")
   approvalWorkflow   ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
-  notifyRoleNames    String[]  @default([]) @map("notify_role_names")
-  isActive           Boolean   @default(true) @map("is_active")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  updatedAt          DateTime  @updatedAt @map("updated_at")
-  deletedAt          DateTime? @map("deleted_at")
+  notifyRoleNames    String[]          @default([]) @map("notify_role_names")
+  isActive           Boolean           @default(true) @map("is_active")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  deletedAt          DateTime?         @map("deleted_at")
 
   submissions HierarchyRequirementSubmission[]
 
@@ -1392,22 +1453,22 @@ model HierarchyRequirement {
 /// than a join table — a submission rarely has more than a handful of
 /// attachments and doesn't need its own relation semantics.
 model HierarchyRequirementSubmission {
-  id                String    @id @default(uuid())
-  tenantId          String    @map("tenant_id")
-  tenant            Tenant    @relation(fields: [tenantId], references: [id])
-  requirementId     String    @map("requirement_id")
-  requirement       HierarchyRequirement @relation(fields: [requirementId], references: [id])
-  branchId          String    @map("branch_id")
-  branch            Branch    @relation(fields: [branchId], references: [id])
-  periodLabel       String    @default("") @map("period_label")
-  status            String    @default("pending") @map("status") // "pending" | "submitted" | "approved" | "rejected"
-  attachedDocumentIds String[] @default([]) @map("attached_document_ids")
-  submittedByUserId String?   @map("submitted_by_user_id")
-  submittedByUser   User?     @relation(fields: [submittedByUserId], references: [id])
-  submittedAt       DateTime? @map("submitted_at")
-  notes             String?
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id                  String               @id @default(uuid())
+  tenantId            String               @map("tenant_id")
+  tenant              Tenant               @relation(fields: [tenantId], references: [id])
+  requirementId       String               @map("requirement_id")
+  requirement         HierarchyRequirement @relation(fields: [requirementId], references: [id])
+  branchId            String               @map("branch_id")
+  branch              Branch               @relation(fields: [branchId], references: [id])
+  periodLabel         String               @default("") @map("period_label")
+  status              String               @default("pending") @map("status") // "pending" | "submitted" | "approved" | "rejected"
+  attachedDocumentIds String[]             @default([]) @map("attached_document_ids")
+  submittedByUserId   String?              @map("submitted_by_user_id")
+  submittedByUser     User?                @relation(fields: [submittedByUserId], references: [id])
+  submittedAt         DateTime?            @map("submitted_at")
+  notes               String?
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
 
   @@unique([tenantId, requirementId, branchId, periodLabel])
   @@index([tenantId])
@@ -1430,32 +1491,39 @@ model HierarchyRequirementSubmission {
 /// composition trick already proven for Assets/Visitor Activities/Member
 /// Activities — no new field-storage mechanism is built here.
 model DynamicModuleDefinition {
-  id         String   @id @default(uuid())
-  tenantId   String   @map("tenant_id")
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
-  key        String // stable machine key, e.g. "committee-requests"
-  label      String
-  description String?
-  icon       String? // an icon name the frontend maps to a lucide-react icon
+  id                      String            @id @default(uuid())
+  tenantId                String            @map("tenant_id")
+  tenant                  Tenant            @relation(fields: [tenantId], references: [id])
+  key                     String // stable machine key, e.g. "committee-requests"
+  label                   String
+  description             String?
+  icon                    String? // an icon name the frontend maps to a lucide-react icon
   /// Which existing entityType strings a record of this module may attach
   /// to — informational, for the builder UI's dropdown; not enforced at the
   /// database level since attachment is a loose (entityType, entityId) pair
   /// like every other composed entityType in this platform.
-  attachableToEntityTypes String[] @default([]) @map("attachable_to_entity_types")
+  attachableToEntityTypes String[]          @default([]) @map("attachable_to_entity_types")
   /// Tenant-defined, ordered list of status labels a record may hold. The
   /// first entry is the default status a new record starts in.
-  statuses   String[] @default(["open", "closed"])
-  approvalWorkflowId String? @map("approval_workflow_id")
-  approvalWorkflow   ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
-  showInNav  Boolean  @default(false) @map("show_in_nav")
+  statuses                String[]          @default(["open", "closed"])
+  approvalWorkflowId      String?           @map("approval_workflow_id")
+  approvalWorkflow        ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
+  showInNav               Boolean           @default(false) @map("show_in_nav")
   /// When true, an unauthenticated caller may submit a new record via
   /// `POST /modules/:key/submit` (see PublicSubmissionController) — off by
   /// default, so no existing module is silently exposed publicly.
-  allowPublicSubmission Boolean @default(false) @map("allow_public_submission")
-  isActive   Boolean  @default(true) @map("is_active")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-  deletedAt  DateTime? @map("deleted_at")
+  allowPublicSubmission   Boolean           @default(false) @map("allow_public_submission")
+  /// Whether this module's record page shows the generic "attach Members
+  /// to this record" panel (EntityMembership). Off by default — most
+  /// modules (an ICT audit, an equipment log) have no reason to attach
+  /// church members, and showing the panel unconditionally implied every
+  /// module was member-facing when only some (a choir roster, a
+  /// committee) actually are.
+  allowMemberAttachment   Boolean           @default(false) @map("allow_member_attachment")
+  isActive                Boolean           @default(true) @map("is_active")
+  createdAt               DateTime          @default(now()) @map("created_at")
+  updatedAt               DateTime          @updatedAt @map("updated_at")
+  deletedAt               DateTime?         @map("deleted_at")
 
   records DynamicModuleRecord[]
 
@@ -1473,33 +1541,33 @@ model DynamicModuleDefinition {
 /// own organizational scope matters for Phase 4's visibility roll-up,
 /// regardless of what it's attached to.
 model DynamicModuleRecord {
-  id               String   @id @default(uuid())
-  tenantId         String   @map("tenant_id")
-  tenant           Tenant   @relation(fields: [tenantId], references: [id])
-  moduleDefinitionId String @map("module_definition_id")
-  moduleDefinition DynamicModuleDefinition @relation(fields: [moduleDefinitionId], references: [id])
-  attachedToEntityType String? @map("attached_to_entity_type")
-  attachedToEntityId   String? @map("attached_to_entity_id")
-  status           String
-  title            String?
-  branchId         String?  @map("branch_id")
-  branch           Branch?  @relation(fields: [branchId], references: [id])
+  id                   String                  @id @default(uuid())
+  tenantId             String                  @map("tenant_id")
+  tenant               Tenant                  @relation(fields: [tenantId], references: [id])
+  moduleDefinitionId   String                  @map("module_definition_id")
+  moduleDefinition     DynamicModuleDefinition @relation(fields: [moduleDefinitionId], references: [id])
+  attachedToEntityType String?                 @map("attached_to_entity_type")
+  attachedToEntityId   String?                 @map("attached_to_entity_id")
+  status               String
+  title                String?
+  branchId             String?                 @map("branch_id")
+  branch               Branch?                 @relation(fields: [branchId], references: [id])
   /// Optional parent record WITHIN THE SAME module definition, for nesting
   /// an admin-created entity (e.g. Region -> District -> Parish), mirroring
   /// `Branch.parentBranchId`. Distinct from `attachedToEntityType`/
   /// `attachedToEntityId` (which attach a record to a DIFFERENT kind of
   /// thing) — this is same-module hierarchy.
-  parentRecordId   String?  @map("parent_record_id")
-  parentRecord     DynamicModuleRecord?  @relation("DynamicModuleRecordHierarchy", fields: [parentRecordId], references: [id])
-  childRecords     DynamicModuleRecord[] @relation("DynamicModuleRecordHierarchy")
-  createdByUserId  String?  @map("created_by_user_id")
-  createdByUser    User?    @relation("DynamicModuleRecordCreatedBy", fields: [createdByUserId], references: [id])
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
-  deletedAt        DateTime? @map("deleted_at")
+  parentRecordId       String?                 @map("parent_record_id")
+  parentRecord         DynamicModuleRecord?    @relation("DynamicModuleRecordHierarchy", fields: [parentRecordId], references: [id])
+  childRecords         DynamicModuleRecord[]   @relation("DynamicModuleRecordHierarchy")
+  createdByUserId      String?                 @map("created_by_user_id")
+  createdByUser        User?                   @relation("DynamicModuleRecordCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+  deletedAt            DateTime?               @map("deleted_at")
 
   statusHistory DynamicModuleRecordStatusHistory[]
-  assignedUsers User[] @relation("UserAssignedDepartmentRecord")
+  assignedUsers User[]                             @relation("UserAssignedDepartmentRecord")
 
   @@index([tenantId])
   @@index([tenantId, moduleDefinitionId])
@@ -1514,17 +1582,17 @@ model DynamicModuleRecord {
 /// record's status history is a first-class thing this module's own UI
 /// displays as a timeline, not just an audit trail.
 model DynamicModuleRecordStatusHistory {
-  id             String   @id @default(uuid())
-  tenantId       String   @map("tenant_id")
-  tenant         Tenant   @relation(fields: [tenantId], references: [id])
-  recordId       String   @map("record_id")
-  record         DynamicModuleRecord @relation(fields: [recordId], references: [id])
-  fromStatus     String?  @map("from_status")
-  toStatus       String   @map("to_status")
-  changedByUserId String? @map("changed_by_user_id")
-  changedByUser  User?    @relation("DynamicModuleRecordStatusChangedBy", fields: [changedByUserId], references: [id])
-  reason         String?
-  createdAt      DateTime @default(now()) @map("created_at")
+  id              String              @id @default(uuid())
+  tenantId        String              @map("tenant_id")
+  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  recordId        String              @map("record_id")
+  record          DynamicModuleRecord @relation(fields: [recordId], references: [id])
+  fromStatus      String?             @map("from_status")
+  toStatus        String              @map("to_status")
+  changedByUserId String?             @map("changed_by_user_id")
+  changedByUser   User?               @relation("DynamicModuleRecordStatusChangedBy", fields: [changedByUserId], references: [id])
+  reason          String?
+  createdAt       DateTime            @default(now()) @map("created_at")
 
   @@index([tenantId, recordId])
   @@map("dynamic_module_record_status_history")
@@ -1541,18 +1609,18 @@ model DynamicModuleRecordStatusHistory {
 /// (the same string other records use to attach to a Dynamic Module's
 /// records), but is not restricted to that at the schema level.
 model EntityMembership {
-  id           String    @id @default(uuid())
-  tenantId     String    @map("tenant_id")
-  tenant       Tenant    @relation(fields: [tenantId], references: [id])
-  attachedToEntityType String @map("attached_to_entity_type")
-  attachedToEntityId   String @map("attached_to_entity_id")
-  memberId     String    @map("member_id")
-  member       Member    @relation(fields: [memberId], references: [id])
-  role         String    @default("member")
-  joinedAt     DateTime? @map("joined_at")
-  isActive     Boolean   @default(true) @map("is_active")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id                   String    @id @default(uuid())
+  tenantId             String    @map("tenant_id")
+  tenant               Tenant    @relation(fields: [tenantId], references: [id])
+  attachedToEntityType String    @map("attached_to_entity_type")
+  attachedToEntityId   String    @map("attached_to_entity_id")
+  memberId             String    @map("member_id")
+  member               Member    @relation(fields: [memberId], references: [id])
+  role                 String    @default("member")
+  joinedAt             DateTime? @map("joined_at")
+  isActive             Boolean   @default(true) @map("is_active")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   @@unique([tenantId, attachedToEntityType, attachedToEntityId, memberId])
   @@index([tenantId])
@@ -1574,24 +1642,24 @@ model EntityMembership {
 /// `PermissionsGuard`/`BranchScopeService` already provide — no new
 /// authorization mechanism.
 model MenuItem {
-  id               String   @id @default(uuid())
-  tenantId         String   @map("tenant_id")
-  tenant           Tenant   @relation(fields: [tenantId], references: [id])
-  parentMenuItemId String?  @map("parent_menu_item_id")
-  parentMenuItem   MenuItem? @relation("MenuItemHierarchy", fields: [parentMenuItemId], references: [id])
-  childMenuItems   MenuItem[] @relation("MenuItemHierarchy")
-  label            String
-  icon             String?
-  sortOrder        Int      @default(0) @map("sort_order")
-  targetType       String   @map("target_type") // "module" | "entity" | "report" | "dashboard" | "customPage" | "workflow"
-  targetKey        String   @map("target_key")
-  visibleToRoleNames String[] @default([]) @map("visible_to_role_names")
-  visibleToBranchId  String?  @map("visible_to_branch_id")
-  visibleToBranch    Branch?  @relation(fields: [visibleToBranchId], references: [id])
-  isActive         Boolean  @default(true) @map("is_active")
-  deletedAt        DateTime? @map("deleted_at")
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                 String     @id @default(uuid())
+  tenantId           String     @map("tenant_id")
+  tenant             Tenant     @relation(fields: [tenantId], references: [id])
+  parentMenuItemId   String?    @map("parent_menu_item_id")
+  parentMenuItem     MenuItem?  @relation("MenuItemHierarchy", fields: [parentMenuItemId], references: [id])
+  childMenuItems     MenuItem[] @relation("MenuItemHierarchy")
+  label              String
+  icon               String?
+  sortOrder          Int        @default(0) @map("sort_order")
+  targetType         String     @map("target_type") // "module" | "entity" | "report" | "dashboard" | "customPage" | "workflow"
+  targetKey          String     @map("target_key")
+  visibleToRoleNames String[]   @default([]) @map("visible_to_role_names")
+  visibleToBranchId  String?    @map("visible_to_branch_id")
+  visibleToBranch    Branch?    @relation(fields: [visibleToBranchId], references: [id])
+  isActive           Boolean    @default(true) @map("is_active")
+  deletedAt          DateTime?  @map("deleted_at")
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
 
   @@index([tenantId])
   @@index([tenantId, parentMenuItemId])
@@ -1606,17 +1674,17 @@ model MenuItem {
 /// author may reasonably reuse one template across slightly different call
 /// sites that don't all supply every variable.
 model NotificationTemplate {
-  id        String   @id @default(uuid())
-  tenantId  String   @map("tenant_id")
-  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
+  tenant    Tenant    @relation(fields: [tenantId], references: [id])
   channel   String // "email" | "sms" | "push"
   key       String
   subject   String?
   body      String
-  isActive  Boolean  @default(true) @map("is_active")
+  isActive  Boolean   @default(true) @map("is_active")
   deletedAt DateTime? @map("deleted_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
 
   @@unique([tenantId, key])
   @@index([tenantId])
@@ -1657,16 +1725,49 @@ model NumberingSequence {
 /// the `ConfigItem.id` of that entry, not its free-text key, so consumers
 /// never need dual-mode id resolution.
 model ResourceAssignment {
-  id              String   @id @default(uuid())
-  tenantId        String   @map("tenant_id")
-  tenant          Tenant   @relation(fields: [tenantId], references: [id])
-  scopeEntityType String   @map("scope_entity_type") // "branch" | "branch_type" | "dynamic_module_record" | ...
-  scopeEntityId   String   @map("scope_entity_id") // always a real row UUID
-  resourceType    String   @map("resource_type") // "module" | "report" | "dashboard" | "workflow" | "document_category"
-  resourceKey     String   @map("resource_key")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id])
+  scopeEntityType String    @map("scope_entity_type") // "branch" | "branch_type" | "dynamic_module_record" | ...
+  scopeEntityId   String    @map("scope_entity_id") // always a real row UUID
+  resourceType    String    @map("resource_type") // "module" | "report" | "dashboard" | "workflow" | "document_category"
+  resourceKey     String    @map("resource_key")
+  /// §14 submission deadline — a per-assignment override (not a schema-wide
+  /// default on the resource itself), so the same form can carry a
+  /// different due date per scope it's assigned to (e.g. "ICT Audit" due
+  /// the 5th for Branch A, the 10th for Branch B). Null = no deadline.
+  dueAt           DateTime? @map("due_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   @@unique([tenantId, scopeEntityType, scopeEntityId, resourceType, resourceKey])
   @@index([tenantId, scopeEntityType, scopeEntityId])
   @@map("resource_assignments")
+}
+
+/// Generalizes leadership to ANY organizational unit or custom entity (§11) —
+/// the third sibling of the same polymorphic convention `ResourceAssignment`
+/// (what's assigned to a scope) and `EntityMembership` (who's a member of a
+/// thing) already established. Additive alongside, not replacing, the
+/// existing single-column scopes (`User.assignedBranchId`/
+/// `assignedDepartmentRecordId`+`departmentRole`) — those keep working
+/// unchanged; this is the mechanism for everything else (a Branch
+/// Administrator, a Ministry leader, a Committee leader, any custom
+/// Dynamic Module Record acting as a leadable entity). A user may hold more
+/// than one appointment (e.g. lead two branches), hence a plain unique
+/// constraint rather than one row per user.
+model LeadershipAppointment {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  targetEntityType String   @map("target_entity_type") // "branch" | "dynamic_module_record" | ...
+  targetEntityId   String   @map("target_entity_id") // always a real row UUID
+  userId           String   @map("user_id")
+  user             User     @relation(fields: [userId], references: [id])
+  role             String   @default("leader")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, targetEntityType, targetEntityId, userId])
+  @@index([tenantId, targetEntityType, targetEntityId])
+  @@index([tenantId, userId])
+  @@map("leadership_appointments")
 }

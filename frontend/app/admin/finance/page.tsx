@@ -7,10 +7,21 @@
 // notes/receipt number — mistakes are corrected by voiding with a reason.
 
 import { useEffect, useState } from 'react';
-import { contributionsApi, branchesApi, membersApi, configApi, Contribution, ContributionSummary, Branch, Member } from '../../../lib/api';
+import {
+  contributionsApi,
+  branchesApi,
+  membersApi,
+  configApi,
+  isAccessDeniedResponse,
+  Contribution,
+  ContributionSummary,
+  Branch,
+  Member,
+} from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church'; // in production this comes from the resolved workspace/domain
 
@@ -24,6 +35,7 @@ export default function FinanceAdminPage() {
   const [contributionTypes, setContributionTypes] = useState<{ key: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [branchId, setBranchId] = useState('');
   const [memberId, setMemberId] = useState('');
@@ -47,6 +59,10 @@ export default function FinanceAdminPage() {
         membersApi.list(TENANT_SLUG, {}),
         configApi.listByNamespace(TENANT_SLUG, 'contribution_type'),
       ]);
+      if (isAccessDeniedResponse(contribRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (contribRes.success && contribRes.data) setContributions(contribRes.data);
       else setError(contribRes.error?.message ?? 'Could not load contributions.');
       if (summaryRes.success && summaryRes.data) setSummary(summaryRes.data);
@@ -122,6 +138,8 @@ export default function FinanceAdminPage() {
     const m = members.find((mm) => mm.id === id);
     return m ? `${m.firstName} ${m.lastName}` : '—';
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

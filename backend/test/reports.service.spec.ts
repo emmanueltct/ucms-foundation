@@ -20,6 +20,8 @@ describe('ReportsService', () => {
     ministryMembership: { findMany: jest.fn() },
     smallGroupMembership: { findMany: jest.fn() },
     eventRegistration: { findMany: jest.fn() },
+    dynamicModuleRecord: { findMany: jest.fn() },
+    dynamicModuleRecordStatusHistory: { findMany: jest.fn() },
   };
 
   const mockMemberActivitiesService = {
@@ -228,6 +230,104 @@ describe('ReportsService', () => {
       });
       expect(tables[1].title).toBe('Giving by contribution type');
       expect(tables[1].rows).toEqual([{ key: 'tithe', total: 100000, count: 1 }]);
+    });
+  });
+
+  describe('formSubmissionsSummary', () => {
+    it('buckets submissions of one form by month and by status, and applies every optional filter', async () => {
+      mockPrisma.dynamicModuleRecord.findMany.mockResolvedValue([
+        { status: 'submitted', createdAt: new Date('2026-07-05') },
+        { status: 'approved', createdAt: new Date('2026-07-10') },
+        { status: 'submitted', createdAt: new Date('2026-07-12') },
+      ]);
+
+      const result = await service.formSubmissionsSummary(TENANT_ID, {
+        moduleDefinitionId: 'form-1',
+        dateFrom: '2026-07-01',
+        dateTo: '2026-07-31',
+        branchId: 'branch-1',
+        attachedToEntityType: 'dynamic_module_record',
+        attachedToEntityId: 'dept-1',
+        createdByUserId: 'user-1',
+      } as any);
+
+      expect(mockPrisma.dynamicModuleRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: TENANT_ID,
+            moduleDefinitionId: 'form-1',
+            deletedAt: null,
+            branchId: 'branch-1',
+            attachedToEntityType: 'dynamic_module_record',
+            attachedToEntityId: 'dept-1',
+            createdByUserId: 'user-1',
+          }),
+        }),
+      );
+      expect(result.totalSubmissions).toBe(3);
+      expect(result.byMonth).toEqual([{ month: '2026-07', total: 3, count: 3 }]);
+      expect(result.byStatus).toEqual([
+        { key: 'submitted', total: 2, count: 2 },
+        { key: 'approved', total: 1, count: 1 },
+      ]);
+    });
+  });
+
+  describe('exportFormSubmissionsSummary', () => {
+    it('reuses formSubmissionsSummary and shapes byMonth/byStatus into export tables', async () => {
+      mockPrisma.dynamicModuleRecord.findMany.mockResolvedValue([
+        { status: 'submitted', createdAt: new Date('2026-07-05') },
+      ]);
+
+      const tables = await service.exportFormSubmissionsSummary(TENANT_ID, {
+        moduleDefinitionId: 'form-1',
+        dateFrom: '2026-07-01',
+        dateTo: '2026-07-31',
+      } as any);
+
+      expect(tables).toHaveLength(2);
+      expect(tables[0].title).toBe('Submissions by month');
+      expect(tables[1].title).toBe('Submissions by status');
+      expect(tables[1].rows).toEqual([{ key: 'submitted', total: 1, count: 1 }]);
+    });
+  });
+
+  describe('statusHistory', () => {
+    it('applies every optional filter and orders newest first', async () => {
+      const rows = [{ id: 'hist-1', toStatus: 'approved', record: { id: 'rec-1', title: 'Audit', moduleDefinitionId: 'form-1' } }];
+      mockPrisma.dynamicModuleRecordStatusHistory.findMany.mockResolvedValue(rows);
+
+      const result = await service.statusHistory(TENANT_ID, {
+        moduleDefinitionId: 'form-1',
+        recordId: 'rec-1',
+        changedByUserId: 'user-1',
+        dateFrom: '2026-07-01',
+        dateTo: '2026-07-31',
+      });
+
+      expect(mockPrisma.dynamicModuleRecordStatusHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tenantId: TENANT_ID,
+            recordId: 'rec-1',
+            changedByUserId: 'user-1',
+            record: { moduleDefinitionId: 'form-1' },
+            createdAt: { gte: new Date('2026-07-01'), lte: new Date('2026-07-31') },
+          }),
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
+      expect(result).toEqual(rows);
+    });
+
+    it('omits filters that were not provided', async () => {
+      mockPrisma.dynamicModuleRecordStatusHistory.findMany.mockResolvedValue([]);
+
+      await service.statusHistory(TENANT_ID, {});
+
+      expect(mockPrisma.dynamicModuleRecordStatusHistory.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tenantId: TENANT_ID } }),
+      );
     });
   });
 });

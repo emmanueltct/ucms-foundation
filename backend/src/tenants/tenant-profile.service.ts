@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { BranchesService } from '../branches/branches.service';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
 import { UpdateTenantBrandingDto } from './dto/update-tenant-branding.dto';
+import { UpdateTenantSystemSettingsDto } from './dto/update-tenant-system-settings.dto';
 
 /**
  * The current tenant's own view of itself, as opposed to TenantsService
@@ -54,6 +55,11 @@ export class TenantProfileService {
       }
     }
 
+    return this.prisma.tenant.update({ where: { id: tenantId }, data: dto });
+  }
+
+  async updateSystemSettings(tenantId: string, dto: UpdateTenantSystemSettingsDto) {
+    await this.getProfile(tenantId);
     return this.prisma.tenant.update({ where: { id: tenantId }, data: dto });
   }
 }

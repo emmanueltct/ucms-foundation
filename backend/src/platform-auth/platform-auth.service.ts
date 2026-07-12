@@ -6,6 +6,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 import { PlatformAuthResponseDto } from './dto/platform-auth-response.dto';
 
+// Deliberately NOT wired to `TenantSecuritySettings`/`SecuritySettingsService`
+// (§1 Session Security Configuration) — a `PlatformAdmin` is intentionally
+// tenant-less (see the model's own doc comment), so there is no tenant whose
+// settings could apply here. Stays a fixed platform-wide constant.
 const ACCESS_TOKEN_TTL = '8h';
 const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 

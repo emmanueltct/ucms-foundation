@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagg
 import { TenantProfileService } from './tenant-profile.service';
 import { CompleteOnboardingDto } from './dto/complete-onboarding.dto';
 import { UpdateTenantBrandingDto } from './dto/update-tenant-branding.dto';
+import { UpdateTenantSystemSettingsDto } from './dto/update-tenant-system-settings.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
@@ -42,5 +43,12 @@ export class TenantProfileController {
   @Patch('branding')
   async updateBranding(@CurrentTenantId() tenantId: string, @Body() dto: UpdateTenantBrandingDto) {
     return ok(await this.tenantProfileService.updateBranding(tenantId, dto));
+  }
+
+  @ApiOperation({ summary: 'Update system-wide settings: default currency, language, and timezone (§4 System Settings)' })
+  @Permissions('tenant.profile.update')
+  @Patch('system-settings')
+  async updateSystemSettings(@CurrentTenantId() tenantId: string, @Body() dto: UpdateTenantSystemSettingsDto) {
+    return ok(await this.tenantProfileService.updateSystemSettings(tenantId, dto));
   }
 }

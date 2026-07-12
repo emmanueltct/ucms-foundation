@@ -10,15 +10,24 @@
 // that.
 
 import { useEffect, useState } from 'react';
-import { departmentsApi, dynamicModuleDefinitionsApi, Department, DynamicModuleDefinition, ResourceAssignment } from '../../../../lib/api';
+import {
+  departmentsApi,
+  dynamicModuleDefinitionsApi,
+  isAccessDeniedResponse,
+  Department,
+  DynamicModuleDefinition,
+  ResourceAssignment,
+} from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
+import { AccessDenied } from '../../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 
 const RESOURCE_TYPES = [
   { value: 'module', label: 'Module' },
+  { value: 'dynamic_module_definition', label: 'Form / Report (assign with deadline)' },
   { value: 'report', label: 'Report' },
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'workflow', label: 'Workflow' },
@@ -30,6 +39,7 @@ export default function DepartmentsAdminPage() {
   const [modules, setModules] = useState<DynamicModuleDefinition[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -39,6 +49,7 @@ export default function DepartmentsAdminPage() {
   const [resourcesLoading, setResourcesLoading] = useState(false);
   const [resourceType, setResourceType] = useState('module');
   const [resourceKey, setResourceKey] = useState('');
+  const [resourceDueAt, setResourceDueAt] = useState('');
   const [assigning, setAssigning] = useState(false);
 
   async function load() {
@@ -48,6 +59,11 @@ export default function DepartmentsAdminPage() {
       departmentsApi.list(TENANT_SLUG),
       dynamicModuleDefinitionsApi.list(TENANT_SLUG, undefined, true),
     ]);
+    if (isAccessDeniedResponse(deptRes)) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     if (deptRes.success && deptRes.data) setDepartments(deptRes.data);
     else setError(deptRes.error?.message ?? 'Could not load departments.');
     if (moduleRes.success && moduleRes.data) setModules(moduleRes.data);
@@ -98,9 +114,14 @@ export default function DepartmentsAdminPage() {
     if (!selected || !resourceKey) return;
     setAssigning(true);
     setError(null);
-    const res = await departmentsApi.assignResource(TENANT_SLUG, selected.id, { resourceType, resourceKey });
+    const res = await departmentsApi.assignResource(TENANT_SLUG, selected.id, {
+      resourceType,
+      resourceKey,
+      dueAt: resourceType === 'dynamic_module_definition' && resourceDueAt ? new Date(resourceDueAt).toISOString() : undefined,
+    });
     if (res.success) {
       setResourceKey('');
+      setResourceDueAt('');
       loadResources(selected);
     } else {
       setError(res.error?.message ?? 'Could not assign this resource.');
@@ -118,6 +139,8 @@ export default function DepartmentsAdminPage() {
   function moduleLabel(key: string): string {
     return modules.find((m) => m.id === key)?.label ?? key;
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">
@@ -204,7 +227,7 @@ export default function DepartmentsAdminPage() {
                     </div>
                     <div>
                       <Label className="mb-1 text-slate-600">Resource</Label>
-                      {resourceType === 'module' ? (
+                      {resourceType === 'module' || resourceType === 'dynamic_module_definition' ? (
                         <select
                           value={resourceKey}
                           onChange={(e) => setResourceKey(e.target.value)}
@@ -222,6 +245,12 @@ export default function DepartmentsAdminPage() {
                       )}
                     </div>
                   </div>
+                  {resourceType === 'dynamic_module_definition' && (
+                    <div>
+                      <Label className="mb-1 text-slate-600">Deadline (optional)</Label>
+                      <Input type="date" value={resourceDueAt} onChange={(e) => setResourceDueAt(e.target.value)} />
+                    </div>
+                  )}
                   <Button type="submit" size="sm" disabled={assigning || !resourceKey} style={{ backgroundColor: '#1E2A44' }}>
                     {assigning ? 'Assigning…' : 'Assign'}
                   </Button>
@@ -237,8 +266,13 @@ export default function DepartmentsAdminPage() {
                     {resources.map((r) => (
                       <div key={r.id} className="flex items-center justify-between py-2">
                         <div>
-                          <p className="text-sm text-slate-700">{r.resourceType === 'module' ? moduleLabel(r.resourceKey) : r.resourceKey}</p>
-                          <p className="text-xs text-slate-400">{r.resourceType}</p>
+                          <p className="text-sm text-slate-700">
+                            {r.resourceType === 'module' || r.resourceType === 'dynamic_module_definition' ? moduleLabel(r.resourceKey) : r.resourceKey}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {r.resourceType}
+                            {r.dueAt ? ` · due ${new Date(r.dueAt).toLocaleDateString()}` : ''}
+                          </p>
                         </div>
                         <button onClick={() => handleRemoveResource(r)} className="text-xs text-red-500 hover:underline">
                           Remove

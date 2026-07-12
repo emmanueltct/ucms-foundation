@@ -13,6 +13,7 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'platform.tenant.read', module: 'platform', description: 'View church tenants' },
   { code: 'platform.tenant.update', module: 'platform', description: 'Edit church tenant settings' },
   { code: 'platform.tenant.delete', module: 'platform', description: 'Deactivate/delete a church tenant' },
+  { code: 'platform.tenant.purge', module: 'platform', description: 'Permanently, irreversibly delete an already soft-deleted church tenant and all its data' },
 
   { code: 'user.create', module: 'user', description: 'Invite/create users within the church' },
   { code: 'user.read', module: 'user', description: 'View users within the church' },
@@ -176,6 +177,13 @@ const FOUNDATION_PERMISSIONS: Array<{ code: string; module: string; description:
   { code: 'resourceassignment.create', module: 'resource_assignment', description: 'Attach a module/report/dashboard/workflow to an organizational scope' },
   { code: 'resourceassignment.read', module: 'resource_assignment', description: 'View resource assignments' },
   { code: 'resourceassignment.delete', module: 'resource_assignment', description: 'Remove a resource assignment' },
+
+  { code: 'securitysettings.read', module: 'security_settings', description: "View this church's session/token security configuration" },
+  { code: 'securitysettings.update', module: 'security_settings', description: "Edit this church's session expiration, inactivity auto-logout, and max concurrent session settings" },
+
+  { code: 'leadershipappointment.create', module: 'leadership', description: 'Appoint a user as leader of an organizational unit or custom entity' },
+  { code: 'leadershipappointment.read', module: 'leadership', description: "View a target's leadership appointments" },
+  { code: 'leadershipappointment.delete', module: 'leadership', description: 'Revoke a leadership appointment' },
 
   { code: 'dynamic_module.manage', module: 'dynamic_modules', description: 'Create, edit, and deactivate admin-defined modules' },
   { code: 'dynamic_module.read', module: 'dynamic_modules', description: 'View admin-defined module definitions' },
@@ -566,6 +574,23 @@ async function main() {
     await prisma.configItem.upsert({
       where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'small_group_type', key: g.key } },
       create: { tenantId: tenant.id, namespace: 'small_group_type', key: g.key, label: g.label, value: {}, sortOrder: i },
+      update: {},
+    });
+  }
+
+  console.log('Seeding example configuration items (user categories)...');
+  // §13 eligibility resolution: Staff/Volunteer/Leader are `User.userCategory`
+  // values a form/report can be assigned to. Members/Visitors/Guests are
+  // deliberately excluded — they aren't `User` rows, see EligibilityResolverService.
+  const userCategories = [
+    { key: 'staff', label: 'Staff' },
+    { key: 'volunteer', label: 'Volunteer' },
+    { key: 'leader', label: 'Leader' },
+  ];
+  for (const [i, c] of userCategories.entries()) {
+    await prisma.configItem.upsert({
+      where: { tenantId_namespace_key: { tenantId: tenant.id, namespace: 'user_category', key: c.key } },
+      create: { tenantId: tenant.id, namespace: 'user_category', key: c.key, label: c.label, value: {}, sortOrder: i },
       update: {},
     });
   }

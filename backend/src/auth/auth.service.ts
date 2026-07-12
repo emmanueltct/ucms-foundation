@@ -14,6 +14,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../communication/notifications.service';
 import { AuditService } from '../audit/audit.service';
+import { SecuritySettingsService } from '../security-settings/security-settings.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto, WorkspaceOptionDto, WorkspaceSelectionResponseDto } from './dto/auth-response.dto';
@@ -34,9 +35,6 @@ const LOGIN_HISTORY_ACTIONS = ['auth.login', 'auth.login_failed', 'auth.logout',
 const LOGIN_HISTORY_LIMIT = 50;
 
 const BCRYPT_ROUNDS = 12;
-const ACCESS_TOKEN_TTL = '15m';
-const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
-const REFRESH_TOKEN_TTL_DAYS = 7;
 const PASSWORD_RESET_TTL_MINUTES = 30;
 const EMAIL_VERIFICATION_TTL_HOURS = 48;
 
@@ -49,6 +47,7 @@ export class AuthService {
     private readonly mfa: MfaService,
     private readonly notifications: NotificationsService,
     private readonly auditService: AuditService,
+    private readonly securitySettings: SecuritySettingsService,
   ) {}
 
   async register(tenantId: string, dto: RegisterDto, context: SessionContext = {}): Promise<AuthResponseDto> {
@@ -221,6 +220,9 @@ export class AuthService {
     if (!targetUser || !targetUser.isActive || targetUser.deletedAt) {
       throw new ForbiddenException({ code: 'NOT_A_MEMBER', message: 'You do not have an account in that church workspace.' });
     }
+    if (targetUser.lockedAt) {
+      throw new ForbiddenException({ code: 'ACCOUNT_LOCKED', message: 'That account is locked.' });
+    }
 
     const roles = targetUser.userRoles.map((ur) => ur.role.name);
     const permissions = Array.from(
@@ -265,6 +267,20 @@ export class AuthService {
       throw new UnauthorizedException({ code: 'REFRESH_INVALID', message: 'Refresh token is invalid or expired.' });
     }
 
+    // Inactivity auto-logout (§1 Session Security Configuration): measured
+    // against this session's last actual use, not its original login time —
+    // a session that keeps refreshing regularly never triggers this, only
+    // one that's gone quiet longer than the tenant's configured window.
+    const { inactivityLogoutMinutes } = await this.securitySettings.getEffective(tenantId);
+    if (inactivityLogoutMinutes) {
+      const lastActivity = stored.lastUsedAt ?? stored.createdAt;
+      const idleMinutes = (Date.now() - lastActivity.getTime()) / 60_000;
+      if (idleMinutes > inactivityLogoutMinutes) {
+        await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
+        throw new UnauthorizedException({ code: 'SESSION_EXPIRED_INACTIVITY', message: 'Signed out after a period of inactivity.' });
+      }
+    }
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId, tenantId },
       include: { userRoles: { include: { role: { include: { rolePermissions: { include: { permission: true } } } } } } },
@@ -272,6 +288,9 @@ export class AuthService {
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException({ code: 'USER_INACTIVE', message: 'Account is inactive.' });
+    }
+    if (user.lockedAt) {
+      throw new UnauthorizedException({ code: 'ACCOUNT_LOCKED', message: 'This account is locked.' });
     }
 
     const roles = user.userRoles.map((ur) => ur.role.name);
@@ -282,7 +301,10 @@ export class AuthService {
     // Reuses the device/IP the rotating request actually reported, so a
     // session's identity in `GET /auth/sessions` stays accurate across
     // rotations rather than freezing at whatever the original login saw.
-    const result = await this.issueSession(tenantId, user.id, user.email, roles, permissions, context);
+    // `enforceMaxConcurrent: false` — this is a 1-for-1 rotation of the same
+    // session, never a net-new login, so it must never count against (or
+    // evict another session to make room under) the concurrency limit.
+    const result = await this.issueSession(tenantId, user.id, user.email, roles, permissions, context, { enforceMaxConcurrent: false });
     const newTokenHash = this.hashToken(result.tokens.refreshToken);
     const newToken = await this.prisma.refreshToken.findFirst({ where: { tenantId, userId, tokenHash: newTokenHash } });
 
@@ -449,7 +471,13 @@ export class AuthService {
     dto: LoginDto,
     context: SessionContext = {},
   ): Promise<AuthResponseDto> {
-    if (!user || !user.isActive || user.deletedAt) {
+    // Locked is folded into the same generic INVALID_CREDENTIALS as
+    // inactive/deleted (not a distinct ACCOUNT_LOCKED code) for the same
+    // reason those are generic here: an unauthenticated login attempt must
+    // never reveal that an account exists in a particular state. Contrast
+    // with `refresh`/`switchTenant`, where the caller already holds a valid
+    // token proving prior authentication, so being specific there leaks nothing.
+    if (!user || !user.isActive || user.deletedAt || user.lockedAt) {
       throw new UnauthorizedException({ code: 'INVALID_CREDENTIALS', message: 'Invalid email or password.' });
     }
 
@@ -487,20 +515,40 @@ export class AuthService {
     roles: string[],
     permissions: string[],
     context: SessionContext = {},
+    options: { enforceMaxConcurrent?: boolean } = {},
   ): Promise<AuthResponseDto> {
+    const { enforceMaxConcurrent = true } = options;
+    const settings = await this.securitySettings.getEffective(tenantId);
+
+    if (enforceMaxConcurrent && settings.maxConcurrentSessions) {
+      const active = await this.prisma.refreshToken.findMany({
+        where: { tenantId, userId, revokedAt: null, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+      // Signing in again is never blocked — the oldest sessions are silently
+      // retired to make room, the least surprising outcome for a user who
+      // just wants to log in on a new device.
+      const overflow = active.length - (settings.maxConcurrentSessions - 1);
+      if (overflow > 0) {
+        const idsToRevoke = active.slice(0, overflow).map((t) => t.id);
+        await this.prisma.refreshToken.updateMany({ where: { tenantId, id: { in: idsToRevoke } }, data: { revokedAt: new Date() } });
+      }
+    }
+
     const accessToken = this.jwt.sign(
       { sub: userId, tenantId },
-      { secret: this.config.get('JWT_ACCESS_SECRET'), expiresIn: ACCESS_TOKEN_TTL },
+      { secret: this.config.get('JWT_ACCESS_SECRET'), expiresIn: `${settings.accessTokenTtlMinutes}m` },
     );
 
     const refreshTokenRaw = crypto.randomBytes(48).toString('hex');
     const refreshToken = this.jwt.sign(
       { sub: userId, tenantId, jti: refreshTokenRaw },
-      { secret: this.config.get('JWT_REFRESH_SECRET'), expiresIn: `${REFRESH_TOKEN_TTL_DAYS}d` },
+      { secret: this.config.get('JWT_REFRESH_SECRET'), expiresIn: `${settings.refreshTokenTtlDays}d` },
     );
 
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_TTL_DAYS);
+    expiresAt.setDate(expiresAt.getDate() + settings.refreshTokenTtlDays);
 
     await this.prisma.refreshToken.create({
       data: {
@@ -510,6 +558,7 @@ export class AuthService {
         userAgent: context.userAgent,
         ipAddress: context.ipAddress,
         expiresAt,
+        lastUsedAt: new Date(),
       },
     });
 
@@ -532,7 +581,7 @@ export class AuthService {
       tokens: {
         accessToken,
         refreshToken,
-        expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+        expiresIn: settings.accessTokenTtlMinutes * 60,
       },
       tenant: {
         slug: tenant?.slug ?? '',

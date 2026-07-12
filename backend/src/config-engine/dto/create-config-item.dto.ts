@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsNotEmptyObject, IsOptional, IsString, Matches } from 'class-validator';
+import { IsBoolean, IsInt, IsObject, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateConfigItemDto {
   @ApiProperty({ example: 'contribution_type', description: 'lowercase snake_case grouping, e.g. "contribution_type"' })
@@ -18,8 +18,8 @@ export class CreateConfigItemDto {
   @IsString()
   label: string;
 
-  @ApiProperty({ type: Object, example: {}, description: 'Arbitrary JSON payload owned by the consuming module' })
-  @IsNotEmptyObject()
+  @ApiProperty({ type: Object, example: {}, description: 'Arbitrary JSON payload owned by the consuming module — an empty object is valid for a label-only lookup value' })
+  @IsObject()
   value: Record<string, unknown>;
 
   @ApiPropertyOptional({ default: true })

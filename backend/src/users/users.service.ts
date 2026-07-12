@@ -3,6 +3,7 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { LeadershipScopeService } from '../common/leadership-scope/leadership-scope.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
@@ -15,9 +16,30 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly leadershipScope: LeadershipScopeService,
   ) {}
 
-  async create(tenantId: string, dto: CreateUserDto) {
+  /**
+   * Two ways to reach this: a caller with the tenant-wide `user.create`
+   * permission (or a platform admin) may register any user, unrestricted —
+   * unchanged from before. A Branch Administrator (holds a Phase 14
+   * `LeadershipAppointment` over a branch) with neither may still reach it,
+   * but only to register a user INTO a branch they administer — `dto.
+   * assignedBranchId` must be set and must name a branch they lead;
+   * `UsersController` deliberately has no static `@Permissions()` on this
+   * route so both paths can share it, mirroring `assignRoles`'s existing
+   * delegated-caller shape.
+   */
+  async create(tenantId: string, dto: CreateUserDto, caller: AuthenticatedUser) {
+    if (!caller.isPlatformAdmin && !caller.permissions.includes('user.create')) {
+      if (!dto.assignedBranchId || !(await this.leadershipScope.isLeaderOf(tenantId, caller.userId, 'branch', dto.assignedBranchId))) {
+        throw new ForbiddenException({
+          code: 'USER_CREATE_FORBIDDEN',
+          message: 'You can only register users into a branch you administer.',
+        });
+      }
+    }
+
     const existing = await this.prisma.user.findUnique({
       where: { tenantId_email: { tenantId, email: dto.email.toLowerCase() } },
     });
@@ -38,6 +60,7 @@ export class UsersService {
         assignedBranchId: dto.assignedBranchId,
         assignedDepartmentRecordId: dto.assignedDepartmentRecordId,
         departmentRole: dto.departmentRole,
+        userCategory: dto.userCategory,
         userRoles: dto.roleIds ? { create: dto.roleIds.map((roleId) => ({ roleId })) } : undefined,
       },
       select: this.publicSelect(),
@@ -113,7 +136,17 @@ export class UsersService {
     const target = await this.findOne(tenantId, id);
 
     if (!caller.isPlatformAdmin && !caller.permissions.includes('user.update')) {
-      await this.assertDelegatedRoleAssignment(tenantId, caller, target, roleIds);
+      await this.assertDepartmentDelegation(tenantId, caller, target);
+
+      if (roleIds.length > 0) {
+        const delegableCount = await this.prisma.role.count({ where: { id: { in: roleIds }, tenantId, isDelegable: true } });
+        if (delegableCount !== roleIds.length) {
+          throw new ForbiddenException({
+            code: 'DEPARTMENT_ROLE_ASSIGNMENT_FORBIDDEN',
+            message: 'You can only assign roles your Denomination Admin has marked delegable.',
+          });
+        }
+      }
     }
 
     await this.prisma.userRole.deleteMany({ where: { userId: id } });
@@ -121,11 +154,18 @@ export class UsersService {
     return this.findOne(tenantId, id);
   }
 
-  private async assertDelegatedRoleAssignment(
+  /**
+   * The shared "may this caller manage this target user's account" check
+   * behind assignRoles/activate/deactivate/lock/unlock/forcePasswordReset/
+   * moveDepartment — a caller with the tenant-wide `user.update` permission
+   * (or a platform admin) may manage anyone, unchanged from before; a
+   * Department Leader with neither may still reach these actions, but only
+   * for staff currently assigned to their own department.
+   */
+  private async assertDepartmentDelegation(
     tenantId: string,
     caller: AuthenticatedUser,
     target: { assignedDepartmentRecordId: string | null },
-    roleIds: string[],
   ): Promise<void> {
     const callerRecord = await this.prisma.user.findFirst({
       where: { id: caller.userId, tenantId },
@@ -138,31 +178,79 @@ export class UsersService {
       target.assignedDepartmentRecordId !== callerRecord.assignedDepartmentRecordId
     ) {
       throw new ForbiddenException({
-        code: 'DEPARTMENT_ROLE_ASSIGNMENT_FORBIDDEN',
-        message: 'You can only assign roles to staff within your own department.',
+        code: 'DEPARTMENT_ACTION_FORBIDDEN',
+        message: 'You can only manage staff within your own department.',
       });
-    }
-
-    if (roleIds.length > 0) {
-      const delegableCount = await this.prisma.role.count({ where: { id: { in: roleIds }, tenantId, isDelegable: true } });
-      if (delegableCount !== roleIds.length) {
-        throw new ForbiddenException({
-          code: 'DEPARTMENT_ROLE_ASSIGNMENT_FORBIDDEN',
-          message: 'You can only assign roles your Denomination Admin has marked delegable.',
-        });
-      }
     }
   }
 
-  async deactivate(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
+  /**
+   * Resolves the target then applies `assertDepartmentDelegation` for any
+   * caller without the tenant-wide `user.update` permission — the one-line
+   * guard every department-admin-manageable action below shares. `caller` is
+   * omitted only for the cross-tenant Platform Admin routes (not themselves
+   * a tenant `User`), which stay unrestricted, matching how those routes
+   * already behave today.
+   */
+  private async assertManageable(tenantId: string, caller: AuthenticatedUser | undefined, id: string) {
+    const target = await this.findOne(tenantId, id);
+    if (caller && !caller.isPlatformAdmin && !caller.permissions.includes('user.update')) {
+      await this.assertDepartmentDelegation(tenantId, caller, target);
+    }
+    return target;
+  }
+
+  async deactivate(tenantId: string, id: string, caller?: AuthenticatedUser) {
+    await this.assertManageable(tenantId, caller, id);
     return this.prisma.user.update({ where: { id, tenantId }, data: { isActive: false }, select: this.publicSelect() });
   }
 
   /** Reverses `deactivate`. Also used as "force account activation" (spec requirement) when a user is stuck otherwise. */
-  async activate(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
+  async activate(tenantId: string, id: string, caller?: AuthenticatedUser) {
+    await this.assertManageable(tenantId, caller, id);
     return this.prisma.user.update({ where: { id, tenantId }, data: { isActive: true }, select: this.publicSelect() });
+  }
+
+  /**
+   * Distinct from `deactivate` — a lock is a security hold (suspicious
+   * activity, an admin temporarily freezing an account) rather than the
+   * business decision `isActive: false` represents; the two are independent
+   * and either, both, or neither may apply to a given user. Enforced at the
+   * same points `isActive` already is (`AuthService.completeLogin`/`refresh`,
+   * `JwtStrategy.validate`) so a lock takes effect on the account's very next
+   * use, not just at its next fresh login.
+   */
+  async lock(tenantId: string, id: string, reason: string | undefined, caller: AuthenticatedUser) {
+    await this.assertManageable(tenantId, caller, id);
+    const user = await this.prisma.user.update({
+      where: { id, tenantId },
+      data: { lockedAt: new Date(), lockedReason: reason ?? null },
+      select: this.publicSelect(),
+    });
+    await this.prisma.refreshToken.updateMany({ where: { userId: id, tenantId, revokedAt: null }, data: { revokedAt: new Date() } });
+    await this.audit.record(tenantId, caller.userId, 'user.locked', 'User', id, { metadata: { reason } });
+    return user;
+  }
+
+  async unlock(tenantId: string, id: string, caller: AuthenticatedUser) {
+    await this.assertManageable(tenantId, caller, id);
+    const user = await this.prisma.user.update({
+      where: { id, tenantId },
+      data: { lockedAt: null, lockedReason: null },
+      select: this.publicSelect(),
+    });
+    await this.audit.record(tenantId, caller.userId, 'user.unlocked', 'User', id);
+    return user;
+  }
+
+  /** Moves a user to a different department (or clears their assignment with `null`) — the delegation guard checks the user's CURRENT department, so a Leader may move staff out of their own department but not reassign someone else's. */
+  async moveDepartment(tenantId: string, id: string, departmentRecordId: string | null, caller: AuthenticatedUser) {
+    await this.assertManageable(tenantId, caller, id);
+    return this.prisma.user.update({
+      where: { id, tenantId },
+      data: { assignedDepartmentRecordId: departmentRecordId, departmentRole: departmentRecordId ? 'staff' : null },
+      select: this.publicSelect(),
+    });
   }
 
   /**
@@ -186,19 +274,20 @@ export class UsersService {
    * insufficient (e.g. the church's only admin account is the one that
    * needs resetting). Revokes every active refresh token for this user
    * first, mirroring `AuthService.resetPassword`, so a stale session can't
-   * outlive the reset. `actorUserId` is omitted when called cross-tenant
-   * by a Platform Admin (not itself a tenant `User`), matching how
-   * `force-verify-email`/`force-activate` already skip auditing there.
+   * outlive the reset. `caller` is omitted when called cross-tenant by a
+   * Platform Admin (not itself a tenant `User`, so neither the delegation
+   * guard nor auditing applies), matching how `force-verify-email`/
+   * `force-activate` already skip both there.
    */
-  async forcePasswordReset(tenantId: string, id: string, actorUserId?: string) {
-    await this.findOne(tenantId, id);
+  async forcePasswordReset(tenantId: string, id: string, caller?: AuthenticatedUser) {
+    await this.assertManageable(tenantId, caller, id);
     const temporaryPassword = randomBytes(9).toString('base64url');
     const passwordHash = await bcrypt.hash(temporaryPassword, BCRYPT_ROUNDS);
 
     const user = await this.prisma.user.update({ where: { id, tenantId }, data: { passwordHash }, select: this.publicSelect() });
     await this.prisma.refreshToken.updateMany({ where: { userId: id, tenantId, revokedAt: null }, data: { revokedAt: new Date() } });
-    if (actorUserId) {
-      await this.audit.record(tenantId, actorUserId, 'user.password_force_reset', 'User', id);
+    if (caller) {
+      await this.audit.record(tenantId, caller.userId, 'user.password_force_reset', 'User', id);
     }
 
     return { user, temporaryPassword };
@@ -222,6 +311,8 @@ export class UsersService {
       lastName: true,
       phone: true,
       isActive: true,
+      lockedAt: true,
+      lockedReason: true,
       mfaEnabled: true,
       emailVerifiedAt: true,
       lastLoginAt: true,
@@ -231,6 +322,7 @@ export class UsersService {
       assignedDepartmentRecordId: true,
       assignedDepartmentRecord: { select: { id: true, title: true } },
       departmentRole: true,
+      userCategory: true,
       userRoles: { select: { role: { select: { id: true, name: true } } } },
     };
   }

@@ -1,8 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ResourceAssignment } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { FormAssignmentNotifier } from '../common/form-assignment-notifier/form-assignment-notifier.service';
 import { CreateResourceAssignmentDto } from './dto/create-resource-assignment.dto';
 import { ResourceAssignmentQueryDto } from './dto/resource-assignment-query.dto';
+
+export { FORM_RESOURCE_TYPE } from '../common/form-assignment-notifier/form-resource-type.constant';
 
 /**
  * The single generic mechanism attaching a resource (module/report/
@@ -14,7 +17,10 @@ import { ResourceAssignmentQueryDto } from './dto/resource-assignment-query.dto'
  */
 @Injectable()
 export class ResourceAssignmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly formAssignmentNotifier: FormAssignmentNotifier,
+  ) {}
 
   async create(tenantId: string, dto: CreateResourceAssignmentDto): Promise<ResourceAssignment> {
     const existing = await this.prisma.resourceAssignment.findUnique({
@@ -31,7 +37,14 @@ export class ResourceAssignmentsService {
     if (existing) {
       throw new ConflictException({ code: 'RESOURCE_ASSIGNMENT_ALREADY_EXISTS', message: 'This resource is already assigned to this scope.' });
     }
-    return this.prisma.resourceAssignment.create({ data: { tenantId, ...dto } });
+
+    const assignment = await this.prisma.resourceAssignment.create({
+      data: { tenantId, ...dto, dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined },
+    });
+
+    await this.formAssignmentNotifier.notifyIfForm(tenantId, assignment);
+
+    return assignment;
   }
 
   async findAll(tenantId: string, query: ResourceAssignmentQueryDto): Promise<ResourceAssignment[]> {
@@ -41,6 +54,7 @@ export class ResourceAssignmentsService {
         ...(query.scopeEntityType ? { scopeEntityType: query.scopeEntityType } : {}),
         ...(query.scopeEntityId ? { scopeEntityId: query.scopeEntityId } : {}),
         ...(query.resourceType ? { resourceType: query.resourceType } : {}),
+        ...(query.resourceKey ? { resourceKey: query.resourceKey } : {}),
       },
       orderBy: [{ resourceType: 'asc' }, { resourceKey: 'asc' }],
     });

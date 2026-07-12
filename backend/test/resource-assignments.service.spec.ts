@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ResourceAssignmentsService } from '../src/resource-assignments/resource-assignments.service';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { FormAssignmentNotifier } from '../src/common/form-assignment-notifier/form-assignment-notifier.service';
 
 describe('ResourceAssignmentsService', () => {
   let service: ResourceAssignmentsService;
@@ -18,10 +19,16 @@ describe('ResourceAssignmentsService', () => {
     },
   };
 
+  const mockFormAssignmentNotifier = { notifyIfForm: jest.fn() };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     const moduleRef = await Test.createTestingModule({
-      providers: [ResourceAssignmentsService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        ResourceAssignmentsService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: FormAssignmentNotifier, useValue: mockFormAssignmentNotifier },
+      ],
     }).compile();
     service = moduleRef.get(ResourceAssignmentsService);
   });
@@ -42,8 +49,32 @@ describe('ResourceAssignmentsService', () => {
 
       const result = await service.create(TENANT_ID, dto);
 
-      expect(mockPrisma.resourceAssignment.create).toHaveBeenCalledWith({ data: { tenantId: TENANT_ID, ...dto } });
+      expect(mockPrisma.resourceAssignment.create).toHaveBeenCalledWith({ data: { tenantId: TENANT_ID, ...dto, dueAt: undefined } });
       expect(result.id).toBe('new-assignment');
+    });
+
+    it('converts a given dueAt string to a Date', async () => {
+      mockPrisma.resourceAssignment.findUnique.mockResolvedValue(null);
+      mockPrisma.resourceAssignment.create.mockResolvedValue({ id: 'new-assignment' });
+
+      await service.create(TENANT_ID, { ...dto, dueAt: '2026-08-01T00:00:00.000Z' });
+
+      expect(mockPrisma.resourceAssignment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ dueAt: new Date('2026-08-01T00:00:00.000Z') }),
+      });
+    });
+
+    // Whether this actually sends a notification (and only for the form resourceType) is
+    // FormAssignmentNotifier's own responsibility/test coverage — here we only confirm it's
+    // always invoked with the freshly created assignment, unconditionally.
+    it('always hands the newly created assignment to FormAssignmentNotifier', async () => {
+      mockPrisma.resourceAssignment.findUnique.mockResolvedValue(null);
+      const created = { id: 'new-assignment', tenantId: TENANT_ID, ...dto };
+      mockPrisma.resourceAssignment.create.mockResolvedValue(created);
+
+      await service.create(TENANT_ID, dto);
+
+      expect(mockFormAssignmentNotifier.notifyIfForm).toHaveBeenCalledWith(TENANT_ID, created);
     });
   });
 
@@ -66,6 +97,16 @@ describe('ResourceAssignmentsService', () => {
       await service.findAll(TENANT_ID, {});
 
       expect(mockPrisma.resourceAssignment.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tenantId: TENANT_ID } }));
+    });
+
+    it('filters by resourceKey when provided — every scope one specific resource is assigned to', async () => {
+      mockPrisma.resourceAssignment.findMany.mockResolvedValue([]);
+
+      await service.findAll(TENANT_ID, { resourceKey: 'form-1' });
+
+      expect(mockPrisma.resourceAssignment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tenantId: TENANT_ID, resourceKey: 'form-1' } }),
+      );
     });
   });
 

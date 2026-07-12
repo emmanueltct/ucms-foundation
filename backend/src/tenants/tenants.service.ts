@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
@@ -42,7 +42,7 @@ export class TenantsService {
       return { tenant, temporaryPassword: null };
     }
 
-    const temporaryPassword = await this.bootstrapAdminUser(tenant.id, dto.adminEmail);
+    const temporaryPassword = await this.bootstrapAdminUser(tenant.id, tenant.name, dto.adminEmail);
     return { tenant, temporaryPassword };
   }
 
@@ -54,7 +54,7 @@ export class TenantsService {
    * unlike the demo seed's role (which intentionally grants every permission
    * for local-dev convenience only).
    */
-  private async bootstrapAdminUser(tenantId: string, adminEmail: string): Promise<string> {
+  private async bootstrapAdminUser(tenantId: string, tenantName: string, adminEmail: string): Promise<string> {
     const temporaryPassword = randomBytes(9).toString('base64url');
     const passwordHash = await bcrypt.hash(temporaryPassword, 12);
 
@@ -94,7 +94,48 @@ export class TenantsService {
       },
     });
 
+    await this.seedDefaultOrgStructure(tenantId, tenantName);
+
     return temporaryPassword;
+  }
+
+  /**
+   * For brand-new tenants only — never backfilled onto an existing tenant,
+   * so this can't retroactively constrain a church that already built its
+   * own hierarchy. Reproduces the reference org-chart's shape (Top Level ->
+   * Branch -> Sub-Branch -> Sub-Branch...) as a default, fully editable
+   * template: three `HierarchyLevelDefinition` rows (inert rules layered
+   * over `Branch.branchType`, see that model's own doc comment) plus one
+   * root `Branch` so a new tenant starts with a visible apex node instead of
+   * an empty tree. `sub_branch` deliberately allows itself as both parent
+   * and child, satisfying "every organizational unit below Branch is a
+   * Sub-Branch" with unlimited further nesting. `sub_branch`'s `color` is
+   * left unset on purpose — the frontend's depth-based fallback rotation
+   * then naturally colors successive Sub-Branch tiers differently (purple,
+   * then orange, ...) exactly like the reference diagram's tiers 3/4,
+   * without needing a color-per-depth concept in the schema.
+   */
+  private async seedDefaultOrgStructure(tenantId: string, tenantName: string): Promise<void> {
+    const branchTypes: Array<{ key: string; label: string }> = [
+      { key: 'top_level', label: 'Top Level' },
+      { key: 'branch', label: 'Branch' },
+      { key: 'sub_branch', label: 'Sub Branch' },
+    ];
+    await this.prisma.configItem.createMany({
+      data: branchTypes.map((t, i) => ({ tenantId, namespace: 'branch_type', key: t.key, label: t.label, value: {}, sortOrder: i })),
+    });
+
+    await this.prisma.hierarchyLevelDefinition.createMany({
+      data: [
+        { tenantId, branchTypeKey: 'top_level', label: 'Top Level', allowedParentTypeKeys: [], allowedChildTypeKeys: ['branch'], color: '#2563EB', sortOrder: 0 },
+        { tenantId, branchTypeKey: 'branch', label: 'Branch', allowedParentTypeKeys: ['top_level'], allowedChildTypeKeys: ['sub_branch'], color: '#16A34A', sortOrder: 1 },
+        { tenantId, branchTypeKey: 'sub_branch', label: 'Sub Branch', allowedParentTypeKeys: ['branch', 'sub_branch'], allowedChildTypeKeys: ['sub_branch'], sortOrder: 2 },
+      ],
+    });
+
+    await this.prisma.branch.create({
+      data: { tenantId, name: `${tenantName} Head Office`, branchType: 'top_level', isHeadquarters: true },
+    });
   }
 
   async findAll(query: PaginationQueryDto) {
@@ -115,8 +156,14 @@ export class TenantsService {
     return { items, total, page: query.page, pageSize: query.pageSize, totalPages: Math.ceil(total / query.pageSize) };
   }
 
+  /**
+   * Deliberately does NOT filter out soft-deleted tenants (unlike `findAll`)
+   * — this is a targeted by-id lookup, and the detail page needs to keep
+   * showing a soft-deleted church (with its Restore/Permanently-delete
+   * actions) after `softDelete` runs, not 404 it into invisibility.
+   */
   async findOne(id: string) {
-    const tenant = await this.prisma.tenant.findFirst({ where: { id, deletedAt: null } });
+    const tenant = await this.prisma.tenant.findUnique({ where: { id } });
     if (!tenant) throw new NotFoundException({ code: 'TENANT_NOT_FOUND', message: 'Church not found.' });
     return tenant;
   }
@@ -144,14 +191,115 @@ export class TenantsService {
 
   /**
    * Reverses `softDelete` — distinct from `reactivate`: a deleted tenant is
-   * excluded from `findOne`/`findAll` entirely (see their `deletedAt: null`
-   * filters), so this has to look the row up directly rather than through
-   * `findOne`. Restoring only clears `deletedAt`; `isActive` stays false so
-   * the tenant comes back as "restored but still suspended," not silently live.
+   * excluded from `findAll` (see its `deletedAt: null` filter) but `findOne`
+   * deliberately still finds it, so restoring only clears `deletedAt`;
+   * `isActive` stays false so the tenant comes back as "restored but still
+   * suspended," not silently live.
    */
   async restore(id: string) {
+    await this.findOne(id);
+    return this.prisma.tenant.update({ where: { id }, data: { deletedAt: null } });
+  }
+
+  /**
+   * Irreversibly wipes every row this tenant owns, then the tenant itself.
+   * Only reachable on a tenant that's already soft-deleted (`softDelete` run
+   * first) — this is deliberately the *second* step of a two-step workflow,
+   * never a single click from a live church. No model in this schema
+   * cascades on Tenant deletion (only `RolePermission`/`UserRole` cascade,
+   * on Role/User/Permission), so this deletes every tenant-owned table
+   * itself, in an explicit dependency order (children before the parent row
+   * they reference) so Postgres's FK constraints never reject a delete.
+   *
+   * Two real reference cycles exist and are broken by nulling the
+   * "downward" side first, before any deletes run: `User.assignedBranchId`/
+   * `assignedDepartmentRecordId` point at `Branch`/`DynamicModuleRecord`,
+   * which themselves eventually need `User` gone (`createdByUserId` etc.)
+   * before they can be deleted; and `Family.headOfFamilyId` points at
+   * `Member`, which points back at `Family` via `familyId`. Everything else
+   * is a straightforward child-before-parent chain, documented inline by the
+   * numbered groups below.
+   */
+  async hardDelete(id: string) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id } });
     if (!tenant) throw new NotFoundException({ code: 'TENANT_NOT_FOUND', message: 'Church not found.' });
-    return this.prisma.tenant.update({ where: { id }, data: { deletedAt: null } });
+    if (!tenant.deletedAt) {
+      throw new BadRequestException({
+        code: 'TENANT_NOT_SOFT_DELETED',
+        message: 'A church must be soft-deleted first (DELETE /platform/tenants/:id) before it can be permanently purged.',
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Break the two reference cycles up front.
+      await tx.user.updateMany({ where: { tenantId: id }, data: { assignedBranchId: null, assignedDepartmentRecordId: null } });
+      await tx.family.updateMany({ where: { tenantId: id }, data: { headOfFamilyId: null } });
+
+      // Group 1 — leaves: reference a "core entity" table below, nothing references them.
+      await Promise.all([
+        tx.dynamicModuleRecordStatusHistory.deleteMany({ where: { tenantId: id } }),
+        tx.resourceAssignment.deleteMany({ where: { tenantId: id } }),
+        tx.entityMembership.deleteMany({ where: { tenantId: id } }),
+        tx.ministryMembership.deleteMany({ where: { tenantId: id } }),
+        tx.smallGroupMembership.deleteMany({ where: { tenantId: id } }),
+        tx.attendanceRecord.deleteMany({ where: { tenantId: id } }),
+        tx.contribution.deleteMany({ where: { tenantId: id } }),
+        tx.memberActivity.deleteMany({ where: { tenantId: id } }),
+        tx.visitorActivity.deleteMany({ where: { tenantId: id } }),
+        tx.eventRegistration.deleteMany({ where: { tenantId: id } }),
+        tx.payrollPayment.deleteMany({ where: { tenantId: id } }),
+        tx.documentVersion.deleteMany({ where: { tenantId: id } }),
+        tx.hierarchyRequirementSubmission.deleteMany({ where: { tenantId: id } }),
+        tx.approvalRequest.deleteMany({ where: { tenantId: id } }),
+        tx.deadline.deleteMany({ where: { tenantId: id } }),
+        tx.menuItem.deleteMany({ where: { tenantId: id } }),
+        tx.customFieldValue.deleteMany({ where: { tenantId: id } }),
+        tx.customFieldDefinition.deleteMany({ where: { tenantId: id } }),
+        tx.refreshToken.deleteMany({ where: { tenantId: id } }),
+        tx.passwordResetToken.deleteMany({ where: { tenantId: id } }),
+        tx.emailVerificationToken.deleteMany({ where: { tenantId: id } }),
+        tx.auditLog.deleteMany({ where: { tenantId: id } }),
+        tx.notification.deleteMany({ where: { tenantId: id } }),
+        tx.numberingSequence.deleteMany({ where: { tenantId: id } }),
+        tx.notificationTemplate.deleteMany({ where: { tenantId: id } }),
+        tx.featureToggle.deleteMany({ where: { tenantId: id } }),
+        tx.configItem.deleteMany({ where: { tenantId: id } }),
+        tx.hierarchyLevelDefinition.deleteMany({ where: { tenantId: id } }),
+      ]);
+
+      // Group 2 — Staff (references Member) and Visitor (references Member/VisitorGroup/Branch/User) before Member.
+      await tx.staff.deleteMany({ where: { tenantId: id } });
+      await tx.visitor.deleteMany({ where: { tenantId: id } });
+
+      // Group 3 — Member (references Branch/Family), then VisitorGroup, then Family.
+      await tx.member.deleteMany({ where: { tenantId: id } });
+      await tx.visitorGroup.deleteMany({ where: { tenantId: id } });
+      await tx.family.deleteMany({ where: { tenantId: id } });
+
+      // Group 4 — other Branch-optional entities.
+      await Promise.all([
+        tx.ministry.deleteMany({ where: { tenantId: id } }),
+        tx.event.deleteMany({ where: { tenantId: id } }),
+        tx.asset.deleteMany({ where: { tenantId: id } }),
+        tx.document.deleteMany({ where: { tenantId: id } }),
+        tx.smallGroup.deleteMany({ where: { tenantId: id } }),
+      ]);
+
+      // Group 5 — DynamicModuleRecord (references DynamicModuleDefinition/Branch/User), then User, then Branch.
+      await tx.dynamicModuleRecord.deleteMany({ where: { tenantId: id } });
+      await tx.user.deleteMany({ where: { tenantId: id } });
+      await tx.branch.deleteMany({ where: { tenantId: id } });
+
+      // Group 6 — DynamicModuleDefinition/HierarchyRequirement (reference ApprovalWorkflow), then ApprovalWorkflow (ApprovalStep cascades).
+      await tx.dynamicModuleDefinition.deleteMany({ where: { tenantId: id } });
+      await tx.hierarchyRequirement.deleteMany({ where: { tenantId: id } });
+      await tx.approvalWorkflow.deleteMany({ where: { tenantId: id } });
+
+      // Group 7 — Role (UserRole/RolePermission already cascaded away above), then Tenant itself.
+      await tx.role.deleteMany({ where: { tenantId: id } });
+      await tx.tenant.delete({ where: { id } });
+    });
+
+    return { purged: true };
   }
 }

@@ -87,6 +87,7 @@ export class DepartmentsService {
       scopeEntityId: id,
       resourceType: dto.resourceType,
       resourceKey: dto.resourceKey,
+      dueAt: dto.dueAt,
     });
   }
 

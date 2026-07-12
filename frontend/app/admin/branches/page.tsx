@@ -5,70 +5,143 @@
 // parishes, districts, cells, or a flat single-branch church — whatever
 // shape this tenant needs) through the Church & Hierarchy Management module.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   branchesApi,
   hierarchyRequirementsApi,
   hierarchyLevelsApi,
   configApi,
+  departmentsApi,
+  ministriesApi,
+  dynamicModuleDefinitionsApi,
+  usersApi,
+  leadershipAppointmentsApi,
   Branch,
   BranchTreeNode,
   HierarchyRequirement,
   HierarchyRequirementSubmission,
   HierarchyLevelDefinition,
+  ResourceAssignment,
+  Department,
+  Ministry,
+  DynamicModuleDefinition,
+  AppUser,
+  LeadershipAppointment,
+  isAccessDeniedResponse,
 } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { ChevronRight, ChevronDown } from 'lucide-react';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church'; // in production this comes from the resolved workspace/domain
 
+// Matches the reference org-chart's 4-tier legend (Top Level/Branch/Sub Branch/Sub Branch).
+// Used whenever a branchType has no admin-configured HierarchyLevelDefinition.color — depth
+// 0/1 line up with Top Level/Branch even for a tenant that never touched the rules editor,
+// and depth 2+ cycles through the remaining colors for however many Sub-Branch tiers exist.
+const DEPTH_COLOR_ROTATION = ['#2563EB', '#16A34A', '#7C3AED', '#EA580C'];
+
 function flatten(nodes: BranchTreeNode[]): Branch[] {
   return nodes.flatMap((n) => [n, ...flatten(n.children)]);
+}
+
+function collectIds(nodes: BranchTreeNode[]): string[] {
+  return nodes.flatMap((n) => [n.id, ...collectIds(n.children)]);
+}
+
+function resolveTierColor(branchType: string | null, depth: number, rulesByType: Map<string, HierarchyLevelDefinition>): string {
+  const rule = branchType ? rulesByType.get(branchType) : undefined;
+  return rule?.color || DEPTH_COLOR_ROTATION[depth % DEPTH_COLOR_ROTATION.length];
 }
 
 function BranchNode({
   node,
   depth,
   selectedId,
-  onToggle,
+  expandedIds,
+  rulesByType,
+  onToggleActive,
+  onToggleExpand,
   onSelect,
 }: {
   node: BranchTreeNode;
   depth: number;
   selectedId: string | null;
-  onToggle: (branch: Branch) => void;
+  expandedIds: Set<string>;
+  rulesByType: Map<string, HierarchyLevelDefinition>;
+  onToggleActive: (branch: Branch) => void;
+  onToggleExpand: (id: string) => void;
   onSelect: (branch: Branch) => void;
 }) {
+  const hasChildren = node.children.length > 0;
+  const isExpanded = expandedIds.has(node.id);
+  const color = resolveTierColor(node.branchType, depth, rulesByType);
+  const tierLabel = (node.branchType && rulesByType.get(node.branchType)?.label) || node.branchType;
+
   return (
     <div>
       <div
         className={`flex items-center justify-between py-2 pr-3 border-b border-slate-100 last:border-0 ${
           selectedId === node.id ? 'bg-[#1E2A44]/5' : ''
         }`}
-        style={{ paddingLeft: 12 + depth * 20 }}
+        style={{ paddingLeft: 4 + depth * 22 }}
       >
-        <button onClick={() => onSelect(node)} className="flex items-center gap-2 min-w-0 text-left">
-          <span className={`text-sm font-medium truncate ${node.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
-            {node.name}
-          </span>
-          {node.isHeadquarters && (
-            <span className="shrink-0 text-[10px] uppercase tracking-wide font-semibold text-[#C9A24B] border border-[#C9A24B]/40 rounded-full px-2 py-0.5">
-              HQ
+        <div className="flex items-center gap-1.5 min-w-0">
+          <button
+            onClick={() => onToggleExpand(node.id)}
+            className={`shrink-0 h-5 w-5 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 ${
+              hasChildren ? '' : 'invisible'
+            }`}
+            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          >
+            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+          <span className="shrink-0 h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+          <button onClick={() => onSelect(node)} className="flex items-center gap-2 min-w-0 text-left">
+            <span className={`text-sm font-medium truncate ${node.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
+              {node.name}
             </span>
-          )}
-          {node.branchType && <span className="shrink-0 text-xs text-slate-400">{node.branchType}</span>}
-        </button>
+            {node.isHeadquarters && (
+              <span className="shrink-0 text-[10px] uppercase tracking-wide font-semibold text-[#C9A24B] border border-[#C9A24B]/40 rounded-full px-2 py-0.5">
+                HQ
+              </span>
+            )}
+            {tierLabel && (
+              <span
+                className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded"
+                style={{ color, backgroundColor: `${color}1A` }}
+              >
+                {tierLabel}
+              </span>
+            )}
+          </button>
+        </div>
         <button
-          onClick={() => onToggle(node)}
+          onClick={() => onToggleActive(node)}
           className="shrink-0 text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
         >
           {node.isActive ? 'Deactivate' : 'Reactivate'}
         </button>
       </div>
-      {node.children.map((child) => (
-        <BranchNode key={child.id} node={child} depth={depth + 1} selectedId={selectedId} onToggle={onToggle} onSelect={onSelect} />
-      ))}
+      {hasChildren && isExpanded && (
+        <div className="border-l ml-[22px]" style={{ borderColor: `${color}40`, marginLeft: 4 + depth * 22 + 9 }}>
+          {node.children.map((child) => (
+            <BranchNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              selectedId={selectedId}
+              expandedIds={expandedIds}
+              rulesByType={rulesByType}
+              onToggleActive={onToggleActive}
+              onToggleExpand={onToggleExpand}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -77,6 +150,7 @@ export default function BranchesAdminPage() {
   const [tree, setTree] = useState<BranchTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [name, setName] = useState('');
   const [branchType, setBranchType] = useState('');
@@ -87,16 +161,53 @@ export default function BranchesAdminPage() {
   const [ownSubmissions, setOwnSubmissions] = useState<HierarchyRequirementSubmission[]>([]);
   const [requirementsLoading, setRequirementsLoading] = useState(false);
 
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [rules, setRules] = useState<HierarchyLevelDefinition[]>([]);
+  const rulesByType = useMemo(() => new Map(rules.map((r) => [r.branchTypeKey, r])), [rules]);
+
+  const [resources, setResources] = useState<ResourceAssignment[]>([]);
+  const [resourcesLoading, setResourcesLoading] = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [ministries, setMinistries] = useState<Ministry[]>([]);
+  const [modules, setModules] = useState<DynamicModuleDefinition[]>([]);
+  const [resourceType, setResourceType] = useState('department');
+  const [resourceKey, setResourceKey] = useState('');
+  const [resourceDueAt, setResourceDueAt] = useState('');
+  const [assigning, setAssigning] = useState(false);
+
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [administrators, setAdministrators] = useState<LeadershipAppointment[]>([]);
+  const [administratorsLoading, setAdministratorsLoading] = useState(false);
+  const [newAdministratorUserId, setNewAdministratorUserId] = useState('');
+  const [assigningAdministrator, setAssigningAdministrator] = useState(false);
+
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const res = await branchesApi.tree(TENANT_SLUG, true);
-      if (res.success && res.data) {
-        setTree(res.data);
-      } else {
-        setError(res.error?.message ?? 'Could not load the church hierarchy.');
+      const [treeRes, rulesRes, deptRes, ministryRes, moduleRes, usersRes] = await Promise.all([
+        branchesApi.tree(TENANT_SLUG, true),
+        hierarchyLevelsApi.list(TENANT_SLUG),
+        departmentsApi.list(TENANT_SLUG),
+        ministriesApi.list(TENANT_SLUG),
+        dynamicModuleDefinitionsApi.list(TENANT_SLUG, undefined, true),
+        usersApi.list(TENANT_SLUG),
+      ]);
+      if (isAccessDeniedResponse(treeRes)) {
+        setAccessDenied(true);
+        return;
       }
+      if (treeRes.success && treeRes.data) {
+        setTree(treeRes.data);
+        setExpandedIds((prev) => (prev.size === 0 ? new Set(collectIds(treeRes.data!)) : prev));
+      } else {
+        setError(treeRes.error?.message ?? 'Could not load the church hierarchy.');
+      }
+      if (rulesRes.success && rulesRes.data) setRules(rulesRes.data);
+      if (deptRes.success && deptRes.data) setDepartments(deptRes.data);
+      if (ministryRes.success && ministryRes.data) setMinistries(ministryRes.data);
+      if (moduleRes.success && moduleRes.data) setModules(moduleRes.data);
+      if (usersRes.success && usersRes.data) setUsers(usersRes.data);
     } catch {
       setError('Could not reach the server. Check the API is running.');
     } finally {
@@ -107,6 +218,92 @@ export default function BranchesAdminPage() {
   useEffect(() => {
     load();
   }, []);
+
+  function handleToggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function loadResources(branch: Branch) {
+    setResourcesLoading(true);
+    const res = await branchesApi.listResources(TENANT_SLUG, branch.id);
+    if (res.success && res.data) setResources(res.data);
+    else setError(res.error?.message ?? 'Could not load assigned resources.');
+    setResourcesLoading(false);
+  }
+
+  async function handleAssignResource(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedBranch || !resourceKey) return;
+    setAssigning(true);
+    setError(null);
+    const res = await branchesApi.assignResource(TENANT_SLUG, selectedBranch.id, {
+      resourceType,
+      resourceKey,
+      dueAt: resourceType === 'dynamic_module_definition' && resourceDueAt ? new Date(resourceDueAt).toISOString() : undefined,
+    });
+    if (res.success) {
+      setResourceKey('');
+      setResourceDueAt('');
+      loadResources(selectedBranch);
+    } else {
+      setError(res.error?.message ?? 'Could not assign this resource.');
+    }
+    setAssigning(false);
+  }
+
+  async function handleRemoveResource(assignment: ResourceAssignment) {
+    if (!selectedBranch) return;
+    const res = await branchesApi.removeResource(TENANT_SLUG, selectedBranch.id, assignment.id);
+    if (res.success) loadResources(selectedBranch);
+    else setError(res.error?.message ?? 'Could not remove this assignment.');
+  }
+
+  function resourceLabel(r: ResourceAssignment): string {
+    if (r.resourceType === 'department') return departments.find((d) => d.id === r.resourceKey)?.title ?? r.resourceKey;
+    if (r.resourceType === 'ministry') return ministries.find((m) => m.id === r.resourceKey)?.name ?? r.resourceKey;
+    if (r.resourceType === 'module' || r.resourceType === 'dynamic_module_definition')
+      return modules.find((m) => m.id === r.resourceKey)?.label ?? r.resourceKey;
+    return r.resourceKey;
+  }
+
+  async function loadAdministrators(branch: Branch) {
+    setAdministratorsLoading(true);
+    const res = await leadershipAppointmentsApi.forTarget(TENANT_SLUG, 'branch', branch.id);
+    if (res.success && res.data) setAdministrators(res.data);
+    else setError(res.error?.message ?? 'Could not load assigned administrators.');
+    setAdministratorsLoading(false);
+  }
+
+  async function handleAssignAdministrator(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedBranch || !newAdministratorUserId) return;
+    setAssigningAdministrator(true);
+    setError(null);
+    const res = await leadershipAppointmentsApi.create(TENANT_SLUG, {
+      targetEntityType: 'branch',
+      targetEntityId: selectedBranch.id,
+      userId: newAdministratorUserId,
+    });
+    if (res.success) {
+      setNewAdministratorUserId('');
+      loadAdministrators(selectedBranch);
+    } else {
+      setError(res.error?.message ?? 'Could not assign this administrator.');
+    }
+    setAssigningAdministrator(false);
+  }
+
+  async function handleRemoveAdministrator(appointment: LeadershipAppointment) {
+    if (!selectedBranch) return;
+    const res = await leadershipAppointmentsApi.remove(TENANT_SLUG, appointment.id);
+    if (res.success) loadAdministrators(selectedBranch);
+    else setError(res.error?.message ?? 'Could not remove this administrator.');
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -149,6 +346,8 @@ export default function BranchesAdminPage() {
   function handleSelectBranch(branch: Branch) {
     setSelectedBranch(branch);
     loadRequirements(branch);
+    loadResources(branch);
+    loadAdministrators(branch);
   }
 
   async function handleOpenCycle(requirementId: string) {
@@ -189,6 +388,8 @@ export default function BranchesAdminPage() {
   }
 
   const flatBranches = flatten(tree);
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">
@@ -270,7 +471,10 @@ export default function BranchesAdminPage() {
                   node={node}
                   depth={0}
                   selectedId={selectedBranch?.id ?? null}
-                  onToggle={handleToggle}
+                  expandedIds={expandedIds}
+                  rulesByType={rulesByType}
+                  onToggleActive={handleToggle}
+                  onToggleExpand={handleToggleExpand}
                   onSelect={handleSelectBranch}
                 />
               ))
@@ -334,12 +538,148 @@ export default function BranchesAdminPage() {
                     ))}
                   </div>
                 )}
+
+                <div className="mt-6 pt-4 border-t border-slate-100">
+                  <p className="text-xs text-slate-400 mb-2">Assigned Administrator(s)</p>
+                  <form onSubmit={handleAssignAdministrator} className="flex items-end gap-2 mb-3">
+                    <div className="flex-1">
+                      <Label className="mb-1 text-slate-600">User</Label>
+                      <select
+                        value={newAdministratorUserId}
+                        onChange={(e) => setNewAdministratorUserId(e.target.value)}
+                        className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700"
+                      >
+                        <option value="">— Select —</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.firstName} {u.lastName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button type="submit" size="sm" disabled={assigningAdministrator || !newAdministratorUserId} style={{ backgroundColor: '#1E2A44' }}>
+                      {assigningAdministrator ? 'Assigning…' : 'Assign'}
+                    </Button>
+                  </form>
+                  {administratorsLoading ? (
+                    <p className="text-sm text-slate-400">Loading…</p>
+                  ) : administrators.length === 0 ? (
+                    <p className="text-sm text-slate-400">No administrator assigned yet.</p>
+                  ) : (
+                    <div className="divide-y divide-slate-50">
+                      {administrators.map((a) => (
+                        <div key={a.id} className="flex items-center justify-between py-2">
+                          <p className="text-sm text-slate-700">
+                            {a.user ? `${a.user.firstName} ${a.user.lastName}` : a.userId}
+                          </p>
+                          <button onClick={() => handleRemoveAdministrator(a)} className="text-xs text-red-500 hover:underline">
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-slate-100">
+                  <p className="text-xs text-slate-400 mb-2">Assigned departments, ministries &amp; modules</p>
+                  <form onSubmit={handleAssignResource} className="space-y-2 mb-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <Label className="mb-1 text-slate-600">Type</Label>
+                        <select
+                          value={resourceType}
+                          onChange={(e) => {
+                            setResourceType(e.target.value);
+                            setResourceKey('');
+                          }}
+                          className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700"
+                        >
+                          <option value="department">Department</option>
+                          <option value="ministry">Ministry</option>
+                          <option value="module">Module</option>
+                          <option value="dynamic_module_definition">Form / Report (assign with deadline)</option>
+                          <option value="report">Report</option>
+                          <option value="dashboard">Dashboard</option>
+                          <option value="workflow">Workflow</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Label className="mb-1 text-slate-600">Resource</Label>
+                        {resourceType === 'department' ||
+                        resourceType === 'ministry' ||
+                        resourceType === 'module' ||
+                        resourceType === 'dynamic_module_definition' ? (
+                          <select
+                            value={resourceKey}
+                            onChange={(e) => setResourceKey(e.target.value)}
+                            className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700"
+                          >
+                            <option value="">— Select —</option>
+                            {resourceType === 'department' &&
+                              departments.map((d) => (
+                                <option key={d.id} value={d.id}>
+                                  {d.title}
+                                </option>
+                              ))}
+                            {resourceType === 'ministry' &&
+                              ministries.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            {(resourceType === 'module' || resourceType === 'dynamic_module_definition') &&
+                              modules.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.label}
+                                </option>
+                              ))}
+                          </select>
+                        ) : (
+                          <Input value={resourceKey} onChange={(e) => setResourceKey(e.target.value)} placeholder="key" />
+                        )}
+                      </div>
+                    </div>
+                    {resourceType === 'dynamic_module_definition' && (
+                      <div>
+                        <Label className="mb-1 text-slate-600">Deadline (optional)</Label>
+                        <Input type="date" value={resourceDueAt} onChange={(e) => setResourceDueAt(e.target.value)} />
+                      </div>
+                    )}
+                    <Button type="submit" size="sm" disabled={assigning || !resourceKey} style={{ backgroundColor: '#1E2A44' }}>
+                      {assigning ? 'Assigning…' : 'Assign'}
+                    </Button>
+                  </form>
+
+                  {resourcesLoading ? (
+                    <p className="text-sm text-slate-400">Loading…</p>
+                  ) : resources.length === 0 ? (
+                    <p className="text-sm text-slate-400">Nothing assigned yet.</p>
+                  ) : (
+                    <div className="divide-y divide-slate-50">
+                      {resources.map((r) => (
+                        <div key={r.id} className="flex items-center justify-between py-2">
+                          <div>
+                            <p className="text-sm text-slate-700">{resourceLabel(r)}</p>
+                            <p className="text-xs text-slate-400">
+                              {r.resourceType}
+                              {r.dueAt ? ` · due ${new Date(r.dueAt).toLocaleDateString()}` : ''}
+                            </p>
+                          </div>
+                          <button onClick={() => handleRemoveResource(r)} className="text-xs text-red-500 hover:underline">
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
         </div>
 
-        <HierarchyRulesSection />
+        <HierarchyRulesSection onRulesChanged={load} />
       </div>
     </div>
   );
@@ -350,7 +690,7 @@ interface BranchTypeOption {
   label: string;
 }
 
-function HierarchyRulesSection() {
+function HierarchyRulesSection({ onRulesChanged }: { onRulesChanged: () => void }) {
   const [branchTypes, setBranchTypes] = useState<BranchTypeOption[]>([]);
   const [rules, setRules] = useState<HierarchyLevelDefinition[]>([]);
   const [loading, setLoading] = useState(false);
@@ -360,6 +700,7 @@ function HierarchyRulesSection() {
   const [label, setLabel] = useState('');
   const [allowedParentTypeKeys, setAllowedParentTypeKeys] = useState<string[]>([]);
   const [allowedChildTypeKeys, setAllowedChildTypeKeys] = useState<string[]>([]);
+  const [color, setColor] = useState('');
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -395,13 +736,16 @@ function HierarchyRulesSection() {
       label: label.trim(),
       allowedParentTypeKeys,
       allowedChildTypeKeys,
+      color: color || undefined,
     });
     if (res.success) {
       setBranchTypeKey('');
       setLabel('');
       setAllowedParentTypeKeys([]);
       setAllowedChildTypeKeys([]);
+      setColor('');
       load();
+      onRulesChanged();
     } else {
       setError(res.error?.message ?? 'Could not create the rule.');
     }
@@ -411,8 +755,12 @@ function HierarchyRulesSection() {
   async function handleDelete(rule: HierarchyLevelDefinition) {
     if (!confirm(`Remove the nesting rule for "${rule.label}"? That branch type goes back to unconstrained nesting.`)) return;
     const res = await hierarchyLevelsApi.remove(TENANT_SLUG, rule.id);
-    if (res.success) load();
-    else setError(res.error?.message ?? 'Could not remove the rule.');
+    if (res.success) {
+      load();
+      onRulesChanged();
+    } else {
+      setError(res.error?.message ?? 'Could not remove the rule.');
+    }
   }
 
   function typeLabel(key: string): string {
@@ -502,6 +850,21 @@ function HierarchyRulesSection() {
                   ))}
                 </div>
               </div>
+              <div>
+                <Label htmlFor="rule-color" className="mb-1 text-slate-600">
+                  Tier color (optional — org-chart tree)
+                </Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="rule-color"
+                    type="color"
+                    value={color || '#94a3b8'}
+                    onChange={(e) => setColor(e.target.value)}
+                    className="h-8 w-10 rounded border border-slate-200 bg-white p-0.5"
+                  />
+                  <Input value={color} onChange={(e) => setColor(e.target.value)} placeholder="Leave blank for automatic" className="flex-1" />
+                </div>
+              </div>
               <Button type="submit" disabled={saving} style={{ backgroundColor: '#1E2A44' }}>
                 {saving ? 'Saving…' : 'Add rule'}
               </Button>
@@ -518,7 +881,10 @@ function HierarchyRulesSection() {
             rules.map((r) => (
               <div key={r.id} className="px-4 py-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-slate-800">{r.label}</p>
+                  <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
+                    {r.color && <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: r.color }} />}
+                    {r.label}
+                  </p>
                   <button onClick={() => handleDelete(r)} className="text-xs text-red-500 hover:underline">
                     Remove
                   </button>

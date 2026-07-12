@@ -19,6 +19,11 @@ import {
   AppUser,
 } from '../../../../lib/api';
 import { PlatformTopBar } from '@/components/platform-top-bar';
+import { Button } from '../../../../components/ui/button';
+import { Input } from '../../../../components/ui/input';
+import { Label } from '../../../../components/ui/label';
+
+const SUBSCRIPTION_PLANS = ['free', 'starter', 'growth', 'enterprise'];
 
 export default function PlatformTenantDetailPage() {
   const params = useParams<{ id: string }>();
@@ -33,6 +38,14 @@ export default function PlatformTenantDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resetHandoff, setResetHandoff] = useState<{ email: string; temporaryPassword: string } | null>(null);
+
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editCurrency, setEditCurrency] = useState('');
+  const [editLanguage, setEditLanguage] = useState('');
+  const [editTimezone, setEditTimezone] = useState('');
+  const [editPlan, setEditPlan] = useState('');
+  const [saving, setSaving] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -68,6 +81,15 @@ export default function PlatformTenantDetailPage() {
     setBusy(false);
   }
 
+  async function handleRestore() {
+    if (!tenant) return;
+    setBusy(true);
+    const res = await platformTenantsApi.restore(tenant.id);
+    if (res.success) load();
+    else setError(res.error?.message ?? 'Could not restore this church.');
+    setBusy(false);
+  }
+
   async function handleForceVerify(userId: string) {
     setBusy(true);
     const res = await platformTenantAdminApi.forceVerifyEmail(tenantId, userId);
@@ -82,6 +104,53 @@ export default function PlatformTenantDetailPage() {
     if (res.success) load();
     else setError(res.error?.message ?? 'Could not activate account.');
     setBusy(false);
+  }
+
+  async function handlePurge() {
+    if (!tenant) return;
+    const typed = window.prompt(
+      `This permanently deletes "${tenant.name}" and every record it owns — members, users, branches, everything. This cannot be undone.\n\nType the church's exact name to confirm:`,
+    );
+    if (typed !== tenant.name) {
+      if (typed !== null) setError('Name did not match — nothing was deleted.');
+      return;
+    }
+    setBusy(true);
+    const res = await platformTenantsApi.purge(tenant.id);
+    if (res.success) router.push('/platform/tenants');
+    else setError(res.error?.message ?? 'Could not permanently delete this church.');
+    setBusy(false);
+  }
+
+  function startEdit() {
+    if (!tenant) return;
+    setEditName(tenant.name);
+    setEditCurrency(tenant.currency);
+    setEditLanguage(tenant.language);
+    setEditTimezone(tenant.timezone);
+    setEditPlan(tenant.subscriptionPlan);
+    setEditing(true);
+  }
+
+  async function handleSaveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!tenant) return;
+    setSaving(true);
+    setError(null);
+    const res = await platformTenantsApi.update(tenant.id, {
+      name: editName.trim(),
+      currency: editCurrency.trim(),
+      language: editLanguage.trim(),
+      timezone: editTimezone.trim(),
+      subscriptionPlan: editPlan,
+    });
+    if (res.success) {
+      setEditing(false);
+      load();
+    } else {
+      setError(res.error?.message ?? 'Could not save these changes.');
+    }
+    setSaving(false);
   }
 
   async function handleForceResetPassword(user: AppUser) {
@@ -117,6 +186,9 @@ export default function PlatformTenantDetailPage() {
                 <p className="text-sm text-slate-500 mt-1">{tenant.slug} · {tenant.subscriptionPlan}</p>
               </div>
               <div className="flex items-center gap-2">
+                {tenant.deletedAt && (
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-red-50 text-red-700">Deleted</span>
+                )}
                 <span
                   className={`text-xs font-medium px-2.5 py-1 rounded-full ${
                     tenant.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
@@ -124,15 +196,87 @@ export default function PlatformTenantDetailPage() {
                 >
                   {tenant.isActive ? 'Active' : 'Inactive'}
                 </span>
-                <button
-                  onClick={handleToggleActive}
-                  disabled={busy}
-                  className="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
-                >
-                  {tenant.isActive ? 'Deactivate' : 'Reactivate'}
-                </button>
+                {!tenant.deletedAt && (
+                  <button
+                    onClick={startEdit}
+                    disabled={busy}
+                    className="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                  >
+                    Edit
+                  </button>
+                )}
+                {tenant.deletedAt ? (
+                  <>
+                    <button
+                      onClick={handleRestore}
+                      disabled={busy}
+                      className="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                    >
+                      Restore
+                    </button>
+                    <button
+                      onClick={handlePurge}
+                      disabled={busy}
+                      className="text-xs font-medium px-3 py-1.5 rounded-full border border-red-200 text-red-600 hover:bg-red-50"
+                    >
+                      Permanently delete
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleToggleActive}
+                    disabled={busy}
+                    className="text-xs font-medium px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                  >
+                    {tenant.isActive ? 'Deactivate' : 'Reactivate'}
+                  </button>
+                )}
               </div>
             </header>
+
+            {editing && (
+              <form onSubmit={handleSaveEdit} className="rounded-xl border border-slate-200 bg-white p-5 mb-6 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="edit-name" className="mb-1 text-slate-600">Name</Label>
+                    <Input id="edit-name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-plan" className="mb-1 text-slate-600">Subscription plan</Label>
+                    <select
+                      id="edit-plan"
+                      value={editPlan}
+                      onChange={(e) => setEditPlan(e.target.value)}
+                      className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800"
+                    >
+                      {SUBSCRIPTION_PLANS.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-currency" className="mb-1 text-slate-600">Currency</Label>
+                    <Input id="edit-currency" value={editCurrency} onChange={(e) => setEditCurrency(e.target.value)} placeholder="RWF" />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-language" className="mb-1 text-slate-600">Language</Label>
+                    <Input id="edit-language" value={editLanguage} onChange={(e) => setEditLanguage(e.target.value)} placeholder="en" />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-timezone" className="mb-1 text-slate-600">Timezone</Label>
+                    <Input id="edit-timezone" value={editTimezone} onChange={(e) => setEditTimezone(e.target.value)} placeholder="Africa/Kigali" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={saving} style={{ backgroundColor: '#1E2A44' }}>
+                    {saving ? 'Saving…' : 'Save'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setEditing(false)} disabled={saving}>
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            )}
 
             {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-6">{error}</div>}
 

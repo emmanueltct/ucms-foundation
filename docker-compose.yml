@@ -66,6 +66,15 @@ services:
       S3_ACCESS_KEY_ID: minioadmin
       S3_SECRET_ACCESS_KEY: minioadmin
       S3_FORCE_PATH_STYLE: "true"
+      # Real email delivery (notifications.processor.ts) — leave unset to keep the log-only
+      # stub. Set these on the host (or in a .env file next to this compose file) to switch on
+      # real SMTP delivery; no code or image rebuild needed, just `docker-compose up -d backend`.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@ucms.app}
     ports:
       - "3000:3000"
     command: sh -c "npx prisma migrate deploy && node dist/main"

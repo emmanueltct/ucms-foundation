@@ -16,4 +16,9 @@ export class ResourceAssignmentQueryDto {
   @IsOptional()
   @IsString()
   resourceType?: string;
+
+  @ApiPropertyOptional({ description: 'Restrict to one specific resource — e.g. every scope a given form/module is assigned to.' })
+  @IsOptional()
+  @IsString()
+  resourceKey?: string;
 }

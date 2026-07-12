@@ -13,6 +13,9 @@ backend/dist/
 frontend/.next/
 frontend/out/
 
+# TypeScript incremental build cache (machine-specific, no value in version control)
+*.tsbuildinfo
+
 # Flutter / mobile build output
 mobile/build/
 mobile/.dart_tool/

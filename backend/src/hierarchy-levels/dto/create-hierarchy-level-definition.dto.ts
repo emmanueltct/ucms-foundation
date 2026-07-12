@@ -26,4 +26,9 @@ export class CreateHierarchyLevelDefinitionDto {
   @IsOptional()
   @IsInt()
   sortOrder?: number;
+
+  @ApiPropertyOptional({ example: '#2563EB', description: "This tier's color in the org-chart tree UI — omit to use the frontend's depth-based default rotation" })
+  @IsOptional()
+  @IsString()
+  color?: string;
 }

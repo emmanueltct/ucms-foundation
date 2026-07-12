@@ -49,6 +49,10 @@ import { TrashModule } from './trash/trash.module';
 import { HierarchyLevelsModule } from './hierarchy-levels/hierarchy-levels.module';
 import { ResourceAssignmentsModule } from './resource-assignments/resource-assignments.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { SecuritySettingsModule } from './security-settings/security-settings.module';
+import { LeadershipAppointmentsModule } from './leadership-appointments/leadership-appointments.module';
+import { EligibilityResolverModule } from './common/eligibility/eligibility-resolver.module';
+import { MyFormsModule } from './my-forms/my-forms.module';
 
 @Module({
   imports: [
@@ -93,6 +97,10 @@ import { DepartmentsModule } from './departments/departments.module';
     HierarchyLevelsModule,
     ResourceAssignmentsModule,
     DepartmentsModule,
+    SecuritySettingsModule,
+    LeadershipAppointmentsModule,
+    EligibilityResolverModule,
+    MyFormsModule,
   ],
   providers: [
     // Order matters: JWT auth runs first, then RBAC, then fine-grained PBAC,

@@ -76,3 +76,34 @@ The actors most relevant here:
   over existing tenant/branch endpoints plus one idempotent completion call, not a new
   `OnboardingProgress` table. Revisit only if a future requirement needs the platform to resume
   a wizard across devices/sessions.
+
+## 5. §3 Extension: Branch as a Resource Scope, Tier Colors, and Delegated Registration
+
+A later spec (§3) asked for an org-chart-shaped tree (every unit below the first two tiers
+treated as a recursively-nestable "Sub-Branch") with per-node assigned administrators,
+departments, ministries, modules, and users. Rather than a new model, this extended what
+already existed:
+
+- **`Branch` is now also a `ResourceAssignment` scope** (`scopeEntityType: "branch"`), mirroring
+  `DepartmentsService.assignResource` exactly — `BranchesService.listResources`/`assignResource`/
+  `removeResource` are the only additions, gated on `branch.update` **or** a `LeadershipAppointment`
+  ("Assigned Administrator") over that specific branch (see
+  [../leadership/business-analysis.md](../leadership/business-analysis.md)). No new table.
+- **`HierarchyLevelDefinition` gained a nullable `color` field** so each tier in the tree can be
+  given a consistent, admin-editable color, matching a reference org-chart's tiered legend. A
+  tenant with no rules configured falls back to a depth-based 4-color rotation in the frontend —
+  existing tenants with zero `HierarchyLevelDefinition` rows are unaffected either way.
+- **Brand-new tenants only** are now pre-seeded with three `HierarchyLevelDefinition` rows
+  (`top_level` → `branch` → `sub_branch`, the last allowed to nest under itself indefinitely) plus
+  one root `top_level` `Branch`, so a fresh tenant starts with a visible apex node shaped like the
+  reference diagram instead of an empty tree. This is additive to `TenantsService.bootstrapAdminUser`
+  and is never backfilled onto a tenant that already exists — the existing "zero rows = fully
+  unrestricted" rule is unchanged for every tenant provisioned before this.
+- **The Branches page tree is a real top-down org-chart layout** (depth-based rows, connector
+  lines, tier coloring, per-node expand/collapse, horizontal scroll for wide trees) rather than a
+  flat always-expanded indented list — a frontend rebuild, not a new backend concept.
+- **A Branch Administrator (a `LeadershipAppointment` targeting that branch) can register users
+  directly into their own branch** without holding the tenant-wide `user.create` permission — see
+  [../leadership/business-analysis.md](../leadership/business-analysis.md) for the delegation rule
+  itself, which mirrors how a Department Leader is already restricted to `isDelegable` roles
+  within their own department.

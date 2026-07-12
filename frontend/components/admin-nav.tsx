@@ -16,7 +16,6 @@ import {
   HeartHandshake,
   Bell,
   SlidersHorizontal,
-  ListPlus,
   CalendarDays,
   Briefcase,
   BarChart3,
@@ -28,6 +27,7 @@ import {
   ChevronsUpDown,
   ShieldCheck,
   ClipboardList,
+  ListChecks,
   Puzzle,
   Settings,
 } from 'lucide-react';
@@ -36,6 +36,7 @@ import { authApi, getCurrentTenant, setSession, WorkspaceOption, dynamicModuleDe
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { href: '/admin/my-forms', label: 'My Forms', icon: ListChecks },
   { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
   { href: '/admin/branches', label: 'Branches', icon: Building2 },
   { href: '/admin/hierarchy-requirements', label: 'Level Requirements', icon: ClipboardList },
@@ -51,10 +52,6 @@ const NAV_ITEMS = [
   { href: '/admin/documents', label: 'Documents', icon: FileText },
   { href: '/admin/notifications', label: 'Notifications', icon: Bell },
   { href: '/admin/settings', label: 'Configuration Center', icon: Settings },
-  { href: '/admin/config', label: 'Configuration', icon: SlidersHorizontal },
-  { href: '/admin/settings/custom-fields', label: 'Custom Fields', icon: ListPlus },
-  { href: '/admin/settings/dynamic-modules', label: 'Dynamic Modules', icon: Puzzle },
-  { href: '/admin/settings/security', label: 'Security', icon: ShieldCheck },
   { href: '/admin/help', label: 'Help & Test Guide', icon: HelpCircle },
 ];
 
@@ -198,7 +195,14 @@ export function AdminNav() {
         ))}
       </nav>
 
-      <div className="px-5 py-4 border-t border-slate-200/70">
+      <div className="px-5 py-4 border-t border-slate-200/70 space-y-2">
+        {/* Personal MFA/devices/login-history — every user's own, not a Configuration Center (admin-only) surface, so it lives here instead of in NAV_ITEMS/SECTIONS. */}
+        <Link
+          href="/admin/settings/security"
+          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <ShieldCheck className="h-3.5 w-3.5" /> My account security
+        </Link>
         <Link href="/" className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
           ← Back to site
         </Link>

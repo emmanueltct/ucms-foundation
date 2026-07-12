@@ -4,6 +4,8 @@ import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagg
 import { ReportsService } from './reports.service';
 import { ReportQueryDto } from './dto/report-query.dto';
 import { ExportQueryDto } from './dto/export-query.dto';
+import { ExportFormSubmissionsQueryDto, FormSubmissionsQueryDto } from './dto/form-submissions-query.dto';
+import { StatusHistoryQueryDto } from './dto/status-history-query.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { ok } from '../common/interfaces/api-response.interface';
@@ -91,5 +93,27 @@ export class ReportsController {
   @Get('members/:id/activity-history')
   async memberActivityHistory(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
     return ok(await this.reportsService.memberActivityHistory(tenantId, id));
+  }
+
+  @ApiOperation({ summary: 'Submission totals by month and by status for one assigned form/report (§15)' })
+  @Permissions('reports.view')
+  @Get('form-submissions-summary')
+  async formSubmissionsSummary(@CurrentTenantId() tenantId: string, @Query() query: FormSubmissionsQueryDto) {
+    return ok(await this.reportsService.formSubmissionsSummary(tenantId, query));
+  }
+
+  @ApiOperation({ summary: 'Download the form submissions summary as CSV/XLSX/PDF (?format=)' })
+  @Permissions('reports.view')
+  @Get('form-submissions-summary/export')
+  async exportFormSubmissionsSummary(@CurrentTenantId() tenantId: string, @Query() query: ExportFormSubmissionsQueryDto, @Res() res: Response) {
+    const tables = await this.reportsService.exportFormSubmissionsSummary(tenantId, query);
+    await sendExportFile(res, query.format ?? 'csv', 'form-submissions-summary', tables, 'Form Submissions Summary');
+  }
+
+  @ApiOperation({ summary: 'Filterable audit trail of every status change across every Dynamic Module record (§15)' })
+  @Permissions('reports.view')
+  @Get('status-history')
+  async statusHistory(@CurrentTenantId() tenantId: string, @Query() query: StatusHistoryQueryDto) {
+    return ok(await this.reportsService.statusHistory(tenantId, query));
   }
 }

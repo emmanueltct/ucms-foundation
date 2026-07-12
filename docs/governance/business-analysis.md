@@ -99,3 +99,19 @@ The actors most relevant here:
   implementation pass). Blanket-instrumenting dozens of unrelated endpoints was never
   asked for and would make routine edits (e.g. fixing a typo in a member's phone number)
   needlessly heavy.
+
+## 5. §14/§15 Extension: Per-Assignment Deadlines and Cross-Record Audit Reporting
+
+- **`ResourceAssignment.dueAt` is a plain nullable field on that table, not a `Deadline`
+  row.** A form assignment's deadline is a property of the assignment itself (one
+  scope+resource pairing, one optional due date), not an independently manageable
+  entity with its own extend/close/reopen lifecycle — the generic `Deadline` model above
+  exists precisely for cases that *do* need that lifecycle (a hierarchy requirement's
+  submission window). Reusing it here would force every form assignment to carry a
+  `Deadline` row it has no use for the extend/reopen semantics of.
+- **The §15 "full audit trail" requirement is satisfied by a filtered read over the
+  already-existing `DynamicModuleRecordStatusHistory` table** (see
+  [../dynamic-modules/business-analysis.md](../dynamic-modules/business-analysis.md)),
+  exposed through `GET /reports/status-history` — not a new audit mechanism layered on
+  top of `AuditLog` or a second copy of what `DynamicModuleRecordStatusHistory` already
+  records.

@@ -3,7 +3,14 @@ import { Branch } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
+import { AssignBranchResourceDto } from './dto/assign-branch-resource.dto';
 import { HierarchyLevelsService } from '../hierarchy-levels/hierarchy-levels.service';
+import { LeadershipScopeService } from '../common/leadership-scope/leadership-scope.service';
+import { FormAssignmentNotifier } from '../common/form-assignment-notifier/form-assignment-notifier.service';
+import { AuthenticatedUser } from '../common/interfaces/request-context.interface';
+
+/** `ResourceAssignment.scopeEntityType` used for every branch (mirrors `DEPARTMENTS_MODULE_KEY`'s sibling constant in departments.service.ts). */
+const SCOPE_ENTITY_TYPE = 'branch';
 
 export interface BranchTreeNode extends Branch {
   children: BranchTreeNode[];
@@ -21,6 +28,8 @@ export class BranchesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly hierarchyLevels: HierarchyLevelsService,
+    private readonly leadershipScope: LeadershipScopeService,
+    private readonly formAssignmentNotifier: FormAssignmentNotifier,
   ) {}
 
   /**
@@ -202,6 +211,81 @@ export class BranchesService {
     const now = new Date();
     await this.prisma.branch.updateMany({ where: { id: { in: idsToDelete }, tenantId }, data: { deletedAt: now, isActive: false } });
     return { ...branch, deletedAt: now, isActive: false };
+  }
+
+  async listResources(tenantId: string, id: string) {
+    await this.findOne(tenantId, id); // 404s via the same path as any other read
+    return this.prisma.resourceAssignment.findMany({
+      where: { tenantId, scopeEntityType: SCOPE_ENTITY_TYPE, scopeEntityId: id },
+      orderBy: [{ resourceType: 'asc' }, { resourceKey: 'asc' }],
+    });
+  }
+
+  /**
+   * No static `@Permissions()` on the controller route for this and
+   * `removeResource` — mirrors `DepartmentsService.assignResource` exactly.
+   * `assertResourceManageable` also accepts a caller who holds a Phase 14
+   * `LeadershipAppointment` over this specific branch (its "Assigned
+   * Administrator"), turning the tenant-wide `branch.update` grant into a
+   * per-branch scope the same way `DepartmentScopeService.isLeaderOf` does
+   * for departments. Queries `ResourceAssignment` directly via Prisma
+   * rather than through `ResourceAssignmentsService` — that service's own
+   * module needs to depend on this one (§14's notify-on-assign fan-out
+   * resolves eligible users via `BranchesService.findDescendants`), so
+   * going through it here would be a circular module dependency.
+   */
+  async assignResource(tenantId: string, id: string, dto: AssignBranchResourceDto, user: AuthenticatedUser) {
+    await this.findOne(tenantId, id);
+    await this.assertResourceManageable(tenantId, id, user);
+
+    const existing = await this.prisma.resourceAssignment.findUnique({
+      where: {
+        tenantId_scopeEntityType_scopeEntityId_resourceType_resourceKey: {
+          tenantId,
+          scopeEntityType: SCOPE_ENTITY_TYPE,
+          scopeEntityId: id,
+          resourceType: dto.resourceType,
+          resourceKey: dto.resourceKey,
+        },
+      },
+    });
+    if (existing) {
+      throw new BadRequestException({ code: 'RESOURCE_ASSIGNMENT_ALREADY_EXISTS', message: 'This resource is already assigned to this branch.' });
+    }
+
+    const assignment = await this.prisma.resourceAssignment.create({
+      data: {
+        tenantId,
+        scopeEntityType: SCOPE_ENTITY_TYPE,
+        scopeEntityId: id,
+        resourceType: dto.resourceType,
+        resourceKey: dto.resourceKey,
+        dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined,
+      },
+    });
+
+    await this.formAssignmentNotifier.notifyIfForm(tenantId, assignment);
+
+    return assignment;
+  }
+
+  async removeResource(tenantId: string, id: string, assignmentId: string, user: AuthenticatedUser) {
+    await this.findOne(tenantId, id);
+    await this.assertResourceManageable(tenantId, id, user);
+
+    const existing = await this.prisma.resourceAssignment.findFirst({ where: { id: assignmentId, tenantId } });
+    if (!existing) throw new NotFoundException({ code: 'RESOURCE_ASSIGNMENT_NOT_FOUND', message: 'Resource assignment not found.' });
+    await this.prisma.resourceAssignment.delete({ where: { id: assignmentId } });
+    return { id: assignmentId };
+  }
+
+  private async assertResourceManageable(tenantId: string, branchId: string, user: AuthenticatedUser): Promise<void> {
+    if (user.isPlatformAdmin || user.permissions.includes('branch.update')) return;
+    if (await this.leadershipScope.isLeaderOf(tenantId, user.userId, SCOPE_ENTITY_TYPE, branchId)) return;
+    throw new ForbiddenException({
+      code: 'BRANCH_RESOURCE_FORBIDDEN',
+      message: 'You do not have permission to manage this branch\'s assigned resources.',
+    });
   }
 
   /**

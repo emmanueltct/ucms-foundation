@@ -13,6 +13,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'RefreshToken',
   'PasswordResetToken',
   'EmailVerificationToken',
+  'TenantSecuritySettings',
   'ConfigItem',
   'FeatureToggle',
   'AuditLog',
@@ -52,6 +53,7 @@ const TENANT_SCOPED_MODELS = new Set([
   'MenuItem',
   'NotificationTemplate',
   'NumberingSequence',
+  'LeadershipAppointment',
 ]);
 
 const WHERE_SCOPED_OPERATIONS = new Set([

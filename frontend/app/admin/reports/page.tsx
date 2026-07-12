@@ -22,12 +22,17 @@ import {
 import { Users, Briefcase, Building2, CalendarDays, Wallet, TrendingUp, Download } from 'lucide-react';
 import {
   reportsApi,
+  dynamicModuleDefinitionsApi,
+  isAccessDeniedResponse,
   ReportOverview,
   MonthBucket,
   KeyBucket,
   MembershipGrowthBucket,
+  FormSubmissionsSummary,
+  DynamicModuleDefinition,
   ExportFormat,
 } from '../../../lib/api';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 const NAVY = '#1E2A44';
@@ -86,24 +91,37 @@ export default function ReportsAdminPage() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
+
+  const [forms, setForms] = useState<DynamicModuleDefinition[]>([]);
+  const [selectedFormId, setSelectedFormId] = useState('');
+  const [submissions, setSubmissions] = useState<FormSubmissionsSummary>({ byMonth: [], byStatus: [], totalSubmissions: 0 });
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [submissionsError, setSubmissionsError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [overviewRes, financeRes, attendanceRes, membershipRes, payrollRes] = await Promise.all([
+      const [overviewRes, financeRes, attendanceRes, membershipRes, payrollRes, formsRes] = await Promise.all([
         reportsApi.overview(TENANT_SLUG),
         reportsApi.financeSummary(TENANT_SLUG),
         reportsApi.attendanceTrends(TENANT_SLUG),
         reportsApi.membershipGrowth(TENANT_SLUG),
         reportsApi.payrollSummary(TENANT_SLUG),
+        dynamicModuleDefinitionsApi.list(TENANT_SLUG, undefined, true),
       ]);
+      if (isAccessDeniedResponse(overviewRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (overviewRes.success && overviewRes.data) setOverview(overviewRes.data);
       else setError(overviewRes.error?.message ?? 'Could not load the dashboard.');
       if (financeRes.success && financeRes.data) setFinance(financeRes.data);
       if (attendanceRes.success && attendanceRes.data) setAttendance(attendanceRes.data);
       if (membershipRes.success && membershipRes.data) setMembership(membershipRes.data);
       if (payrollRes.success && payrollRes.data) setPayroll(payrollRes.data);
+      if (formsRes.success && formsRes.data) setForms(formsRes.data);
     } catch {
       setError('Could not reach the server. Check the API is running.');
     } finally {
@@ -115,6 +133,22 @@ export default function ReportsAdminPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    if (!selectedFormId) {
+      setSubmissions({ byMonth: [], byStatus: [], totalSubmissions: 0 });
+      return;
+    }
+    setSubmissionsLoading(true);
+    setSubmissionsError(null);
+    reportsApi
+      .formSubmissionsSummary(TENANT_SLUG, { moduleDefinitionId: selectedFormId })
+      .then((res) => {
+        if (res.success && res.data) setSubmissions(res.data);
+        else setSubmissionsError(res.error?.message ?? 'Could not load submissions for this form.');
+      })
+      .finally(() => setSubmissionsLoading(false));
+  }, [selectedFormId]);
+
   const kpis = overview
     ? [
         { label: 'Active members', value: overview.members, icon: Users },
@@ -125,6 +159,8 @@ export default function ReportsAdminPage() {
         { label: 'Attendance (30d)', value: overview.attendanceLast30Days, icon: TrendingUp },
       ]
     : [];
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">
@@ -255,6 +291,68 @@ export default function ReportsAdminPage() {
                 </ResponsiveContainer>
               </ChartCard>
             )}
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 mt-10">
+              <h3 className="text-xs uppercase tracking-wide text-slate-400 font-medium mb-1">Form Submissions</h3>
+              <p className="text-sm text-slate-500 mb-3 max-w-xl">
+                How a form or report assigned out (§14) is actually being completed — trailing 12 months, by status
+                and by month.
+              </p>
+              <select
+                value={selectedFormId}
+                onChange={(e) => setSelectedFormId(e.target.value)}
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700 mb-3"
+              >
+                <option value="">— Select a form/report —</option>
+                {forms.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+
+              {submissionsError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-3">{submissionsError}</div>
+              )}
+
+              {!selectedFormId ? (
+                <p className="text-sm text-slate-400">Select a form above to see its submissions.</p>
+              ) : submissionsLoading ? (
+                <p className="text-sm text-slate-400">Loading…</p>
+              ) : (
+                <>
+                  <ExportRow
+                    label="Submissions"
+                    onExport={(format) => reportsApi.exportFormSubmissionsSummary(TENANT_SLUG, format, { moduleDefinitionId: selectedFormId })}
+                  />
+                  <p className="text-xs text-slate-400 mb-3">{submissions.totalSubmissions} total submission(s) in the trailing 12 months.</p>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <ChartCard title="Submissions by month">
+                      <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={submissions.byMonth}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="count" stroke={NAVY} strokeWidth={2} dot={false} name="Submissions" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+                    <ChartCard title="Submissions by status">
+                      <ResponsiveContainer width="100%" height={220}>
+                        <BarChart data={submissions.byStatus}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                          <XAxis dataKey="key" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                          <Tooltip />
+                          <Bar dataKey="count" fill={GOLD} radius={[4, 4, 0, 0]} name="Count" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </ChartCard>
+                  </div>
+                </>
+              )}
+            </div>
           </>
         )}
       </div>

@@ -81,4 +81,16 @@ export class TenantsController {
   async restore(@Param('id') id: string) {
     return ok(await this.tenantsService.restore(id));
   }
+
+  @ApiOperation({
+    summary: 'Permanently delete a church and every row it owns — irreversible',
+    description:
+      'Only reachable once the church is already soft-deleted (DELETE :id). This is the second, deliberate step of ' +
+      'a two-step destroy — there is no way to purge a still-live church in one call.',
+  })
+  @Permissions('platform.tenant.purge')
+  @Delete(':id/purge')
+  async purge(@Param('id') id: string) {
+    return ok(await this.tenantsService.hardDelete(id));
+  }
 }

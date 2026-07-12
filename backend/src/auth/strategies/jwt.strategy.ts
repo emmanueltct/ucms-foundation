@@ -61,6 +61,12 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     if (!user || !user.isActive || user.deletedAt) {
       throw new UnauthorizedException({ code: 'USER_INACTIVE', message: 'Account is inactive.' });
     }
+    // Checked on every request (not just at login/refresh) so a lock applied
+    // mid-session ends an already-issued access token on its very next use,
+    // rather than surviving up to its remaining TTL.
+    if (user.lockedAt) {
+      throw new UnauthorizedException({ code: 'ACCOUNT_LOCKED', message: 'This account is locked.' });
+    }
 
     if (user.tenantId !== payload.tenantId) {
       throw new UnauthorizedException({ code: 'TENANT_MISMATCH', message: 'Token tenant mismatch.' });

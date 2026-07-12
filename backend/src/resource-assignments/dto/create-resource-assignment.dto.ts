@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsISO8601, IsOptional, IsString } from 'class-validator';
 
 export class CreateResourceAssignmentDto {
   @ApiProperty({ example: 'branch', description: 'What kind of org unit this is scoped to, e.g. "branch" | "branch_type" | "dynamic_module_record"' })
@@ -17,4 +17,9 @@ export class CreateResourceAssignmentDto {
   @ApiProperty({ description: 'The resource identifier — a DynamicModuleDefinition.id, a report key, etc., depending on resourceType' })
   @IsString()
   resourceKey: string;
+
+  @ApiPropertyOptional({ description: 'Submission deadline for this specific assignment (§14) — omit for no deadline' })
+  @IsOptional()
+  @IsISO8601()
+  dueAt?: string;
 }

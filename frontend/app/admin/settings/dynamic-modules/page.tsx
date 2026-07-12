@@ -10,12 +10,43 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { dynamicModuleDefinitionsApi, approvalWorkflowsApi, DynamicModuleDefinition, ApprovalWorkflow } from '../../../../lib/api';
+import {
+  dynamicModuleDefinitionsApi,
+  approvalWorkflowsApi,
+  resourceAssignmentsApi,
+  branchesApi,
+  ministriesApi,
+  smallGroupsApi,
+  configApi,
+  DynamicModuleDefinition,
+  ApprovalWorkflow,
+  ResourceAssignment,
+  Branch,
+  Ministry,
+  SmallGroup,
+} from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
 
 const TENANT_SLUG = 'demo-church';
+
+/** Matches the convention `ResourceAssignmentsService`/`FormAssignmentNotifier` already use for "this resource is a form/module." */
+const FORM_RESOURCE_TYPE = 'dynamic_module_definition';
+
+interface UserCategoryOption {
+  id: string;
+  label: string;
+}
+
+type ScopeKind = 'branch' | 'ministry' | 'small_group' | 'user_category';
+
+const SCOPE_KINDS: { value: ScopeKind; label: string; plural: string }[] = [
+  { value: 'branch', label: 'Branch', plural: 'branches' },
+  { value: 'ministry', label: 'Ministry (e.g. Choir)', plural: 'ministries' },
+  { value: 'small_group', label: 'Small Group (e.g. Family Group)', plural: 'small groups' },
+  { value: 'user_category', label: 'User Category', plural: 'user categories' },
+];
 
 function slugify(label: string): string {
   return label
@@ -28,6 +59,11 @@ function slugify(label: string): string {
 export default function DynamicModulesAdminPage() {
   const [modules, setModules] = useState<DynamicModuleDefinition[]>([]);
   const [workflows, setWorkflows] = useState<ApprovalWorkflow[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [ministries, setMinistries] = useState<Ministry[]>([]);
+  const [smallGroups, setSmallGroups] = useState<SmallGroup[]>([]);
+  const [userCategories, setUserCategories] = useState<UserCategoryOption[]>([]);
+  const [expandedAssignId, setExpandedAssignId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,18 +77,27 @@ export default function DynamicModulesAdminPage() {
   const [approvalWorkflowId, setApprovalWorkflowId] = useState('');
   const [showInNav, setShowInNav] = useState(false);
   const [allowPublicSubmission, setAllowPublicSubmission] = useState(false);
+  const [allowMemberAttachment, setAllowMemberAttachment] = useState(false);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [modulesRes, workflowsRes] = await Promise.all([
+      const [modulesRes, workflowsRes, branchesRes, ministriesRes, smallGroupsRes, userCategoriesRes] = await Promise.all([
         dynamicModuleDefinitionsApi.list(TENANT_SLUG, undefined, true),
         approvalWorkflowsApi.list(TENANT_SLUG),
+        branchesApi.list(TENANT_SLUG),
+        ministriesApi.list(TENANT_SLUG),
+        smallGroupsApi.list(TENANT_SLUG),
+        configApi.listByNamespace(TENANT_SLUG, 'user_category'),
       ]);
       if (modulesRes.success && modulesRes.data) setModules(modulesRes.data);
       else setError(modulesRes.error?.message ?? 'Could not load modules.');
       if (workflowsRes.success && workflowsRes.data) setWorkflows(workflowsRes.data);
+      if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
+      if (ministriesRes.success && ministriesRes.data) setMinistries(ministriesRes.data);
+      if (smallGroupsRes.success && smallGroupsRes.data) setSmallGroups(smallGroupsRes.data);
+      if (userCategoriesRes.success && userCategoriesRes.data) setUserCategories(userCategoriesRes.data);
     } catch {
       setError('Could not reach the server. Check the API is running.');
     } finally {
@@ -83,6 +128,7 @@ export default function DynamicModulesAdminPage() {
         approvalWorkflowId: approvalWorkflowId || undefined,
         showInNav,
         allowPublicSubmission,
+        allowMemberAttachment,
       });
       if (res.success) {
         setLabel('');
@@ -95,6 +141,7 @@ export default function DynamicModulesAdminPage() {
         setApprovalWorkflowId('');
         setShowInNav(false);
         setAllowPublicSubmission(false);
+        setAllowMemberAttachment(false);
         load();
       } else {
         setError(res.error?.message ?? 'Could not create the module.');
@@ -117,6 +164,16 @@ export default function DynamicModulesAdminPage() {
   async function handleTogglePublicSubmission(mod: DynamicModuleDefinition) {
     try {
       const res = await dynamicModuleDefinitionsApi.update(TENANT_SLUG, mod.id, { allowPublicSubmission: !mod.allowPublicSubmission });
+      if (res.success) load();
+      else setError(res.error?.message ?? 'Could not update the module.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function handleToggleMemberAttachment(mod: DynamicModuleDefinition) {
+    try {
+      const res = await dynamicModuleDefinitionsApi.update(TENANT_SLUG, mod.id, { allowMemberAttachment: !mod.allowMemberAttachment });
       if (res.success) load();
       else setError(res.error?.message ?? 'Could not update the module.');
     } catch {
@@ -224,6 +281,17 @@ export default function DynamicModulesAdminPage() {
                 Allow guest submissions (also needs the Guest Access toggle in Configuration Center)
               </Label>
             </div>
+            <div className="flex items-center gap-2 pt-5">
+              <input
+                id="dm-members"
+                type="checkbox"
+                checked={allowMemberAttachment}
+                onChange={(e) => setAllowMemberAttachment(e.target.checked)}
+              />
+              <Label htmlFor="dm-members" className="text-slate-600">
+                Allow attaching Members to a record (off for modules with no reason to, e.g. an equipment log)
+              </Label>
+            </div>
           </div>
           <Button type="submit" style={{ backgroundColor: '#1E2A44' }}>Create module</Button>
         </form>
@@ -239,59 +307,291 @@ export default function DynamicModulesAdminPage() {
             <div className="px-4 py-8 text-center text-sm text-slate-400">No modules yet. Create your first one above.</div>
           ) : (
             modules.map((m) => (
-              <div key={m.id} className={`flex items-center justify-between px-4 py-3 border-b border-slate-50 last:border-0 ${!m.isActive ? 'opacity-60' : ''}`}>
-                <div>
-                  <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
-                    {m.label}
-                    {m.allowPublicSubmission && (
-                      <span className="text-[10px] uppercase tracking-wide font-semibold text-[#C9A24B] border border-[#C9A24B]/40 rounded-full px-2 py-0.5">
-                        Public
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {m.key} · {m.statuses.join(' → ')} · custom fields entityType:{' '}
-                    <code className="text-[11px]">dynamicmodule:{m.id}</code>
-                  </p>
+              <div key={m.id} className={`border-b border-slate-50 last:border-0 ${!m.isActive ? 'opacity-60' : ''}`}>
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
+                      {m.label}
+                      {m.allowPublicSubmission && (
+                        <span className="text-[10px] uppercase tracking-wide font-semibold text-[#C9A24B] border border-[#C9A24B]/40 rounded-full px-2 py-0.5">
+                          Public
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {m.key} · {m.statuses.join(' → ')} · custom fields entityType:{' '}
+                      <code className="text-[11px]">dynamicmodule:{m.id}</code>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Link
+                      href={`/admin/modules/${m.key}`}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                    >
+                      Manage records
+                    </Link>
+                    <button
+                      onClick={() => setExpandedAssignId((v) => (v === m.id ? null : m.id))}
+                      className={`text-xs font-medium px-3 py-1 rounded-full border ${
+                        expandedAssignId === m.id ? 'border-[#1E2A44] text-[#1E2A44]' : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      {expandedAssignId === m.id ? 'Close assign' : 'Assign to…'}
+                    </button>
+                    <button
+                      onClick={() => handleToggleNav(m)}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                    >
+                      {m.showInNav ? 'Hide from nav' : 'Show in nav'}
+                    </button>
+                    <button
+                      onClick={() => handleTogglePublicSubmission(m)}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                    >
+                      {m.allowPublicSubmission ? 'Disable guest form' : 'Allow guest form'}
+                    </button>
+                    <button
+                      onClick={() => handleToggleMemberAttachment(m)}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                    >
+                      {m.allowMemberAttachment ? 'Disable members' : 'Allow members'}
+                    </button>
+                    <button
+                      onClick={() => handleToggleActive(m)}
+                      className={`text-xs font-medium px-3 py-1 rounded-full border ${
+                        m.isActive ? 'border-slate-200 text-slate-600 hover:border-slate-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      }`}
+                    >
+                      {m.isActive ? 'Disable' : 'Enable'}
+                    </button>
+                    <button
+                      onClick={() => handleRemove(m.id)}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <Link
-                    href={`/admin/modules/${m.key}`}
-                    className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
-                  >
-                    Manage records
-                  </Link>
-                  <button
-                    onClick={() => handleToggleNav(m)}
-                    className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
-                  >
-                    {m.showInNav ? 'Hide from nav' : 'Show in nav'}
-                  </button>
-                  <button
-                    onClick={() => handleTogglePublicSubmission(m)}
-                    className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
-                  >
-                    {m.allowPublicSubmission ? 'Disable guest form' : 'Allow guest form'}
-                  </button>
-                  <button
-                    onClick={() => handleToggleActive(m)}
-                    className={`text-xs font-medium px-3 py-1 rounded-full border ${
-                      m.isActive ? 'border-slate-200 text-slate-600 hover:border-slate-300' : 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                    }`}
-                  >
-                    {m.isActive ? 'Disable' : 'Enable'}
-                  </button>
-                  <button
-                    onClick={() => handleRemove(m.id)}
-                    className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
-                  >
-                    Remove
-                  </button>
-                </div>
+                {expandedAssignId === m.id && (
+                  <ModuleAssignmentPanel
+                    moduleId={m.id}
+                    branches={branches}
+                    ministries={ministries}
+                    smallGroups={smallGroups}
+                    userCategories={userCategories}
+                  />
+                )}
               </div>
             ))
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Assigns this module (as a `dynamic_module_definition` resource, the same
+ * convention `FormAssignmentNotifier`/§14 already use) to a Branch, Ministry,
+ * Small Group, or User Category — right from the Builder, instead of having
+ * to go find the target branch/department page and assign from there.
+ * "All" creates one `ResourceAssignment` per entity that exists right now
+ * (a snapshot, not a live wildcard) — simple and exactly as debuggable as
+ * assigning to each one by hand. A Ministry/Small Group assignment reaches
+ * that entity's appointed leader (via `LeadershipAppointment`) — these are
+ * `User`-based scopes, not the group's general Member roster, which this
+ * eligibility mechanism deliberately doesn't reach (see
+ * docs/leadership/business-analysis.md).
+ */
+function ModuleAssignmentPanel({
+  moduleId,
+  branches,
+  ministries,
+  smallGroups,
+  userCategories,
+}: {
+  moduleId: string;
+  branches: Branch[];
+  ministries: Ministry[];
+  smallGroups: SmallGroup[];
+  userCategories: UserCategoryOption[];
+}) {
+  const [scopeKind, setScopeKind] = useState<ScopeKind>('branch');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [allSelected, setAllSelected] = useState(false);
+  const [dueAt, setDueAt] = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const [assignments, setAssignments] = useState<ResourceAssignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function optionsFor(kind: ScopeKind): { id: string; label: string }[] {
+    if (kind === 'branch') return branches.map((b) => ({ id: b.id, label: b.name }));
+    if (kind === 'ministry') return ministries.map((m) => ({ id: m.id, label: m.name }));
+    if (kind === 'small_group') return smallGroups.map((g) => ({ id: g.id, label: g.name }));
+    return userCategories.map((c) => ({ id: c.id, label: c.label }));
+  }
+
+  async function loadAssignments() {
+    setAssignmentsLoading(true);
+    const res = await resourceAssignmentsApi.list(TENANT_SLUG, { resourceType: FORM_RESOURCE_TYPE, resourceKey: moduleId });
+    if (res.success && res.data) setAssignments(res.data);
+    else setError(res.error?.message ?? 'Could not load current assignments.');
+    setAssignmentsLoading(false);
+  }
+
+  useEffect(() => {
+    loadAssignments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moduleId]);
+
+  function toggleId(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleAssign(e: React.FormEvent) {
+    e.preventDefault();
+    const options = optionsFor(scopeKind);
+    const targetIds = allSelected ? options.map((o) => o.id) : Array.from(selectedIds);
+    if (targetIds.length === 0) return;
+    setAssigning(true);
+    setError(null);
+    try {
+      const results = await Promise.all(
+        targetIds.map((id) =>
+          resourceAssignmentsApi.create(TENANT_SLUG, {
+            scopeEntityType: scopeKind,
+            scopeEntityId: id,
+            resourceType: FORM_RESOURCE_TYPE,
+            resourceKey: moduleId,
+            dueAt: dueAt ? new Date(dueAt).toISOString() : undefined,
+          }),
+        ),
+      );
+      const failed = results.find((r) => !r.success);
+      if (failed) setError(failed.error?.message ?? 'Some assignments could not be created.');
+      setSelectedIds(new Set());
+      setAllSelected(false);
+      setDueAt('');
+      loadAssignments();
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    } finally {
+      setAssigning(false);
+    }
+  }
+
+  async function handleRemove(id: string) {
+    const res = await resourceAssignmentsApi.remove(TENANT_SLUG, id);
+    if (res.success) loadAssignments();
+    else setError(res.error?.message ?? 'Could not remove the assignment.');
+  }
+
+  function assignmentLabel(a: ResourceAssignment): string {
+    const kind = a.scopeEntityType as ScopeKind;
+    const options = ['branch', 'ministry', 'small_group', 'user_category'].includes(kind) ? optionsFor(kind) : [];
+    const name = options.find((o) => o.id === a.scopeEntityId)?.label ?? a.scopeEntityId;
+    const kindLabel = SCOPE_KINDS.find((k) => k.value === kind)?.label ?? kind;
+    return `${kindLabel}: ${name}`;
+  }
+
+  const currentOptions = optionsFor(scopeKind);
+
+  return (
+    <div className="px-4 pb-4">
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 mb-3">{error}</div>}
+
+        <form onSubmit={handleAssign} className="space-y-2 mb-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <Label className="mb-1 text-slate-600">Assign to</Label>
+              <select
+                value={scopeKind}
+                onChange={(e) => {
+                  setScopeKind(e.target.value as ScopeKind);
+                  setSelectedIds(new Set());
+                  setAllSelected(false);
+                }}
+                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700"
+              >
+                {SCOPE_KINDS.map((k) => (
+                  <option key={k.value} value={k.value}>{k.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label className="mb-1 text-slate-600">Deadline (optional)</Label>
+              <Input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+            </div>
+            <div className="flex items-end">
+              <Button type="submit" size="sm" disabled={assigning || (!allSelected && selectedIds.size === 0)} style={{ backgroundColor: '#1E2A44' }}>
+                {assigning ? 'Assigning…' : 'Assign'}
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-xs text-slate-600 mb-1.5">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={(e) => {
+                  setAllSelected(e.target.checked);
+                  setSelectedIds(new Set());
+                }}
+              />
+              All {SCOPE_KINDS.find((k) => k.value === scopeKind)?.plural} currently in this church
+              {scopeKind !== 'branch' && ' (reaches each one\'s assigned leader)'}
+            </label>
+            {!allSelected && (
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                {currentOptions.length === 0 ? (
+                  <p className="text-xs text-slate-400">None defined yet.</p>
+                ) : (
+                  currentOptions.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => toggleId(o.id)}
+                      className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
+                        selectedIds.has(o.id) ? 'border-[#1E2A44] bg-[#1E2A44]/5 text-[#1E2A44]' : 'border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </form>
+
+        <p className="text-xs uppercase tracking-wide text-slate-400 font-medium mb-1.5">Currently assigned to</p>
+        {assignmentsLoading ? (
+          <p className="text-xs text-slate-400">Loading…</p>
+        ) : assignments.length === 0 ? (
+          <p className="text-xs text-slate-400">Nothing assigned yet.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {assignments.map((a) => (
+              <div key={a.id} className="flex items-center justify-between py-1.5">
+                <span className="text-xs text-slate-700">
+                  {assignmentLabel(a)}
+                  {a.dueAt ? ` · due ${new Date(a.dueAt).toLocaleDateString()}` : ''}
+                </span>
+                <button onClick={() => handleRemove(a.id)} className="text-xs text-red-500 hover:underline">
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

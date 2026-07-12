@@ -1,10 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DynamicModuleRecord } from '@prisma/client';
+import { DynamicModuleRecord, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ApprovalWorkflowsService } from '../approval-workflows/approval-workflows.service';
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { ConfigService } from '../config-engine/config.service';
+import { EligibilityResolverService } from '../common/eligibility/eligibility-resolver.service';
 import { DynamicModuleDefinitionsService } from './dynamic-module-definitions.service';
 import { CreateDynamicModuleRecordDto } from './dto/create-dynamic-module-record.dto';
 import { CreateDynamicModuleRecordPublicDto } from './dto/create-dynamic-module-record-public.dto';
@@ -15,7 +16,32 @@ import { AuthenticatedUser } from '../common/interfaces/request-context.interfac
 /** Tenant-wide kill switch for all guest dynamic-module submissions — a per-module `allowPublicSubmission` flag still gates each module individually. */
 export const GUEST_ACCESS_MODULES_FEATURE_KEY = 'guest_access.dynamic_modules';
 
-export type DynamicModuleRecordWithFields = DynamicModuleRecord & { customFields: Record<string, unknown> };
+/** Matches the convention `ResourceAssignmentsService`/`FormAssignmentNotifier` use for "this resource is a form/module." */
+const FORM_RESOURCE_TYPE = 'dynamic_module_definition';
+
+/**
+ * A caller's read access to one module: unrestricted (holds the static
+ * `dynamicmodule.{id}.read` permission, or platform admin — a "superior
+ * leader" per §15) or scoped to only the records within their own resolved
+ * eligibility scope (their own submissions, plus anything under their own
+ * branch/department) — reached the module only because it was assigned to a
+ * scope they belong to, not because they administer the whole module.
+ */
+interface ReadScope {
+  restricted: boolean;
+  callerId: string;
+  branchIds: string[];
+  otherScopeIds: string[];
+}
+
+/** A record's "level" for display — the branch/department/ministry the creator themselves belongs to, resolved fresh from their current profile rather than snapshotted onto the record. */
+export interface CreatorContext {
+  branchName: string | null;
+  departmentName: string | null;
+  ministryName: string | null;
+}
+
+export type DynamicModuleRecordWithFields = DynamicModuleRecord & { customFields: Record<string, unknown>; creatorContext: CreatorContext | null };
 
 /**
  * A module's records — permission-checked dynamically against
@@ -35,6 +61,7 @@ export class DynamicModuleRecordsService {
     private readonly customFields: CustomFieldsService,
     private readonly definitions: DynamicModuleDefinitionsService,
     private readonly config: ConfigService,
+    private readonly eligibilityResolver: EligibilityResolverService,
   ) {}
 
   async create(tenantId: string, moduleDefinitionId: string, dto: CreateDynamicModuleRecordDto, user: AuthenticatedUser): Promise<DynamicModuleRecordWithFields> {
@@ -113,7 +140,7 @@ export class DynamicModuleRecordsService {
     query: { attachedToEntityType?: string; attachedToEntityId?: string; status?: string; branchId?: string },
     user: AuthenticatedUser,
   ): Promise<DynamicModuleRecordWithFields[]> {
-    this.assertPermission(user, moduleDefinitionId, 'read');
+    const readScope = await this.resolveReadScope(tenantId, moduleDefinitionId, user);
     const records = await this.prisma.dynamicModuleRecord.findMany({
       where: {
         tenantId,
@@ -123,18 +150,32 @@ export class DynamicModuleRecordsService {
         ...(query.attachedToEntityId ? { attachedToEntityId: query.attachedToEntityId } : {}),
         ...(query.status ? { status: query.status } : {}),
         ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(readScope.restricted ? { OR: this.readScopeOrConditions(readScope) } : {}),
       },
       orderBy: { createdAt: 'desc' },
     });
 
     const entityType = this.fieldsEntityType(moduleDefinitionId);
-    const valuesByRecord = await this.customFields.getValuesForMany(tenantId, entityType, records.map((r) => r.id));
-    return records.map((r) => ({ ...r, customFields: valuesByRecord[r.id] ?? {} }));
+    const creatorIds = records.map((r) => r.createdByUserId).filter((id): id is string => !!id);
+    const [valuesByRecord, contextsByUser] = await Promise.all([
+      this.customFields.getValuesForMany(tenantId, entityType, records.map((r) => r.id)),
+      this.resolveCreatorContextsFor(tenantId, creatorIds),
+    ]);
+    return records.map((r) => ({
+      ...r,
+      customFields: valuesByRecord[r.id] ?? {},
+      creatorContext: (r.createdByUserId && contextsByUser.get(r.createdByUserId)) || null,
+    }));
   }
 
   async findOne(tenantId: string, moduleDefinitionId: string, id: string, user: AuthenticatedUser): Promise<DynamicModuleRecordWithFields> {
-    this.assertPermission(user, moduleDefinitionId, 'read');
+    const readScope = await this.resolveReadScope(tenantId, moduleDefinitionId, user);
     const record = await this.findRecordRaw(tenantId, moduleDefinitionId, id);
+    // A record outside the caller's own scope simply doesn't exist to them — a 404, not a
+    // distinguishable 403, the same way a missing record already behaves for anyone else.
+    if (readScope.restricted && !this.matchesReadScope(record, readScope)) {
+      throw new NotFoundException({ code: 'DYNAMIC_MODULE_RECORD_NOT_FOUND', message: 'Record not found.' });
+    }
     return this.withCustomFields(tenantId, this.fieldsEntityType(moduleDefinitionId), record);
   }
 
@@ -181,6 +222,27 @@ export class DynamicModuleRecordsService {
       const next = queue.shift()!;
       result.push(next);
       queue.push(...(childrenByParent.get(next.id) ?? []));
+    }
+    return result;
+  }
+
+  /** Ancestor chain from immediate parent up to the root — mirrors `BranchesService.findAncestors`, needed so an assignment made at a parent record (e.g. a parent department) rolls down to records nested under it (§13 eligibility resolution). */
+  async ancestors(tenantId: string, moduleDefinitionId: string, id: string, user: AuthenticatedUser): Promise<DynamicModuleRecord[]> {
+    this.assertPermission(user, moduleDefinitionId, 'read');
+    const record = await this.findRecordRaw(tenantId, moduleDefinitionId, id);
+    const result: DynamicModuleRecord[] = [];
+    const visited = new Set<string>([id]);
+    let currentParentId = record.parentRecordId;
+
+    while (currentParentId) {
+      if (visited.has(currentParentId)) break; // defensive: never trust data blindly
+      visited.add(currentParentId);
+      const parent = await this.prisma.dynamicModuleRecord.findFirst({
+        where: { id: currentParentId, tenantId, moduleDefinitionId, deletedAt: null },
+      });
+      if (!parent) break;
+      result.push(parent);
+      currentParentId = parent.parentRecordId;
     }
     return result;
   }
@@ -274,8 +336,63 @@ export class DynamicModuleRecordsService {
   }
 
   private async withCustomFields(tenantId: string, entityType: string, record: DynamicModuleRecord): Promise<DynamicModuleRecordWithFields> {
-    const customFields = await this.customFields.getValues(tenantId, entityType, record.id);
-    return { ...record, customFields };
+    const [customFields, contexts] = await Promise.all([
+      this.customFields.getValues(tenantId, entityType, record.id),
+      record.createdByUserId ? this.resolveCreatorContextsFor(tenantId, [record.createdByUserId]) : Promise.resolve(new Map<string, CreatorContext>()),
+    ]);
+    return { ...record, customFields, creatorContext: (record.createdByUserId && contexts.get(record.createdByUserId)) || null };
+  }
+
+  /**
+   * Bulk-resolves each creator's own current branch/department/ministry in
+   * as few queries as possible (never one query per record) — "the level
+   * for the user who filled it" (§ dynamic-modules record display) is read
+   * live from `User.assignedBranchId`/`assignedDepartmentRecordId` and any
+   * `LeadershipAppointment` over a `ministry`, not from anything snapshotted
+   * onto the record itself, so it always reflects the creator's current
+   * assignment even if that's changed since they submitted.
+   */
+  private async resolveCreatorContextsFor(tenantId: string, userIds: string[]): Promise<Map<string, CreatorContext>> {
+    const distinctIds = Array.from(new Set(userIds));
+    if (distinctIds.length === 0) return new Map();
+
+    const [users, appointments] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: distinctIds }, tenantId },
+        select: { id: true, assignedBranchId: true, assignedDepartmentRecordId: true },
+      }),
+      this.prisma.leadershipAppointment.findMany({
+        where: { tenantId, userId: { in: distinctIds }, targetEntityType: 'ministry' },
+      }),
+    ]);
+
+    const branchIds = users.map((u) => u.assignedBranchId).filter((id): id is string => !!id);
+    const departmentRecordIds = users.map((u) => u.assignedDepartmentRecordId).filter((id): id is string => !!id);
+    const ministryIds = appointments.map((a) => a.targetEntityId);
+
+    const [branches, departments, ministries] = await Promise.all([
+      branchIds.length ? this.prisma.branch.findMany({ where: { id: { in: branchIds }, tenantId }, select: { id: true, name: true } }) : [],
+      departmentRecordIds.length
+        ? this.prisma.dynamicModuleRecord.findMany({ where: { id: { in: departmentRecordIds }, tenantId }, select: { id: true, title: true } })
+        : [],
+      ministryIds.length ? this.prisma.ministry.findMany({ where: { id: { in: ministryIds }, tenantId }, select: { id: true, name: true } }) : [],
+    ]);
+
+    const branchNameById = new Map(branches.map((b) => [b.id, b.name]));
+    const departmentTitleById = new Map(departments.map((d) => [d.id, d.title]));
+    const ministryNameById = new Map(ministries.map((m) => [m.id, m.name]));
+    const ministryTargetByUserId = new Map(appointments.map((a) => [a.userId, a.targetEntityId]));
+
+    const result = new Map<string, CreatorContext>();
+    for (const u of users) {
+      const ministryTargetId = ministryTargetByUserId.get(u.id);
+      result.set(u.id, {
+        branchName: (u.assignedBranchId && branchNameById.get(u.assignedBranchId)) || null,
+        departmentName: (u.assignedDepartmentRecordId && departmentTitleById.get(u.assignedDepartmentRecordId)) || null,
+        ministryName: (ministryTargetId && ministryNameById.get(ministryTargetId)) || null,
+      });
+    }
+    return result;
   }
 
   private assertPermission(user: AuthenticatedUser, moduleDefinitionId: string, action: 'create' | 'read' | 'update' | 'delete' | 'approve'): void {
@@ -284,6 +401,57 @@ export class DynamicModuleRecordsService {
     if (!user.permissions.includes(code)) {
       throw new ForbiddenException({ code: 'PERMISSION_FORBIDDEN', message: `Requires permission: ${code}` });
     }
+  }
+
+  private hasStaticPermission(user: AuthenticatedUser, moduleDefinitionId: string, action: 'create' | 'read' | 'update' | 'delete' | 'approve'): boolean {
+    return user.isPlatformAdmin || user.permissions.includes(`dynamicmodule.${moduleDefinitionId}.${action}`);
+  }
+
+  /**
+   * Row-level read scoping (§15's "a superior leader sees everything, a
+   * caller scoped to their own branch/department sees their own"). A caller
+   * with the static per-module `read` permission (or platform admin) is
+   * unrestricted, same as before this existed. Otherwise, they must have
+   * reached this module through §13 eligibility (it was assigned to a scope
+   * they belong to) — if not, no access at all, same as before. If so,
+   * their view is restricted to: records they created themselves, records
+   * under a branch they're scoped to, or records attached to a
+   * department/ministry/etc. they're scoped to.
+   */
+  private async resolveReadScope(tenantId: string, moduleDefinitionId: string, user: AuthenticatedUser): Promise<ReadScope> {
+    if (this.hasStaticPermission(user, moduleDefinitionId, 'read')) {
+      return { restricted: false, callerId: user.userId, branchIds: [], otherScopeIds: [] };
+    }
+
+    const eligibleResources = await this.eligibilityResolver.resolveResourcesFor(tenantId, user.userId, FORM_RESOURCE_TYPE);
+    if (!eligibleResources.some((r) => r.resourceKey === moduleDefinitionId)) {
+      throw new ForbiddenException({ code: 'PERMISSION_FORBIDDEN', message: `Requires permission: dynamicmodule.${moduleDefinitionId}.read` });
+    }
+
+    const scopes = await this.eligibilityResolver.resolveScopesFor(tenantId, user.userId);
+    const branchIds = scopes.filter((s) => s.scopeEntityType === 'branch').map((s) => s.scopeEntityId);
+    // Everything else (department/ministry/other leadership targets) is matched against
+    // `attachedToEntityId` by id alone — real row UUIDs are unique enough across every module
+    // that checking the exact scopeEntityType prefix too would add complexity without adding safety.
+    // `user_category` contributes nothing here: it's a resource-eligibility scope, not something
+    // an individual record is ever "attached to."
+    const otherScopeIds = scopes.filter((s) => s.scopeEntityType !== 'branch' && s.scopeEntityType !== 'user_category').map((s) => s.scopeEntityId);
+
+    return { restricted: true, callerId: user.userId, branchIds, otherScopeIds };
+  }
+
+  private readScopeOrConditions(scope: ReadScope): Prisma.DynamicModuleRecordWhereInput[] {
+    const conditions: Prisma.DynamicModuleRecordWhereInput[] = [{ createdByUserId: scope.callerId }];
+    if (scope.branchIds.length > 0) conditions.push({ branchId: { in: scope.branchIds } });
+    if (scope.otherScopeIds.length > 0) conditions.push({ attachedToEntityId: { in: scope.otherScopeIds } });
+    return conditions;
+  }
+
+  private matchesReadScope(record: DynamicModuleRecord, scope: ReadScope): boolean {
+    if (record.createdByUserId === scope.callerId) return true;
+    if (record.branchId && scope.branchIds.includes(record.branchId)) return true;
+    if (record.attachedToEntityId && scope.otherScopeIds.includes(record.attachedToEntityId)) return true;
+    return false;
   }
 
   private fieldsEntityType(moduleDefinitionId: string): string {

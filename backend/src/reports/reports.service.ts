@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberActivitiesService } from '../members/member-activities.service';
 import { ReportQueryDto } from './dto/report-query.dto';
+import { FormSubmissionsQueryDto } from './dto/form-submissions-query.dto';
+import { StatusHistoryQueryDto } from './dto/status-history-query.dto';
 import { ExportTable } from '../common/exports/export.util';
 
 export interface TimelineEntry {
@@ -151,6 +153,76 @@ export class ReportsService {
       byMonth: this.bucketByMonth(rows, start, end, (r) => r.paidAt as Date, (r) => Number(r.netAmount)),
       byDepartment: this.bucketByKey(rows, (r) => r.staff.department ?? 'unassigned', (r) => Number(r.netAmount)),
     };
+  }
+
+  /**
+   * §15's "Form Submissions" report: how a form/report §12-14 assigned out
+   * is actually being completed — bucketed by status (draft/submitted/
+   * approved/rejected/whatever this tenant's `DynamicModuleDefinition.statuses`
+   * are) and by month, over the same `DynamicModuleRecord` rows the module's
+   * own UI already lists. "Department" is filtered the same way a
+   * submission already links back to one — `attachedToEntityType`/
+   * `attachedToEntityId` — not a new column.
+   */
+  async formSubmissionsSummary(tenantId: string, query: FormSubmissionsQueryDto) {
+    const { start, end } = this.resolveRange(query);
+    const rows = await this.prisma.dynamicModuleRecord.findMany({
+      where: {
+        tenantId,
+        moduleDefinitionId: query.moduleDefinitionId,
+        deletedAt: null,
+        createdAt: { gte: start, lte: end },
+        ...(query.branchId ? { branchId: query.branchId } : {}),
+        ...(query.attachedToEntityType ? { attachedToEntityType: query.attachedToEntityType } : {}),
+        ...(query.attachedToEntityId ? { attachedToEntityId: query.attachedToEntityId } : {}),
+        ...(query.createdByUserId ? { createdByUserId: query.createdByUserId } : {}),
+      },
+      select: { status: true, createdAt: true },
+    });
+
+    return {
+      byMonth: this.bucketByMonth(rows, start, end, (r) => r.createdAt, () => 1),
+      byStatus: this.bucketByKey(rows, (r) => r.status, () => 1),
+      totalSubmissions: rows.length,
+    };
+  }
+
+  async exportFormSubmissionsSummary(tenantId: string, query: FormSubmissionsQueryDto): Promise<ExportTable[]> {
+    const { byMonth, byStatus } = await this.formSubmissionsSummary(tenantId, query);
+    return [
+      this.monthBucketsToTable(byMonth, 'Submissions by month'),
+      this.keyBucketsToTable(byStatus, 'Submissions by status', 'Status'),
+    ];
+  }
+
+  /**
+   * The full audit trail requirement (§15) is satisfied by surfacing the
+   * already-existing `DynamicModuleRecordStatusHistory` table through a
+   * filterable listing, not a new audit mechanism.
+   */
+  async statusHistory(tenantId: string, query: StatusHistoryQueryDto) {
+    return this.prisma.dynamicModuleRecordStatusHistory.findMany({
+      where: {
+        tenantId,
+        ...(query.recordId ? { recordId: query.recordId } : {}),
+        ...(query.changedByUserId ? { changedByUserId: query.changedByUserId } : {}),
+        ...(query.moduleDefinitionId ? { record: { moduleDefinitionId: query.moduleDefinitionId } } : {}),
+        ...(query.dateFrom || query.dateTo
+          ? {
+              createdAt: {
+                ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+                ...(query.dateTo ? { lte: new Date(query.dateTo) } : {}),
+              },
+            }
+          : {}),
+      },
+      include: {
+        record: { select: { id: true, title: true, moduleDefinitionId: true } },
+        changedByUser: { select: { id: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
   }
 
   /**

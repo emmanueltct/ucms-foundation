@@ -13,6 +13,11 @@ export class CreateNotificationDto {
   @IsUUID()
   memberId?: string;
 
+  @ApiPropertyOptional({ description: "Send to this User's (system account) email/phone on file — for form/report assignment notifications (§14), where the recipient is a staff/leader User, not a congregation Member" })
+  @IsOptional()
+  @IsUUID()
+  userId?: string;
+
   @ApiPropertyOptional({
     description:
       'Explicit address/token to send to. Required for "push" (no device-token registry exists yet) and for any ' +

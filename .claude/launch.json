@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "backend", "run", "start:dev"],
       "port": 3000
+    },
+    {
+      "name": "backend-built",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["backend/dist/main.js"],
+      "port": 3000
     }
   ]
 }

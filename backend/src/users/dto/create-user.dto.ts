@@ -52,4 +52,13 @@ export class CreateUserDto {
   @IsOptional()
   @IsIn(['leader', 'staff'])
   departmentRole?: 'leader' | 'staff' | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'A ConfigItem key in namespace "user_category" (e.g. "staff", "volunteer", "leader") — used for §13 form/report eligibility assignment. Omit/null if not applicable.',
+  })
+  @IsOptional()
+  @IsString()
+  userCategory?: string | null;
 }

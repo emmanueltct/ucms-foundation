@@ -26,6 +26,7 @@ const NAMESPACES = [
   { value: 'visitor_group_type', label: 'Visitor Group Types' },
   { value: 'visitor_activity_type', label: 'Visitor Activity Types' },
   { value: 'document_category', label: 'Document Categories' },
+  { value: 'user_category', label: 'User Categories' },
 ];
 
 interface ConfigItem {

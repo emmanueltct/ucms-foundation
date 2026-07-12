@@ -5,6 +5,14 @@
 // through — one page serving every module built on the Dynamic Module
 // Builder (app/admin/settings/dynamic-modules), the same way
 // DynamicCustomFields already renders any entity's fields from data alone.
+//
+// The create form shows only the fields the admin actually defined for this
+// module — no generic title/attach-to/branch/parent-record inputs. Those
+// structural fields still exist on the backend, but they're no longer
+// user-set here; instead the submissions table shows each record's "level"
+// (branch/department/ministry) resolved live from its creator's own current
+// assignment (`DynamicModuleRecord.creatorContext`, backed by
+// `DynamicModuleRecordsService.resolveCreatorContextsFor`).
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -12,21 +20,20 @@ import {
   dynamicModuleDefinitionsApi,
   dynamicModuleRecordsApi,
   customFieldDefinitionsApi,
-  branchesApi,
   entityMembershipsApi,
   membersApi,
+  isAccessDeniedResponse,
   DynamicModuleDefinition,
   DynamicModuleRecord,
   CustomFieldDefinition,
-  Branch,
   Member,
   EntityMembership,
 } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
-import { Label } from '../../../../components/ui/label';
 import { DynamicCustomFields } from '../../../../components/dynamic-custom-fields';
 import { MemberSearchPicker } from '../../../../components/member-search-picker';
+import { AccessDenied } from '../../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -37,18 +44,12 @@ export default function DynamicModuleRecordsPage() {
   const [definition, setDefinition] = useState<DynamicModuleDefinition | null>(null);
   const [records, setRecords] = useState<DynamicModuleRecord[]>([]);
   const [fieldDefinitions, setFieldDefinitions] = useState<CustomFieldDefinition[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
 
-  const [title, setTitle] = useState('');
-  const [attachedToEntityType, setAttachedToEntityType] = useState('');
-  const [attachedToEntityId, setAttachedToEntityId] = useState('');
-  const [branchId, setBranchId] = useState('');
-  const [parentRecordId, setParentRecordId] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
-  const [attachableModuleRecords, setAttachableModuleRecords] = useState<DynamicModuleRecord[]>([]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -61,6 +62,7 @@ export default function DynamicModuleRecordsPage() {
     setLoading(true);
     setError(null);
     setNotFound(false);
+    setAccessDenied(false);
     try {
       const defRes = await dynamicModuleDefinitionsApi.getByKey(TENANT_SLUG, moduleKey);
       if (!defRes.success || !defRes.data) {
@@ -70,15 +72,17 @@ export default function DynamicModuleRecordsPage() {
       setDefinition(defRes.data);
 
       const entityType = `dynamicmodule:${defRes.data.id}`;
-      const [recordsRes, fieldsRes, branchesRes, membersRes] = await Promise.all([
+      const [recordsRes, fieldsRes, membersRes] = await Promise.all([
         dynamicModuleRecordsApi.list(TENANT_SLUG, defRes.data.id),
         customFieldDefinitionsApi.list(TENANT_SLUG, { entityType }),
-        branchesApi.list(TENANT_SLUG),
         membersApi.list(TENANT_SLUG, {}),
       ]);
+      if (isAccessDeniedResponse(recordsRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (recordsRes.success && recordsRes.data) setRecords(recordsRes.data);
       if (fieldsRes.success && fieldsRes.data) setFieldDefinitions(fieldsRes.data);
-      if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
       if (membersRes.success && membersRes.data) setMembers(membersRes.data);
     } catch {
       setError('Could not reach the server. Check the API is running.');
@@ -88,7 +92,7 @@ export default function DynamicModuleRecordsPage() {
   }
 
   async function loadMemberships(record: DynamicModuleRecord) {
-    if (!definition) return;
+    if (!definition || !definition.allowMemberAttachment) return;
     setMembershipsLoading(true);
     try {
       const res = await entityMembershipsApi.list(TENANT_SLUG, {
@@ -151,36 +155,14 @@ export default function DynamicModuleRecordsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleKey]);
 
-  useEffect(() => {
-    setAttachedToEntityId('');
-    if (attachedToEntityType.startsWith('dynamicmodule:')) {
-      const otherModuleId = attachedToEntityType.slice('dynamicmodule:'.length);
-      dynamicModuleRecordsApi.list(TENANT_SLUG, otherModuleId).then((res) => {
-        if (res.success && res.data) setAttachableModuleRecords(res.data);
-      });
-    } else {
-      setAttachableModuleRecords([]);
-    }
-  }, [attachedToEntityType]);
-
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!definition) return;
     try {
       const res = await dynamicModuleRecordsApi.create(TENANT_SLUG, definition.id, {
-        title: title.trim() || undefined,
-        attachedToEntityType: attachedToEntityType.trim() || undefined,
-        attachedToEntityId: attachedToEntityId.trim() || undefined,
-        branchId: branchId || undefined,
-        parentRecordId: parentRecordId || undefined,
         customFields: customFieldValues,
       });
       if (res.success) {
-        setTitle('');
-        setAttachedToEntityType('');
-        setAttachedToEntityId('');
-        setBranchId('');
-        setParentRecordId('');
         setCustomFieldValues({});
         load();
       } else {
@@ -222,10 +204,44 @@ export default function DynamicModuleRecordsPage() {
     }
   }
 
-  function branchName(id: string | null) {
-    if (!id) return '—';
-    return branches.find((b) => b.id === id)?.name ?? '—';
+  /** "The level for the user who filled it" — ministry/department shown alongside branch, since a submitter's ministry or department doesn't replace knowing their branch too. Falls back to "Church-wide" for a creator with none of these (or no known creator). */
+  function levelLabel(record: DynamicModuleRecord): string {
+    const ctx = record.creatorContext;
+    if (!ctx) return 'Church-wide';
+    const parts = [ctx.ministryName, ctx.departmentName, ctx.branchName].filter((p): p is string => !!p);
+    return parts.length > 0 ? parts.join(' · ') : 'Church-wide';
   }
+
+  /** No generic "title" is collected anymore (the create form only asks for admin-defined fields), so identify a record by the actual values filled in — in the order the admin defined those fields — rather than a meaningless id fragment. Used only for the detail panel's single-line heading; the table itself gives every field its own column (see fieldDisplayValue). */
+  function recordLabel(record: DynamicModuleRecord): string {
+    if (record.title) return record.title;
+    const parts = sortedFieldDefinitions
+      .map((def) => record.customFields[def.fieldKey])
+      .filter((v) => v !== undefined && v !== null && v !== '')
+      .map((v) => String(v));
+    return parts.length > 0 ? parts.join(' · ') : `Record ${record.id.slice(0, 8)}`;
+  }
+
+  /** Renders one custom field's value for its own table column — a plain scalar as text, an array (multiselect) joined, a boolean as Yes/No, an uploaded file by its filename, rich text stripped of markup and truncated. */
+  function fieldDisplayValue(def: CustomFieldDefinition, value: unknown): string {
+    if (value === undefined || value === null || value === '') return '—';
+    if (Array.isArray(value)) return value.map(String).join(', ');
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (def.fieldType === 'richtext' && typeof value === 'string') {
+      const stripped = value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      return stripped.length > 60 ? `${stripped.slice(0, 60)}…` : stripped;
+    }
+    if (typeof value === 'object') {
+      const file = value as { filename?: string };
+      if (file.filename) return file.filename;
+      return JSON.stringify(value);
+    }
+    return String(value);
+  }
+
+  const sortedFieldDefinitions = [...fieldDefinitions].sort((a, b) => a.sortOrder - b.sortOrder);
+
+  if (accessDenied) return <AccessDenied />;
 
   if (notFound) {
     return (
@@ -249,93 +265,7 @@ export default function DynamicModuleRecordsPage() {
         </header>
 
         <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-4 mb-6 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <div>
-              <Label htmlFor="dmr-title" className="mb-1 text-slate-600">Title (optional)</Label>
-              <Input id="dmr-title" value={title} onChange={(e) => setTitle(e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="dmr-attach-type" className="mb-1 text-slate-600">Attach to (entity type, optional)</Label>
-              {definition && definition.attachableToEntityTypes.length > 0 ? (
-                <select
-                  id="dmr-attach-type"
-                  value={attachedToEntityType}
-                  onChange={(e) => setAttachedToEntityType(e.target.value)}
-                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
-                >
-                  <option value="">— Standalone —</option>
-                  {definition.attachableToEntityTypes.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              ) : (
-                <Input id="dmr-attach-type" value={attachedToEntityType} onChange={(e) => setAttachedToEntityType(e.target.value)} placeholder="branch, ministry, member…" />
-              )}
-            </div>
-            <div>
-              <Label htmlFor="dmr-attach-id" className="mb-1 text-slate-600">Attach to (record, optional)</Label>
-              {attachedToEntityType === 'member' ? (
-                <MemberSearchPicker members={members} value={attachedToEntityId} onChange={setAttachedToEntityId} />
-              ) : attachedToEntityType === 'branch' ? (
-                <select
-                  id="dmr-attach-id"
-                  value={attachedToEntityId}
-                  onChange={(e) => setAttachedToEntityId(e.target.value)}
-                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
-                >
-                  <option value="">— Select a branch —</option>
-                  {branches.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              ) : attachedToEntityType.startsWith('dynamicmodule:') ? (
-                <select
-                  id="dmr-attach-id"
-                  value={attachedToEntityId}
-                  onChange={(e) => setAttachedToEntityId(e.target.value)}
-                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
-                >
-                  <option value="">— Select a record —</option>
-                  {attachableModuleRecords.map((r) => (
-                    <option key={r.id} value={r.id}>{r.title || `Record ${r.id.slice(0, 8)}`}</option>
-                  ))}
-                </select>
-              ) : (
-                <Input id="dmr-attach-id" value={attachedToEntityId} onChange={(e) => setAttachedToEntityId(e.target.value)} disabled={!attachedToEntityType} />
-              )}
-            </div>
-            <div>
-              <Label htmlFor="dmr-branch" className="mb-1 text-slate-600">Branch (optional)</Label>
-              <select
-                id="dmr-branch"
-                value={branchId}
-                onChange={(e) => setBranchId(e.target.value)}
-                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
-              >
-                <option value="">— Church-wide —</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label htmlFor="dmr-parent" className="mb-1 text-slate-600">Parent record (optional)</Label>
-              <select
-                id="dmr-parent"
-                value={parentRecordId}
-                onChange={(e) => setParentRecordId(e.target.value)}
-                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
-              >
-                <option value="">— Top level —</option>
-                {records.map((r) => (
-                  <option key={r.id} value={r.id}>{r.title || `Record ${r.id.slice(0, 8)}`}</option>
-                ))}
-              </select>
-            </div>
-            <div className="sm:col-span-2 lg:col-span-3">
-              <DynamicCustomFields definitions={fieldDefinitions} values={customFieldValues} onChange={(k, v) => setCustomFieldValues((prev) => ({ ...prev, [k]: v }))} />
-            </div>
-          </div>
+          <DynamicCustomFields definitions={fieldDefinitions} values={customFieldValues} onChange={(k, v) => setCustomFieldValues((prev) => ({ ...prev, [k]: v }))} />
           <Button type="submit" style={{ backgroundColor: '#1E2A44' }}>Create record</Button>
         </form>
 
@@ -350,20 +280,52 @@ export default function DynamicModuleRecordsPage() {
             ) : records.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">No records yet. Create your first one above.</div>
             ) : (
-              records
-                .filter((r) => !r.parentRecordId)
-                .map((r) => (
-                  <RecordTreeRow
-                    key={r.id}
-                    record={r}
-                    depth={0}
-                    allRecords={records}
-                    selectedId={selectedId}
-                    onSelect={selectRecord}
-                    onRemove={handleRemove}
-                    branchName={branchName}
-                  />
-                ))
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+                      {sortedFieldDefinitions.map((def) => (
+                        <th key={def.id} className="px-4 py-3 font-medium whitespace-nowrap">{def.label}</th>
+                      ))}
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-4 py-3 font-medium">Level</th>
+                      <th className="px-4 py-3 font-medium">Created</th>
+                      <th className="px-4 py-3 font-medium"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {records.map((r) => (
+                      <tr
+                        key={r.id}
+                        onClick={() => selectRecord(r)}
+                        className={`cursor-pointer border-b border-slate-50 last:border-0 ${
+                          selectedId === r.id ? 'bg-[#1E2A44]/5' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        {sortedFieldDefinitions.map((def) => (
+                          <td key={def.id} className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
+                            {fieldDisplayValue(def, r.customFields[def.fieldKey])}
+                          </td>
+                        ))}
+                        <td className="px-4 py-3 text-slate-600">{r.status}</td>
+                        <td className="px-4 py-3 text-slate-600">{levelLabel(r)}</td>
+                        <td className="px-4 py-3 text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemove(r.id);
+                            }}
+                            className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
@@ -372,7 +334,7 @@ export default function DynamicModuleRecordsPage() {
               <div className="py-8 text-center text-sm text-slate-400">Select a record to change its status.</div>
             ) : (
               <>
-                <h2 className="font-serif text-lg text-[#1E2A44] mb-1">{selectedRecord.title || `Record ${selectedRecord.id.slice(0, 8)}`}</h2>
+                <h2 className="font-serif text-lg text-[#1E2A44] mb-1">{recordLabel(selectedRecord)}</h2>
                 <p className="text-xs text-slate-400 mb-3">Current status: {selectedRecord.status}</p>
                 <div className="flex flex-wrap gap-2 mb-6">
                   {definition.statuses
@@ -388,38 +350,42 @@ export default function DynamicModuleRecordsPage() {
                     ))}
                 </div>
 
-                <h3 className="text-sm font-medium text-slate-700 mb-2">Members</h3>
-                <form onSubmit={handleAddMember} className="space-y-2 mb-3">
-                  <MemberSearchPicker members={members} value={newMemberId} onChange={setNewMemberId} />
-                  <div className="flex gap-2">
-                    <Input value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} placeholder="role (e.g. leader, member)" className="flex-1" />
-                    <Button type="submit" size="sm" style={{ backgroundColor: '#1E2A44' }} disabled={!newMemberId}>
-                      Add
-                    </Button>
-                  </div>
-                </form>
-
-                {membershipsLoading ? (
-                  <div className="py-4 text-center text-sm text-slate-400">Loading…</div>
-                ) : recordMemberships.length === 0 ? (
-                  <div className="py-4 text-center text-sm text-slate-400">No members yet.</div>
-                ) : (
-                  <div className="divide-y divide-slate-50">
-                    {recordMemberships.map((m) => (
-                      <div key={m.id} className="flex items-center justify-between py-2">
-                        <div>
-                          <p className={`text-sm font-medium ${m.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{memberName(m.memberId)}</p>
-                          <p className="text-xs text-slate-400">{m.role.replace(/_/g, ' ')}</p>
-                        </div>
-                        <button
-                          onClick={() => handleRemoveMember(m.id)}
-                          className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
-                        >
-                          Remove
-                        </button>
+                {definition.allowMemberAttachment && (
+                  <>
+                    <h3 className="text-sm font-medium text-slate-700 mb-2">Members</h3>
+                    <form onSubmit={handleAddMember} className="space-y-2 mb-3">
+                      <MemberSearchPicker members={members} value={newMemberId} onChange={setNewMemberId} />
+                      <div className="flex gap-2">
+                        <Input value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} placeholder="role (e.g. leader, member)" className="flex-1" />
+                        <Button type="submit" size="sm" style={{ backgroundColor: '#1E2A44' }} disabled={!newMemberId}>
+                          Add
+                        </Button>
                       </div>
-                    ))}
-                  </div>
+                    </form>
+
+                    {membershipsLoading ? (
+                      <div className="py-4 text-center text-sm text-slate-400">Loading…</div>
+                    ) : recordMemberships.length === 0 ? (
+                      <div className="py-4 text-center text-sm text-slate-400">No members yet.</div>
+                    ) : (
+                      <div className="divide-y divide-slate-50">
+                        {recordMemberships.map((m) => (
+                          <div key={m.id} className="flex items-center justify-between py-2">
+                            <div>
+                              <p className={`text-sm font-medium ${m.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{memberName(m.memberId)}</p>
+                              <p className="text-xs text-slate-400">{m.role.replace(/_/g, ' ')}</p>
+                            </div>
+                            <button
+                              onClick={() => handleRemoveMember(m.id)}
+                              className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -427,66 +393,5 @@ export default function DynamicModuleRecordsPage() {
         </div>
       </div>
     </div>
-  );
-}
-
-/** Renders one record plus its children recursively — a flat list when nothing has a parentRecordId, a tree once something does. */
-function RecordTreeRow({
-  record,
-  depth,
-  allRecords,
-  selectedId,
-  onSelect,
-  onRemove,
-  branchName,
-}: {
-  record: DynamicModuleRecord;
-  depth: number;
-  allRecords: DynamicModuleRecord[];
-  selectedId: string | null;
-  onSelect: (record: DynamicModuleRecord) => void;
-  onRemove: (id: string) => void;
-  branchName: (id: string | null) => string;
-}) {
-  const children = allRecords.filter((r) => r.parentRecordId === record.id);
-  return (
-    <>
-      <div
-        onClick={() => onSelect(record)}
-        style={{ paddingLeft: `${1 + depth * 1.25}rem` }}
-        className={`flex items-center justify-between pr-4 py-3 border-b border-slate-50 last:border-0 cursor-pointer ${
-          selectedId === record.id ? 'bg-[#1E2A44]/5' : 'hover:bg-slate-50'
-        }`}
-      >
-        <div>
-          <p className="text-sm font-medium text-slate-800">{record.title || `Record ${record.id.slice(0, 8)}`}</p>
-          <p className="text-xs text-slate-400">
-            {record.status} · {branchName(record.branchId)}
-            {record.attachedToEntityType ? ` · attached to ${record.attachedToEntityType}` : ''}
-          </p>
-        </div>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove(record.id);
-          }}
-          className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
-        >
-          Remove
-        </button>
-      </div>
-      {children.map((child) => (
-        <RecordTreeRow
-          key={child.id}
-          record={child}
-          depth={depth + 1}
-          allRecords={allRecords}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          onRemove={onRemove}
-          branchName={branchName}
-        />
-      ))}
-    </>
   );
 }

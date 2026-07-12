@@ -8,6 +8,7 @@ import { MfaService } from '../src/auth/mfa.service';
 import { NotificationsService } from '../src/communication/notifications.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { AuditService } from '../src/audit/audit.service';
+import { SecuritySettingsService } from '../src/security-settings/security-settings.service';
 import { AuthResponseDto, WorkspaceSelectionResponseDto } from '../src/auth/dto/auth-response.dto';
 
 describe('AuthService', () => {
@@ -43,6 +44,15 @@ describe('AuthService', () => {
     create: jest.fn(),
   };
 
+  const mockSecuritySettings = {
+    getEffective: jest.fn().mockResolvedValue({
+      accessTokenTtlMinutes: 15,
+      refreshTokenTtlDays: 7,
+      inactivityLogoutMinutes: null,
+      maxConcurrentSessions: null,
+    }),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -61,6 +71,7 @@ describe('AuthService', () => {
         { provide: MfaService, useValue: mockMfa },
         { provide: NotificationsService, useValue: mockNotifications },
         AuditService, // real instance around the same mocked PrismaService, so existing auditLog.create assertions keep working unchanged
+        { provide: SecuritySettingsService, useValue: mockSecuritySettings },
       ],
     }).compile();
 
@@ -221,6 +232,22 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
+    it('throws the same generic UnauthorizedException for a locked account (never reveals it exists)', async () => {
+      const passwordHash = await bcrypt.hash('CorrectPass1', 12);
+      mockPrisma.unscoped.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        isActive: true,
+        deletedAt: null,
+        lockedAt: new Date(),
+        passwordHash,
+        userRoles: [],
+      });
+
+      await expect(
+        service.login(TENANT_SLUG, { email: 'pastor@church.rw', password: 'CorrectPass1' }),
+      ).rejects.toMatchObject({ response: { code: 'INVALID_CREDENTIALS' } });
+    });
+
     it('returns tokens, the resolved tenant, and flattens role permissions on success', async () => {
       const passwordHash = await bcrypt.hash('CorrectPass1', 12);
       mockPrisma.unscoped.user.findUnique.mockResolvedValueOnce({
@@ -252,6 +279,52 @@ describe('AuthService', () => {
       expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ action: 'auth.login' }) }),
       );
+    });
+
+    it('uses the tenant-configured token TTLs instead of the platform defaults when set', async () => {
+      mockSecuritySettings.getEffective.mockResolvedValueOnce({
+        accessTokenTtlMinutes: 30,
+        refreshTokenTtlDays: 14,
+        inactivityLogoutMinutes: null,
+        maxConcurrentSessions: null,
+      });
+      const passwordHash = await bcrypt.hash('CorrectPass1', 12);
+      mockPrisma.unscoped.user.findUnique.mockResolvedValueOnce({
+        id: 'user-1', email: 'pastor@church.rw', isActive: true, deletedAt: null, passwordHash, userRoles: [],
+      });
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-1', firstName: 'Pastor', lastName: 'John' });
+
+      const result = (await service.login(TENANT_SLUG, {
+        email: 'pastor@church.rw',
+        password: 'CorrectPass1',
+      })) as AuthResponseDto;
+
+      expect(result.tokens.expiresIn).toBe(30 * 60);
+      expect(mockPrisma.refreshToken.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ lastUsedAt: expect.any(Date) }) }),
+      );
+    });
+
+    it('revokes the oldest active session to stay within a configured max-concurrent-sessions limit', async () => {
+      mockSecuritySettings.getEffective.mockResolvedValueOnce({
+        accessTokenTtlMinutes: 15,
+        refreshTokenTtlDays: 7,
+        inactivityLogoutMinutes: null,
+        maxConcurrentSessions: 2,
+      });
+      mockPrisma.refreshToken.findMany.mockResolvedValueOnce([{ id: 'oldest' }, { id: 'newer' }]); // already at the limit
+      const passwordHash = await bcrypt.hash('CorrectPass1', 12);
+      mockPrisma.unscoped.user.findUnique.mockResolvedValueOnce({
+        id: 'user-1', email: 'pastor@church.rw', isActive: true, deletedAt: null, passwordHash, userRoles: [],
+      });
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-1', firstName: 'Pastor', lastName: 'John' });
+
+      await service.login(TENANT_SLUG, { email: 'pastor@church.rw', password: 'CorrectPass1' });
+
+      expect(mockPrisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT_ID, id: { in: ['oldest'] } },
+        data: { revokedAt: expect.any(Date) },
+      });
     });
   });
 
@@ -381,6 +454,23 @@ describe('AuthService', () => {
         expect.objectContaining({ data: expect.objectContaining({ action: 'auth.switch_tenant' }) }),
       );
     });
+
+    it('rejects switching into a workspace where this account is locked', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', isActive: true, email: 'pastor@church.rw' });
+      mockPrisma.tenant.findFirst.mockResolvedValue({ id: 'tenant-2', slug: 'other-church', isActive: true, deletedAt: null });
+      mockPrisma.unscoped.user.findUnique.mockResolvedValueOnce({
+        id: 'user-2',
+        email: 'pastor@church.rw',
+        isActive: true,
+        deletedAt: null,
+        lockedAt: new Date(),
+        userRoles: [],
+      });
+
+      await expect(service.switchTenant(TENANT_ID, 'user-1', 'other-church')).rejects.toMatchObject({
+        response: { code: 'ACCOUNT_LOCKED' },
+      });
+    });
   });
 
   describe('listMyWorkspaces', () => {
@@ -431,6 +521,70 @@ describe('AuthService', () => {
         expect.objectContaining({ where: { id: 'rt-1' }, data: expect.objectContaining({ revokedAt: expect.any(Date) }) }),
       );
       expect(mockPrisma.refreshToken.create).toHaveBeenCalled(); // new token issued
+    });
+
+    it('rejects and revokes a session that has been idle longer than the tenant-configured inactivity window', async () => {
+      mockSecuritySettings.getEffective.mockResolvedValueOnce({
+        accessTokenTtlMinutes: 15,
+        refreshTokenTtlDays: 7,
+        inactivityLogoutMinutes: 30,
+        maxConcurrentSessions: null,
+      });
+      mockPrisma.refreshToken.findFirst.mockResolvedValue({
+        id: 'rt-1',
+        expiresAt: new Date(Date.now() + 100_000),
+        lastUsedAt: new Date(Date.now() - 60 * 60_000), // idle for 60 minutes, over the 30-minute limit
+        createdAt: new Date(Date.now() - 60 * 60_000),
+      });
+
+      await expect(service.refresh(TENANT_ID, 'user-1', 'idle-token')).rejects.toThrow(UnauthorizedException);
+      expect(mockPrisma.refreshToken.update).toHaveBeenCalledWith({ where: { id: 'rt-1' }, data: { revokedAt: expect.any(Date) } });
+      expect(mockPrisma.user.findUnique).not.toHaveBeenCalled(); // rejected before ever loading the user
+    });
+
+    it('allows rotation when still within the configured inactivity window', async () => {
+      mockSecuritySettings.getEffective.mockResolvedValueOnce({
+        accessTokenTtlMinutes: 15,
+        refreshTokenTtlDays: 7,
+        inactivityLogoutMinutes: 30,
+        maxConcurrentSessions: null,
+      });
+      mockPrisma.refreshToken.findFirst.mockResolvedValue({
+        id: 'rt-1',
+        expiresAt: new Date(Date.now() + 100_000),
+        lastUsedAt: new Date(Date.now() - 5 * 60_000), // idle for 5 minutes, within the 30-minute limit
+        createdAt: new Date(Date.now() - 5 * 60_000),
+      });
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'user-1', isActive: true, userRoles: [] })
+        .mockResolvedValueOnce({ id: 'user-1', firstName: 'A', lastName: 'B' });
+
+      await expect(service.refresh(TENANT_ID, 'user-1', 'fresh-token')).resolves.toBeDefined();
+    });
+
+    it('never applies max-concurrent-session eviction on a token rotation (only on a real new login)', async () => {
+      // refresh() calls getEffective twice — once for its own inactivity check, once again inside
+      // issueSession — so this queues the override for both, deliberately using *Once so the shared
+      // mock's persistent default (relied on by every other test in this file) is never mutated.
+      const overriddenSettings = { accessTokenTtlMinutes: 15, refreshTokenTtlDays: 7, inactivityLogoutMinutes: null, maxConcurrentSessions: 1 };
+      mockSecuritySettings.getEffective.mockResolvedValueOnce(overriddenSettings).mockResolvedValueOnce(overriddenSettings);
+      mockPrisma.refreshToken.findFirst.mockResolvedValue({ id: 'rt-1', expiresAt: new Date(Date.now() + 100_000) });
+      mockPrisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'user-1', isActive: true, userRoles: [] })
+        .mockResolvedValueOnce({ id: 'user-1', firstName: 'A', lastName: 'B' });
+
+      await service.refresh(TENANT_ID, 'user-1', 'valid-token');
+
+      expect(mockPrisma.refreshToken.findMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects rotating a token for a now-locked account', async () => {
+      mockPrisma.refreshToken.findFirst.mockResolvedValue({ id: 'rt-1', expiresAt: new Date(Date.now() + 100_000) });
+      mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-1', isActive: true, lockedAt: new Date(), userRoles: [] });
+
+      await expect(service.refresh(TENANT_ID, 'user-1', 'valid-token')).rejects.toMatchObject({
+        response: { code: 'ACCOUNT_LOCKED' },
+      });
     });
   });
 

@@ -4,6 +4,7 @@ import { BranchesService } from './branches.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { MoveBranchDto } from './dto/move-branch.dto';
+import { AssignBranchResourceDto } from './dto/assign-branch-resource.dto';
 import { CurrentTenantId } from '../common/decorators/tenant.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Permissions } from '../common/decorators/permissions.decorator';
@@ -94,5 +95,34 @@ export class BranchesController {
   @Delete(':id')
   async softDelete(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
     return ok(await this.branchesService.softDelete(tenantId, id));
+  }
+
+  @ApiOperation({ summary: 'List modules/reports/dashboards/workflows/document categories assigned to this branch' })
+  @Permissions('branch.read')
+  @Get(':id/resources')
+  async listResources(@CurrentTenantId() tenantId: string, @Param('id') id: string) {
+    return ok(await this.branchesService.listResources(tenantId, id));
+  }
+
+  @ApiOperation({ summary: 'Assign a resource (module/report/dashboard/workflow/document category) to this branch' })
+  @Post(':id/resources')
+  async assignResource(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: AssignBranchResourceDto,
+  ) {
+    return ok(await this.branchesService.assignResource(tenantId, id, dto, user));
+  }
+
+  @ApiOperation({ summary: "Remove a resource from this branch's assignments" })
+  @Delete(':id/resources/:assignmentId')
+  async removeResource(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('assignmentId') assignmentId: string,
+  ) {
+    return ok(await this.branchesService.removeResource(tenantId, id, assignmentId, user));
   }
 }

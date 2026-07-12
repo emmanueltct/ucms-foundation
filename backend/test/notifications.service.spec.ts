@@ -14,6 +14,7 @@ describe('NotificationsService', () => {
   const mockPrisma = {
     notification: { create: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), count: jest.fn() },
     member: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn() },
   };
   const mockQueue = { enqueueNotification: jest.fn() };
   const mockTemplates = { findByKey: jest.fn(), render: jest.fn((text: string) => text) };
@@ -96,6 +97,32 @@ describe('NotificationsService', () => {
       expect(mockPrisma.notification.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ recipient: '+250780000000' }) }),
       );
+    });
+
+    it('resolves the recipient from User.email for the email channel (§14 form-assignment notifications)', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-2', email: 'staff@x.test', phone: null });
+      mockPrisma.notification.create.mockResolvedValue({ id: 'notif-1' });
+
+      await service.create(TENANT_ID, USER_ID, { channel: 'email', userId: 'user-2', body: 'hi' } as any);
+
+      expect(mockPrisma.member.findFirst).not.toHaveBeenCalled();
+      expect(mockPrisma.notification.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ recipientUserId: 'user-2', recipient: 'staff@x.test' }) }),
+      );
+    });
+
+    it('rejects when userId does not resolve within the tenant', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue(null);
+      await expect(
+        service.create(TENANT_ID, USER_ID, { channel: 'email', userId: 'missing', body: 'hi' } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects when the resolved user has no phone on file for the sms channel', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-2', email: 'staff@x.test', phone: null });
+      await expect(
+        service.create(TENANT_ID, USER_ID, { channel: 'sms', userId: 'user-2', body: 'hi' } as any),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 

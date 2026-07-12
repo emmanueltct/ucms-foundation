@@ -46,6 +46,7 @@ export class DynamicModuleDefinitionsService {
         approvalWorkflowId: dto.approvalWorkflowId,
         showInNav: dto.showInNav ?? false,
         allowPublicSubmission: dto.allowPublicSubmission ?? false,
+        allowMemberAttachment: dto.allowMemberAttachment ?? false,
       },
     });
 
@@ -101,6 +102,7 @@ export class DynamicModuleDefinitionsService {
         approvalWorkflowId: dto.approvalWorkflowId,
         showInNav: dto.showInNav,
         allowPublicSubmission: dto.allowPublicSubmission,
+        allowMemberAttachment: dto.allowMemberAttachment,
         isActive: dto.isActive,
       },
     });

@@ -32,6 +32,7 @@ export class HierarchyLevelsService {
         allowedParentTypeKeys: dto.allowedParentTypeKeys ?? [],
         allowedChildTypeKeys: dto.allowedChildTypeKeys ?? [],
         sortOrder: dto.sortOrder ?? 0,
+        color: dto.color,
       },
     });
   }
@@ -49,6 +50,7 @@ export class HierarchyLevelsService {
         allowedParentTypeKeys: dto.allowedParentTypeKeys,
         allowedChildTypeKeys: dto.allowedChildTypeKeys,
         sortOrder: dto.sortOrder,
+        color: dto.color,
       },
     });
   }

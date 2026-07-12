@@ -13,6 +13,13 @@ export interface ApiEnvelope<T> {
   data: T | null;
   meta: Record<string, unknown> | null;
   error: ApiError | null;
+  /** The raw HTTP status — added so a page can tell "you don't have access" (401/403) apart from every other kind of failure and render a blank access-denied state instead of a broken/partial page. */
+  status?: number;
+}
+
+/** True for any response that failed because the caller isn't authenticated or lacks permission — never true for a validation error, a 404, or a network failure. */
+export function isAccessDeniedResponse(res: { success: boolean; status?: number }): boolean {
+  return !res.success && (res.status === 401 || res.status === 403);
 }
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:3000/api/v1';
@@ -118,6 +125,7 @@ export async function apiRequest<T>(path: string, opts: RequestOptions): Promise
   });
 
   const json = (await res.json()) as ApiEnvelope<T>;
+  json.status = res.status;
   return json;
 }
 
@@ -369,6 +377,12 @@ export const branchesApi = {
     apiRequest<Branch>(`/branches/${id}/deactivate`, { method: 'PATCH', tenantSlug, auth: true }),
   reactivate: (tenantSlug: string, id: string) =>
     apiRequest<Branch>(`/branches/${id}/reactivate`, { method: 'PATCH', tenantSlug, auth: true }),
+  listResources: (tenantSlug: string, id: string) =>
+    apiRequest<ResourceAssignment[]>(`/branches/${id}/resources`, { tenantSlug, auth: true }),
+  assignResource: (tenantSlug: string, id: string, body: { resourceType: string; resourceKey: string; dueAt?: string }) =>
+    apiRequest<ResourceAssignment>(`/branches/${id}/resources`, { method: 'POST', tenantSlug, auth: true, body }),
+  removeResource: (tenantSlug: string, id: string, assignmentId: string) =>
+    apiRequest<{ id: string }>(`/branches/${id}/resources/${assignmentId}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
 
 export interface Family {
@@ -1008,6 +1022,32 @@ export interface MemberActivityHistory {
   timeline: MemberActivityTimelineEntry[];
 }
 
+export interface FormSubmissionsQueryParams {
+  moduleDefinitionId: string;
+  dateFrom?: string;
+  dateTo?: string;
+  branchId?: string;
+  attachedToEntityType?: string;
+  attachedToEntityId?: string;
+  createdByUserId?: string;
+}
+
+export interface FormSubmissionsSummary {
+  byMonth: MonthBucket[];
+  byStatus: KeyBucket[];
+  totalSubmissions: number;
+}
+
+export interface StatusHistoryEntry {
+  id: string;
+  fromStatus: string | null;
+  toStatus: string;
+  reason: string | null;
+  createdAt: string;
+  record: { id: string; title: string | null; moduleDefinitionId: string };
+  changedByUser: { id: string; email: string } | null;
+}
+
 export const reportsApi = {
   overview: (tenantSlug: string) => apiRequest<ReportOverview>('/reports/overview', { tenantSlug, auth: true }),
   financeSummary: (tenantSlug: string, params: { dateFrom?: string; dateTo?: string; branchId?: string } = {}) =>
@@ -1040,6 +1080,22 @@ export const reportsApi = {
     downloadFile(`/reports/membership-growth/export?${reportRangeQs(params)}&format=${format}`, tenantSlug, `membership-growth.${format}`),
   exportPayrollSummary: (tenantSlug: string, format: ExportFormat, params: { dateFrom?: string; dateTo?: string } = {}) =>
     downloadFile(`/reports/payroll-summary/export?${reportRangeQs(params)}&format=${format}`, tenantSlug, `payroll-summary.${format}`),
+  formSubmissionsSummary: (tenantSlug: string, params: FormSubmissionsQueryParams) =>
+    apiRequest<FormSubmissionsSummary>(`/reports/form-submissions-summary?${formSubmissionsQs(params)}`, { tenantSlug, auth: true }),
+  exportFormSubmissionsSummary: (tenantSlug: string, format: ExportFormat, params: FormSubmissionsQueryParams) =>
+    downloadFile(`/reports/form-submissions-summary/export?${formSubmissionsQs(params)}&format=${format}`, tenantSlug, `form-submissions-summary.${format}`),
+  statusHistory: (
+    tenantSlug: string,
+    params: { moduleDefinitionId?: string; recordId?: string; changedByUserId?: string; dateFrom?: string; dateTo?: string } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.moduleDefinitionId) qs.set('moduleDefinitionId', params.moduleDefinitionId);
+    if (params.recordId) qs.set('recordId', params.recordId);
+    if (params.changedByUserId) qs.set('changedByUserId', params.changedByUserId);
+    if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+    if (params.dateTo) qs.set('dateTo', params.dateTo);
+    return apiRequest<StatusHistoryEntry[]>(`/reports/status-history?${qs.toString()}`, { tenantSlug, auth: true });
+  },
 };
 
 export type ExportFormat = 'csv' | 'xlsx' | 'pdf';
@@ -1049,6 +1105,18 @@ function reportRangeQs(params: { dateFrom?: string; dateTo?: string; branchId?: 
   if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
   if (params.dateTo) qs.set('dateTo', params.dateTo);
   if (params.branchId) qs.set('branchId', params.branchId);
+  return qs.toString();
+}
+
+function formSubmissionsQs(params: FormSubmissionsQueryParams): string {
+  const qs = new URLSearchParams();
+  qs.set('moduleDefinitionId', params.moduleDefinitionId);
+  if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+  if (params.dateTo) qs.set('dateTo', params.dateTo);
+  if (params.branchId) qs.set('branchId', params.branchId);
+  if (params.attachedToEntityType) qs.set('attachedToEntityType', params.attachedToEntityType);
+  if (params.attachedToEntityId) qs.set('attachedToEntityId', params.attachedToEntityId);
+  if (params.createdByUserId) qs.set('createdByUserId', params.createdByUserId);
   return qs.toString();
 }
 
@@ -1131,6 +1199,8 @@ export interface AppUser {
   lastName: string;
   email: string;
   isActive: boolean;
+  lockedAt: string | null;
+  lockedReason: string | null;
   emailVerifiedAt: string | null;
   assignedBranchId: string | null;
   assignedBranch: { id: string; name: string } | null;
@@ -1168,6 +1238,13 @@ export const usersApi = {
   /** Generates a fresh one-time temporary password (returned in the response, shown once) and revokes the user's active sessions. */
   forcePasswordReset: (tenantSlug: string, id: string) =>
     apiRequest<{ user: AppUser; temporaryPassword: string }>(`/users/${id}/force-reset-password`, { method: 'PATCH', tenantSlug, auth: true }),
+  /** A security hold, distinct from deactivate — signs out every active session immediately. */
+  lock: (tenantSlug: string, id: string, reason?: string) =>
+    apiRequest<AppUser>(`/users/${id}/lock`, { method: 'PATCH', tenantSlug, auth: true, body: { reason } }),
+  unlock: (tenantSlug: string, id: string) =>
+    apiRequest<AppUser>(`/users/${id}/unlock`, { method: 'PATCH', tenantSlug, auth: true }),
+  moveDepartment: (tenantSlug: string, id: string, departmentRecordId: string | null) =>
+    apiRequest<AppUser>(`/users/${id}/department`, { method: 'PATCH', tenantSlug, auth: true, body: { departmentRecordId } }),
 };
 
 export interface Visitor {
@@ -1602,7 +1679,14 @@ export interface DynamicModuleDefinition {
   approvalWorkflowId: string | null;
   showInNav: boolean;
   allowPublicSubmission: boolean;
+  allowMemberAttachment: boolean;
   isActive: boolean;
+}
+
+export interface CreatorContext {
+  branchName: string | null;
+  departmentName: string | null;
+  ministryName: string | null;
 }
 
 export interface DynamicModuleRecord {
@@ -1617,6 +1701,7 @@ export interface DynamicModuleRecord {
   createdByUserId: string | null;
   createdAt: string;
   customFields: Record<string, unknown>;
+  creatorContext: CreatorContext | null;
 }
 
 export interface DynamicModuleRecordStatusHistoryEntry {
@@ -1652,12 +1737,21 @@ export const dynamicModuleDefinitionsApi = {
       approvalWorkflowId?: string;
       showInNav?: boolean;
       allowPublicSubmission?: boolean;
+      allowMemberAttachment?: boolean;
     },
   ) => apiRequest<DynamicModuleDefinition>('/dynamic-modules', { method: 'POST', tenantSlug, auth: true, body }),
   update: (
     tenantSlug: string,
     id: string,
-    body: Partial<{ label: string; description: string; statuses: string[]; showInNav: boolean; allowPublicSubmission: boolean; isActive: boolean }>,
+    body: Partial<{
+      label: string;
+      description: string;
+      statuses: string[];
+      showInNav: boolean;
+      allowPublicSubmission: boolean;
+      allowMemberAttachment: boolean;
+      isActive: boolean;
+    }>,
   ) => apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) => apiRequest<DynamicModuleDefinition>(`/dynamic-modules/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
 };
@@ -1738,6 +1832,9 @@ export interface TenantProfile {
   themeConfig: Record<string, string> | null;
   customDomain: string | null;
   onboardedAt: string | null;
+  currency: string;
+  language: string;
+  timezone: string;
 }
 
 export type MenuItemTargetType = 'module' | 'entity' | 'report' | 'dashboard' | 'customPage' | 'workflow';
@@ -1839,18 +1936,19 @@ export interface HierarchyLevelDefinition {
   allowedParentTypeKeys: string[];
   allowedChildTypeKeys: string[];
   sortOrder: number;
+  color: string | null;
 }
 
 export const hierarchyLevelsApi = {
   list: (tenantSlug: string) => apiRequest<HierarchyLevelDefinition[]>('/hierarchy-levels', { tenantSlug, auth: true }),
   create: (
     tenantSlug: string,
-    body: { branchTypeKey: string; label: string; allowedParentTypeKeys?: string[]; allowedChildTypeKeys?: string[]; sortOrder?: number },
+    body: { branchTypeKey: string; label: string; allowedParentTypeKeys?: string[]; allowedChildTypeKeys?: string[]; sortOrder?: number; color?: string },
   ) => apiRequest<HierarchyLevelDefinition>('/hierarchy-levels', { method: 'POST', tenantSlug, auth: true, body }),
   update: (
     tenantSlug: string,
     id: string,
-    body: Partial<{ label: string; allowedParentTypeKeys: string[]; allowedChildTypeKeys: string[]; sortOrder: number }>,
+    body: Partial<{ label: string; allowedParentTypeKeys: string[]; allowedChildTypeKeys: string[]; sortOrder: number; color: string }>,
   ) => apiRequest<HierarchyLevelDefinition>(`/hierarchy-levels/${id}`, { method: 'PATCH', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) =>
     apiRequest<{ id: string }>(`/hierarchy-levels/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
@@ -1862,22 +1960,74 @@ export interface ResourceAssignment {
   scopeEntityId: string;
   resourceType: string;
   resourceKey: string;
+  dueAt: string | null;
   createdAt: string;
 }
 
 export const resourceAssignmentsApi = {
-  list: (tenantSlug: string, filters?: { scopeEntityType?: string; scopeEntityId?: string; resourceType?: string }) => {
+  list: (tenantSlug: string, filters?: { scopeEntityType?: string; scopeEntityId?: string; resourceType?: string; resourceKey?: string }) => {
     const qs = new URLSearchParams();
     if (filters?.scopeEntityType) qs.set('scopeEntityType', filters.scopeEntityType);
     if (filters?.scopeEntityId) qs.set('scopeEntityId', filters.scopeEntityId);
     if (filters?.resourceType) qs.set('resourceType', filters.resourceType);
+    if (filters?.resourceKey) qs.set('resourceKey', filters.resourceKey);
     const query = qs.toString();
     return apiRequest<ResourceAssignment[]>(`/resource-assignments${query ? `?${query}` : ''}`, { tenantSlug, auth: true });
   },
-  create: (tenantSlug: string, body: { scopeEntityType: string; scopeEntityId: string; resourceType: string; resourceKey: string }) =>
+  create: (tenantSlug: string, body: { scopeEntityType: string; scopeEntityId: string; resourceType: string; resourceKey: string; dueAt?: string }) =>
     apiRequest<ResourceAssignment>('/resource-assignments', { method: 'POST', tenantSlug, auth: true, body }),
   remove: (tenantSlug: string, id: string) =>
     apiRequest<{ id: string }>(`/resource-assignments/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export interface MyFormAssignment {
+  definitionId: string;
+  key: string;
+  label: string;
+  description: string | null;
+  statuses: string[];
+  dueAt: string | null;
+  myRecords: Array<{ id: string; status: string; createdAt: string; updatedAt: string }>;
+}
+
+export const myFormsApi = {
+  list: (tenantSlug: string) => apiRequest<MyFormAssignment[]>('/my-forms', { tenantSlug, auth: true }),
+};
+
+export interface LeadershipAppointment {
+  id: string;
+  targetEntityType: string;
+  targetEntityId: string;
+  userId: string;
+  role: string;
+  createdAt: string;
+  user?: { id: string; firstName: string; lastName: string; email: string };
+}
+
+export const leadershipAppointmentsApi = {
+  forTarget: (tenantSlug: string, targetEntityType: string, targetEntityId: string) =>
+    apiRequest<LeadershipAppointment[]>(
+      `/leadership-appointments?targetEntityType=${encodeURIComponent(targetEntityType)}&targetEntityId=${encodeURIComponent(targetEntityId)}`,
+      { tenantSlug, auth: true },
+    ),
+  mine: (tenantSlug: string) => apiRequest<LeadershipAppointment[]>('/leadership-appointments/mine', { tenantSlug, auth: true }),
+  create: (tenantSlug: string, body: { targetEntityType: string; targetEntityId: string; userId: string; role?: string }) =>
+    apiRequest<LeadershipAppointment>('/leadership-appointments', { method: 'POST', tenantSlug, auth: true, body }),
+  remove: (tenantSlug: string, id: string) =>
+    apiRequest<{ id: string }>(`/leadership-appointments/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+};
+
+export interface SecuritySettings {
+  accessTokenTtlMinutes: number | null;
+  refreshTokenTtlDays: number | null;
+  inactivityLogoutMinutes: number | null;
+  maxConcurrentSessions: number | null;
+}
+
+export const securitySettingsApi = {
+  get: (tenantSlug: string) => apiRequest<SecuritySettings | null>('/security-settings', { tenantSlug, auth: true }),
+  update: (tenantSlug: string, body: Partial<SecuritySettings>) =>
+    apiRequest<SecuritySettings>('/security-settings', { method: 'PATCH', tenantSlug, auth: true, body }),
 };
 
 /** A department is a Dynamic Module Record under the tenant's pre-seeded "departments" module — same shape, dedicated routes. */
@@ -1896,7 +2046,7 @@ export const departmentsApi = {
   remove: (tenantSlug: string, id: string) => apiRequest<Department>(`/departments/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
   listResources: (tenantSlug: string, id: string) =>
     apiRequest<ResourceAssignment[]>(`/departments/${id}/resources`, { tenantSlug, auth: true }),
-  assignResource: (tenantSlug: string, id: string, body: { resourceType: string; resourceKey: string }) =>
+  assignResource: (tenantSlug: string, id: string, body: { resourceType: string; resourceKey: string; dueAt?: string }) =>
     apiRequest<ResourceAssignment>(`/departments/${id}/resources`, { method: 'POST', tenantSlug, auth: true, body }),
   removeResource: (tenantSlug: string, id: string, assignmentId: string) =>
     apiRequest<{ id: string }>(`/departments/${id}/resources/${assignmentId}`, { method: 'DELETE', tenantSlug, auth: true }),
@@ -1908,6 +2058,8 @@ export const tenantApi = {
     apiRequest<TenantProfile>('/tenant/onboarding/complete', { method: 'PATCH', tenantSlug, auth: true, body }),
   updateBranding: (tenantSlug: string, body: { logoUrl?: string; themeConfig?: Record<string, string>; customDomain?: string }) =>
     apiRequest<TenantProfile>('/tenant/branding', { method: 'PATCH', tenantSlug, auth: true, body }),
+  updateSystemSettings: (tenantSlug: string, body: { currency?: string; language?: string; timezone?: string }) =>
+    apiRequest<TenantProfile>('/tenant/system-settings', { method: 'PATCH', tenantSlug, auth: true, body }),
 };
 
 export interface AuditLogEntry {
@@ -2037,6 +2189,7 @@ export interface PlatformTenant {
   isActive: boolean;
   onboardedAt: string | null;
   createdAt: string;
+  deletedAt: string | null;
 }
 
 export interface CreatePlatformTenantInput {
@@ -2061,6 +2214,10 @@ export const platformTenantsApi = {
   get: (id: string) => platformApiRequest<PlatformTenant>(`/platform/tenants/${id}`, { auth: true }),
   create: (body: CreatePlatformTenantInput) =>
     platformApiRequest<CreatePlatformTenantResult>('/platform/tenants', { method: 'POST', auth: true, body }),
+  update: (
+    id: string,
+    body: Partial<{ name: string; slug: string; currency: string; language: string; timezone: string; subscriptionPlan: string }>,
+  ) => platformApiRequest<PlatformTenant>(`/platform/tenants/${id}`, { method: 'PATCH', auth: true, body }),
   deactivate: (id: string) =>
     platformApiRequest<PlatformTenant>(`/platform/tenants/${id}/deactivate`, { method: 'PATCH', auth: true }),
   reactivate: (id: string) =>
@@ -2068,6 +2225,8 @@ export const platformTenantsApi = {
   remove: (id: string) => platformApiRequest<PlatformTenant>(`/platform/tenants/${id}`, { method: 'DELETE', auth: true }),
   restore: (id: string) =>
     platformApiRequest<PlatformTenant>(`/platform/tenants/${id}/restore`, { method: 'PATCH', auth: true }),
+  purge: (id: string) =>
+    platformApiRequest<{ purged: boolean }>(`/platform/tenants/${id}/purge`, { method: 'DELETE', auth: true }),
 };
 
 export interface TenantHealth {

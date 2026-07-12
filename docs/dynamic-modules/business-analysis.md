@@ -90,3 +90,27 @@ Same actor set as the Foundation module ([../business-analysis.md](../business-a
   conditionally required depending on the record's current status.
 - **A drag-and-drop visual builder UI** — the Dynamic Module Builder page is a form, the
   same as every other admin settings page in this platform, not a canvas-based designer.
+
+## 5. §5 Investigation Verdict: "the Configuration Engine is not functioning correctly"
+
+A later spec (§5, delivered alongside §0–§4/§11–§15) asserted the Configuration Engine "is
+currently not functioning correctly and should be reviewed and fixed," listing five specific
+symptoms. Each was checked against the real code (not assumed) before any fix was scoped:
+
+| Claimed symptom | Finding |
+|---|---|
+| "Dynamic modules must create successfully" | They already do — `DynamicModuleDefinitionsService.create` runs in a single transaction that creates the definition *and* grants its five generated permission codes to every `isSystem` role atomically. No reproducible failure found. |
+| "Custom fields must save/render correctly" | They already do — `CustomFieldValue` is a real per-type-validated EAV table (rule above), and the frontend's Custom Fields form renders a genuinely distinct control per field type (text/number/date/select/boolean/file), not a single generic input. |
+| "Changes must apply immediately" | They already do — `JwtStrategy.validate` reloads the caller's permissions from the database on *every request*, not just at login. A permission granted this second is enforceable on the very next API call, no re-login or restart required. |
+| "New modules/forms/entities/menu items must be automatically available app-wide" | Modules/forms/entities already are — `AdminNav` re-fetches `showInNav:true` Dynamic Modules on every route change, so a brand-new module appears in the sidebar with zero manual wiring. **Menu items are the one real, intentional exception**: `MenuItem` ("Menu Builder") is a separate, deliberately manual/opt-in mechanism for admin-composed custom navigation entries — it was never meant to auto-populate from a new module, any more than a hand-built bookmark list auto-populates from new browser tabs. This is a naming-adjacent point of confusion in the spec, not a bug. |
+| "Dynamic relationships must work" | They already do — `attachedToEntityType`/`attachedToEntityId` plus the `"dynamicmodule:{definitionId}"` convention (rule above) already let any record attach to any Branch/Ministry/Member/other-Dynamic-Module-record, including relationships invented after the fact by a brand-new module. |
+| "Existing configurations must remain backward compatible" | Every change made across this spec's other sections (§0–§4, §11–§15) was additive-only — new nullable columns, new tables, new optional DTO fields — verified by the fact that every pre-existing test in this suite kept passing unmodified throughout. |
+
+**Verdict: the Configuration Engine was not broken.** No corrective code change was made for
+§5 itself — the genuinely missing capabilities the surrounding spec actually needed (tenant
+hard-delete, configurable session/token security, department lock/unlock, an org-chart tree
+with per-node resource scoping, generalized cross-entity leadership, an eligibility resolver,
+deadlines/notifications, a My Forms dashboard, and Form Submissions reporting) were real gaps,
+and are what Phases 10–17 of this effort actually built. §5's five symptom claims, checked
+individually, describe intended/already-working behavior — except for Menu Builder's
+deliberately manual nature, which is a documentation/expectation gap, not an engine defect.

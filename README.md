@@ -888,6 +888,57 @@ npm run test:e2e             # requires a migrated + seeded test database
     shipped, but never wired into code until this pass. See
     `docs/audit-hardening/business-analysis.md`.
 
+45. **Tenant hard-delete is a strict second step after soft-delete, gated by its own
+    permission.** `TenantsService.hardDelete` asserts `deletedAt` is already set, then runs an
+    ordered multi-table delete transaction (leaf tables → `User`/`Branch`/
+    `DynamicModuleDefinition` → `Tenant`) rather than a schema-wide `onDelete: Cascade` across
+    ~40 models. `platform.tenant.purge` is never bundled with `platform.tenant.delete` in any
+    default role grant — soft-delete and permanent purge are deliberately separate
+    authorizations.
+46. **Session/token security settings are a typed one-row-per-tenant model, not a
+    `ConfigItem` blob**, since `AuthService` reads it on every login/refresh/request — typed
+    columns avoid JSON-shape overhead on a hot path. Nullable fields fall back to the
+    previously-hardcoded defaults, so every existing tenant is unaffected until a Denomination
+    Admin opts in. Locking/revocation is enforced at all three places `isActive` already was
+    (`completeLogin`, `refresh`, `JwtStrategy.validate`), not just at login, so a revoked
+    session dies on its very next use rather than surviving up to its access-token TTL.
+47. **A delegated-leader check used only inside role assignment became a reusable guard**,
+    shared identically by activate/deactivate/lock/unlock/force-password-reset/move-department
+    — closing an inconsistency where a Department Leader could already delegate roles but not
+    manage their own staff's account state. Lock/unlock is new and orthogonal to `isActive` (a
+    security hold, not a business deactivation), reusing the same delegation guard.
+48. **`LeadershipAppointment` generalizes leadership to any entity as a third sibling of an
+    already-established polymorphic convention** — alongside `ResourceAssignment` (what's
+    assigned to a scope) and `EntityMembership` (who's a member of a thing) — additive next to,
+    not a replacement for, the two existing hardcoded `User` scope fields. See
+    `docs/leadership/business-analysis.md`.
+49. **An eligibility resolver is a resolution *direction* over existing tables, not a new
+    attachment mechanism.** Given a user, `EligibilityResolverService` unions every scope
+    (branch + ancestors, department + ancestors, leadership appointments, user category) and
+    every resource assigned to any of them; given a scope, it does the reverse — every eligible
+    user — which is what drives assignment-time notification fan-out. See
+    `docs/leadership/business-analysis.md`.
+50. **A circular module dependency is resolved by extracting the shared logic into a new,
+    dependency-isolated module — not by picking which of the two services gets to import the
+    other.** When `EligibilityResolverService`, `BranchesService`, and
+    `ResourceAssignmentsService` each needed something from another, the fix was: duplicate a
+    small tree-walk via direct Prisma queries where importing the owning module would recreate
+    the cycle, and extract the one genuinely shared piece of logic (notify-on-assign) into its
+    own module with no dependency on either side. See `docs/leadership/business-analysis.md`.
+51. **A per-assignment deadline is a plain nullable field on `ResourceAssignment`, not a row
+    in the generic `Deadline` model.** The generic model exists for entities that need a real
+    extend/close/reopen lifecycle (a hierarchy requirement's submission window); a form
+    assignment's deadline is a property of the assignment itself, not an independently
+    manageable entity. See `docs/governance/business-analysis.md`.
+52. **The Configuration Engine was investigated and found not broken.** A later spec claimed
+    "dynamic modules must create successfully / custom fields must save and render / changes
+    must apply immediately / new modules must be automatically available app-wide" were all
+    failing. Each claim was checked against the real code rather than assumed, and each one
+    already worked — the one genuine nuance is that Menu Builder is deliberately
+    manual/opt-in, not auto-populated from a new module, which reads as a bug only if you
+    expect it to behave like the module-nav auto-listing it isn't. See
+    `docs/dynamic-modules/business-analysis.md` §5.
+
 ## Recent hardening (this pass)
 
 - **Redis now fails fast, not silently forever.** `queue.module.ts` adds a

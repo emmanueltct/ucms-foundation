@@ -30,6 +30,7 @@ export class NotificationsService {
         tenantId,
         channel: dto.channel,
         recipientMemberId: dto.memberId ?? null,
+        recipientUserId: dto.userId ?? null,
         recipient,
         subject,
         body,
@@ -121,10 +122,23 @@ export class NotificationsService {
       });
     }
 
+    if (dto.userId) {
+      const user = await this.prisma.user.findFirst({ where: { id: dto.userId, tenantId, deletedAt: null } });
+      if (!user) throw new NotFoundException({ code: 'USER_NOT_FOUND', message: 'User not found.' });
+      const resolved = dto.channel === 'email' ? user.email : user.phone;
+      if (!resolved) {
+        throw new BadRequestException({
+          code: 'NOTIFICATION_RECIPIENT_UNAVAILABLE',
+          message: `This user has no ${dto.channel === 'email' ? 'email address' : 'phone number'} on file.`,
+        });
+      }
+      return resolved;
+    }
+
     if (!dto.memberId) {
       throw new BadRequestException({
         code: 'NOTIFICATION_RECIPIENT_REQUIRED',
-        message: 'Provide either a recipient or a memberId to resolve one from.',
+        message: 'Provide a recipient, a memberId, or a userId to resolve one from.',
       });
     }
 

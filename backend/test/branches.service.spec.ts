@@ -3,6 +3,9 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 import { BranchesService } from '../src/branches/branches.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { HierarchyLevelsService } from '../src/hierarchy-levels/hierarchy-levels.service';
+import { LeadershipScopeService } from '../src/common/leadership-scope/leadership-scope.service';
+import { FormAssignmentNotifier } from '../src/common/form-assignment-notifier/form-assignment-notifier.service';
+import { AuthenticatedUser } from '../src/common/interfaces/request-context.interface';
 
 describe('BranchesService', () => {
   let service: BranchesService;
@@ -20,19 +23,32 @@ describe('BranchesService', () => {
     user: {
       findFirst: jest.fn(),
     },
+    resourceAssignment: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      delete: jest.fn(),
+    },
   };
 
   // No existing test defines any HierarchyLevelDefinition rows, so every type is unconstrained (`findForType` -> null) — matches pre-Phase-3 behavior exactly.
   const mockHierarchyLevels = { findForType: jest.fn().mockResolvedValue(null) };
 
+  const mockLeadershipScope = { isLeaderOf: jest.fn() };
+  const mockFormAssignmentNotifier = { notifyIfForm: jest.fn() };
+
   beforeEach(async () => {
     jest.clearAllMocks();
     mockHierarchyLevels.findForType.mockResolvedValue(null);
+    mockLeadershipScope.isLeaderOf.mockResolvedValue(false);
     const moduleRef = await Test.createTestingModule({
       providers: [
         BranchesService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: HierarchyLevelsService, useValue: mockHierarchyLevels },
+        { provide: LeadershipScopeService, useValue: mockLeadershipScope },
+        { provide: FormAssignmentNotifier, useValue: mockFormAssignmentNotifier },
       ],
     }).compile();
     service = moduleRef.get(BranchesService);
@@ -285,6 +301,114 @@ describe('BranchesService', () => {
 
       expect(mockPrisma.branch.update).toHaveBeenCalledWith({ where: { id: 'a' }, data: { isActive: true } });
       expect(mockPrisma.branch.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resource assignment', () => {
+    const branch = { id: 'branch-1', tenantId: TENANT_ID, name: 'HQ' };
+    const baseUser: AuthenticatedUser = {
+      userId: 'user-1', tenantId: TENANT_ID, email: 'admin@example.com', isPlatformAdmin: false, permissions: [], roles: [],
+    };
+
+    beforeEach(() => {
+      mockPrisma.branch.findFirst.mockResolvedValue(branch);
+    });
+
+    it('listResources confirms the branch exists then resolves its scope', async () => {
+      mockPrisma.resourceAssignment.findMany.mockResolvedValue([{ id: 'ra-1' }]);
+
+      const result = await service.listResources(TENANT_ID, 'branch-1');
+
+      expect(mockPrisma.resourceAssignment.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tenantId: TENANT_ID, scopeEntityType: 'branch', scopeEntityId: 'branch-1' } }),
+      );
+      expect(result).toEqual([{ id: 'ra-1' }]);
+    });
+
+    it('assignResource rejects a caller without branch.update and not a platform admin', async () => {
+      await expect(
+        service.assignResource(TENANT_ID, 'branch-1', { resourceType: 'module', resourceKey: 'mod-1' }, baseUser),
+      ).rejects.toThrow(ForbiddenException);
+      expect(mockPrisma.resourceAssignment.create).not.toHaveBeenCalled();
+    });
+
+    it('assignResource succeeds for a caller with branch.update', async () => {
+      const authorizedUser = { ...baseUser, permissions: ['branch.update'] };
+      mockPrisma.resourceAssignment.findUnique.mockResolvedValue(null);
+      mockPrisma.resourceAssignment.create.mockResolvedValue({ id: 'ra-1' });
+
+      const result = await service.assignResource(TENANT_ID, 'branch-1', { resourceType: 'module', resourceKey: 'mod-1' }, authorizedUser);
+
+      expect(mockPrisma.resourceAssignment.create).toHaveBeenCalledWith({
+        data: { tenantId: TENANT_ID, scopeEntityType: 'branch', scopeEntityId: 'branch-1', resourceType: 'module', resourceKey: 'mod-1' },
+      });
+      expect(result).toEqual({ id: 'ra-1' });
+    });
+
+    it('assignResource rejects when the same resource is already assigned to this branch', async () => {
+      const authorizedUser = { ...baseUser, permissions: ['branch.update'] };
+      mockPrisma.resourceAssignment.findUnique.mockResolvedValue({ id: 'existing-ra' });
+
+      await expect(
+        service.assignResource(TENANT_ID, 'branch-1', { resourceType: 'module', resourceKey: 'mod-1' }, authorizedUser),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.resourceAssignment.create).not.toHaveBeenCalled();
+    });
+
+    it('assignResource is unrestricted for a platform admin', async () => {
+      const platformAdmin = { ...baseUser, isPlatformAdmin: true };
+      mockPrisma.resourceAssignment.findUnique.mockResolvedValue(null);
+      mockPrisma.resourceAssignment.create.mockResolvedValue({ id: 'ra-1' });
+
+      await expect(
+        service.assignResource(TENANT_ID, 'branch-1', { resourceType: 'module', resourceKey: 'mod-1' }, platformAdmin),
+      ).resolves.toBeDefined();
+    });
+
+    it('assignResource succeeds for a caller who holds a LeadershipAppointment over this branch (Branch Administrator), even without branch.update', async () => {
+      mockLeadershipScope.isLeaderOf.mockResolvedValue(true);
+      mockPrisma.resourceAssignment.findUnique.mockResolvedValue(null);
+      mockPrisma.resourceAssignment.create.mockResolvedValue({ id: 'ra-1' });
+
+      const result = await service.assignResource(TENANT_ID, 'branch-1', { resourceType: 'module', resourceKey: 'mod-1' }, baseUser);
+
+      expect(mockLeadershipScope.isLeaderOf).toHaveBeenCalledWith(TENANT_ID, baseUser.userId, 'branch', 'branch-1');
+      expect(result).toEqual({ id: 'ra-1' });
+    });
+
+    it('assignResource converts a given dueAt string to a Date and hands the created assignment to FormAssignmentNotifier', async () => {
+      const authorizedUser = { ...baseUser, permissions: ['branch.update'] };
+      mockPrisma.resourceAssignment.findUnique.mockResolvedValue(null);
+      const created = { id: 'ra-1', dueAt: new Date('2026-08-01T00:00:00.000Z') };
+      mockPrisma.resourceAssignment.create.mockResolvedValue(created);
+
+      await service.assignResource(
+        TENANT_ID,
+        'branch-1',
+        { resourceType: 'dynamic_module_definition', resourceKey: 'form-1', dueAt: '2026-08-01T00:00:00.000Z' },
+        authorizedUser,
+      );
+
+      expect(mockPrisma.resourceAssignment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ dueAt: new Date('2026-08-01T00:00:00.000Z') }),
+      });
+      expect(mockFormAssignmentNotifier.notifyIfForm).toHaveBeenCalledWith(TENANT_ID, created);
+    });
+
+    it('removeResource rejects a caller without branch.update', async () => {
+      await expect(service.removeResource(TENANT_ID, 'branch-1', 'ra-1', baseUser)).rejects.toThrow(ForbiddenException);
+      expect(mockPrisma.resourceAssignment.delete).not.toHaveBeenCalled();
+    });
+
+    it('removeResource succeeds for a caller with branch.update', async () => {
+      const authorizedUser = { ...baseUser, permissions: ['branch.update'] };
+      mockPrisma.resourceAssignment.findFirst.mockResolvedValue({ id: 'ra-1' });
+      mockPrisma.resourceAssignment.delete.mockResolvedValue({ id: 'ra-1' });
+
+      const result = await service.removeResource(TENANT_ID, 'branch-1', 'ra-1', authorizedUser);
+
+      expect(mockPrisma.resourceAssignment.delete).toHaveBeenCalledWith({ where: { id: 'ra-1' } });
+      expect(result).toEqual({ id: 'ra-1' });
     });
   });
 });

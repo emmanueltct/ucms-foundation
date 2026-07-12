@@ -48,4 +48,9 @@ export class CreateDynamicModuleDefinitionDto {
   @IsOptional()
   @IsBoolean()
   allowPublicSubmission?: boolean;
+
+  @ApiPropertyOptional({ default: false, description: 'Whether this module\'s record page shows the "attach Members" panel — off for modules with no reason to attach church members.' })
+  @IsOptional()
+  @IsBoolean()
+  allowMemberAttachment?: boolean;
 }
