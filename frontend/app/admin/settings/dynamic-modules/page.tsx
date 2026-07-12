@@ -394,7 +394,7 @@ export default function DynamicModulesAdminPage() {
 
           <div className="pt-3 border-t border-slate-100">
             <Label className="mb-1 text-slate-600">Attach to (required)</Label>
-            <p className="text-xs text-slate-400 mb-2">Who should this form reach? Add more later from "Assign to…" below.</p>
+            <p className="text-xs text-slate-400 mb-2">Who should this form reach? Add more later from &quot;Assign to…&quot; below.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
               <select
                 value={createScopeKind}
