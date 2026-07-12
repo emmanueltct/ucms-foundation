@@ -13,6 +13,7 @@ import {
   branchesApi,
   configApi,
   customFieldDefinitionsApi,
+  isAccessDeniedResponse,
   Asset,
   Branch,
   CustomFieldDefinition,
@@ -21,6 +22,7 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import { DynamicCustomFields } from '../../../components/dynamic-custom-fields';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -65,6 +67,7 @@ export default function AssetsAdminPage() {
 
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [detailFieldDefs, setDetailFieldDefs] = useState<CustomFieldDefinition[]>([]);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -80,6 +83,10 @@ export default function AssetsAdminPage() {
         configApi.listByNamespace(TENANT_SLUG, 'asset_category'),
         configApi.listByNamespace(TENANT_SLUG, 'asset_condition'),
       ]);
+      if (isAccessDeniedResponse(assetsRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (assetsRes.success && assetsRes.data) setAssets(assetsRes.data);
       else setError(assetsRes.error?.message ?? 'Could not load assets.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
@@ -219,6 +226,8 @@ export default function AssetsAdminPage() {
   function categoryLabel(key: string) {
     return categories.find((c) => c.key === key)?.label ?? key.replace(/_/g, ' ');
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

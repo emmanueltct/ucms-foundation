@@ -35,6 +35,12 @@ export class AuthUserDto {
 
   @ApiProperty({ nullable: true, description: 'When this email was confirmed — null if not yet verified. Informational only, not enforced.' })
   emailVerifiedAt: string | null;
+
+  @ApiProperty({ nullable: true, description: "This user's assigned branch name — null for a church-wide user with no specific branch." })
+  branchName: string | null;
+
+  @ApiProperty({ nullable: true, description: "This user's assigned branch's type/level (e.g. Parish, Diocese) — null alongside branchName." })
+  branchType: string | null;
 }
 
 export class AuthTenantDto {

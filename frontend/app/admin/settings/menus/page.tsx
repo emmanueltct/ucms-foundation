@@ -17,7 +17,10 @@ import {
   menuItemsApi,
   rolesApi,
   Role,
+  isAccessDeniedResponse,
 } from '../../../../lib/api';
+import { IconPicker } from '../../../../components/icon-picker';
+import { AccessDenied } from '../../../../components/access-denied';
 
 const TARGET_TYPES: { value: MenuItemTargetType; label: string }[] = [
   { value: 'module', label: 'Built-in module' },
@@ -37,6 +40,7 @@ export default function MenusAdminPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [label, setLabel] = useState('');
   const [icon, setIcon] = useState('');
@@ -55,6 +59,11 @@ export default function MenusAdminPage() {
       rolesApi.list(tenantSlug),
       branchesApi.list(tenantSlug),
     ]);
+    if (isAccessDeniedResponse(itemsRes)) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     if (itemsRes.success && itemsRes.data) setItems(itemsRes.data);
     else setError(itemsRes.error?.message ?? 'Could not load menu items.');
     if (rolesRes.success && rolesRes.data) setRoles(rolesRes.data);
@@ -122,6 +131,8 @@ export default function MenusAdminPage() {
   const topLevel = items.filter((i) => !i.parentMenuItemId);
   const childrenOf = (id: string) => items.filter((i) => i.parentMenuItemId === id);
 
+  if (accessDenied) return <AccessDenied />;
+
   return (
     <div className="max-w-5xl mx-auto px-6 py-12">
       <header className="mb-8">
@@ -165,12 +176,7 @@ export default function MenusAdminPage() {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Icon (optional)</label>
-              <input
-                value={icon}
-                onChange={(e) => setIcon(e.target.value)}
-                placeholder="HeartHandshake"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#1E2A44]/20"
-              />
+              <IconPicker value={icon} onChange={setIcon} />
             </div>
           </div>
           <div>

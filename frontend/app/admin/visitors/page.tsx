@@ -19,6 +19,7 @@ import {
   usersApi,
   configApi,
   customFieldDefinitionsApi,
+  isAccessDeniedResponse,
   Visitor,
   VisitorGroup,
   VisitorActivity,
@@ -31,6 +32,7 @@ import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
 import { DynamicCustomFields } from '../../../components/dynamic-custom-fields';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -161,6 +163,7 @@ export default function VisitorsAdminPage() {
   const [groupTypes, setGroupTypes] = useState<{ key: string; label: string }[]>([]);
   const [activityTypes, setActivityTypes] = useState<{ key: string; label: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   // ---- Individuals ----
   const [visitors, setVisitors] = useState<Visitor[]>([]);
@@ -220,6 +223,10 @@ export default function VisitorsAdminPage() {
     setVisitorsLoading(true);
     try {
       const res = await visitorsApi.list(TENANT_SLUG, { status: statusFilter || undefined, search: search || undefined });
+      if (isAccessDeniedResponse(res)) {
+        setAccessDenied(true);
+        return;
+      }
       if (res.success && res.data) setVisitors(res.data);
       else setError(res.error?.message ?? 'Could not load visitors.');
     } catch {
@@ -233,6 +240,10 @@ export default function VisitorsAdminPage() {
     setGroupsLoading(true);
     try {
       const res = await visitorGroupsApi.list(TENANT_SLUG, {});
+      if (isAccessDeniedResponse(res)) {
+        setAccessDenied(true);
+        return;
+      }
       if (res.success && res.data) setGroups(res.data);
       else setError(res.error?.message ?? 'Could not load visitor groups.');
     } catch {
@@ -449,6 +460,8 @@ export default function VisitorsAdminPage() {
 
   const selectedVisitor = visitors.find((v) => v.id === selectedVisitorId) ?? null;
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) ?? null;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

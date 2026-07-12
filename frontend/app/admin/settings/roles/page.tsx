@@ -7,7 +7,8 @@
 // roles (e.g. "Church Administrator") are locked, matching the backend.
 
 import { useEffect, useState } from 'react';
-import { getCurrentTenant, permissionsApi, Permission, rolesApi, Role } from '../../../../lib/api';
+import { getCurrentTenant, permissionsApi, isAccessDeniedResponse, Permission, rolesApi, Role } from '../../../../lib/api';
+import { AccessDenied } from '../../../../components/access-denied';
 
 export default function RolesAdminPage() {
   const tenant = getCurrentTenant();
@@ -17,6 +18,7 @@ export default function RolesAdminPage() {
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
 
   const [name, setName] = useState('');
@@ -29,6 +31,11 @@ export default function RolesAdminPage() {
     setLoading(true);
     setError(null);
     const [rolesRes, permsRes] = await Promise.all([rolesApi.list(tenantSlug), permissionsApi.list(tenantSlug)]);
+    if (isAccessDeniedResponse(rolesRes)) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     if (rolesRes.success && rolesRes.data) setRoles(rolesRes.data);
     else setError(rolesRes.error?.message ?? 'Could not load roles.');
     if (permsRes.success && permsRes.data) setPermissions(permsRes.data);
@@ -115,6 +122,8 @@ export default function RolesAdminPage() {
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId) ?? null;
   const isLocked = !!selectedRole?.isSystem;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-12">

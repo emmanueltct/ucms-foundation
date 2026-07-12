@@ -17,6 +17,8 @@ describe('EligibilityResolverService', () => {
     branch: { findFirst: jest.fn(), findMany: jest.fn() },
     resourceAssignment: { findMany: jest.fn() },
     leadershipAppointment: { findMany: jest.fn() },
+    visitor: { findMany: jest.fn(), findFirst: jest.fn() },
+    member: { findMany: jest.fn(), findFirst: jest.fn() },
   };
   const mockLeadershipScope = { resolveAppointmentsFor: jest.fn() };
 
@@ -24,6 +26,8 @@ describe('EligibilityResolverService', () => {
     jest.clearAllMocks();
     mockLeadershipScope.resolveAppointmentsFor.mockResolvedValue([]);
     mockPrisma.leadershipAppointment.findMany.mockResolvedValue([]);
+    mockPrisma.visitor.findMany.mockResolvedValue([]);
+    mockPrisma.member.findMany.mockResolvedValue([]);
     const moduleRef = await Test.createTestingModule({
       providers: [
         EligibilityResolverService,
@@ -68,6 +72,7 @@ describe('EligibilityResolverService', () => {
       const scopes = await service.resolveScopesFor(TENANT_ID, USER_ID);
 
       expect(scopes).toEqual([
+        { scopeEntityType: 'user', scopeEntityId: USER_ID },
         { scopeEntityType: 'branch', scopeEntityId: 'branch-c' },
         { scopeEntityType: 'branch', scopeEntityId: 'branch-b' },
         { scopeEntityType: 'branch', scopeEntityId: 'branch-a' },
@@ -82,6 +87,7 @@ describe('EligibilityResolverService', () => {
       const scopes = await service.resolveScopesFor(TENANT_ID, USER_ID);
 
       expect(scopes).toEqual([
+        { scopeEntityType: 'user', scopeEntityId: USER_ID },
         { scopeEntityType: 'dynamic_module_record', scopeEntityId: 'dept-c' },
         { scopeEntityType: 'dynamic_module_record', scopeEntityId: 'dept-b' },
         { scopeEntityType: 'dynamic_module_record', scopeEntityId: 'dept-a' },
@@ -95,7 +101,10 @@ describe('EligibilityResolverService', () => {
       const scopes = await service.resolveScopesFor(TENANT_ID, USER_ID);
 
       expect(mockPrisma.dynamicModuleRecord.findFirst).not.toHaveBeenCalled();
-      expect(scopes).toEqual([{ scopeEntityType: 'dynamic_module_record', scopeEntityId: 'dept-c' }]);
+      expect(scopes).toEqual([
+        { scopeEntityType: 'user', scopeEntityId: USER_ID },
+        { scopeEntityType: 'dynamic_module_record', scopeEntityId: 'dept-c' },
+      ]);
     });
 
     it('includes every leadership appointment target', async () => {
@@ -108,6 +117,7 @@ describe('EligibilityResolverService', () => {
       const scopes = await service.resolveScopesFor(TENANT_ID, USER_ID);
 
       expect(scopes).toEqual([
+        { scopeEntityType: 'user', scopeEntityId: USER_ID },
         { scopeEntityType: 'branch', scopeEntityId: 'branch-x' },
         { scopeEntityType: 'dynamic_module_record', scopeEntityId: 'ministry-y' },
       ]);
@@ -122,7 +132,26 @@ describe('EligibilityResolverService', () => {
       expect(mockPrisma.configItem.findUnique).toHaveBeenCalledWith({
         where: { tenantId_namespace_key: { tenantId: TENANT_ID, namespace: 'user_category', key: 'staff' } },
       });
-      expect(scopes).toEqual([{ scopeEntityType: 'user_category', scopeEntityId: 'config-item-staff' }]);
+      expect(scopes).toEqual([
+        { scopeEntityType: 'user', scopeEntityId: USER_ID },
+        { scopeEntityType: 'user_category', scopeEntityId: 'config-item-staff' },
+      ]);
+    });
+
+    it('includes every Visitor this user is the follow-up assignee for', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: null, assignedDepartmentRecordId: null, userCategory: null });
+      mockPrisma.visitor.findMany.mockResolvedValue([{ id: 'visitor-1' }, { id: 'visitor-2' }]);
+
+      const scopes = await service.resolveScopesFor(TENANT_ID, USER_ID);
+
+      expect(mockPrisma.visitor.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tenantId: TENANT_ID, assignedToUserId: USER_ID, deletedAt: null } }),
+      );
+      expect(scopes).toEqual([
+        { scopeEntityType: 'user', scopeEntityId: USER_ID },
+        { scopeEntityType: 'visitor', scopeEntityId: 'visitor-1' },
+        { scopeEntityType: 'visitor', scopeEntityId: 'visitor-2' },
+      ]);
     });
   });
 
@@ -138,9 +167,78 @@ describe('EligibilityResolverService', () => {
       // Both resolved scopes point at branch-a, but the same assignment (ra-1) must only appear once.
       expect(results).toEqual([{ id: 'ra-1', resourceType: 'dynamic_module_definition', resourceKey: 'form-1' }]);
     });
+
+    it('includes a member-scoped assignment when the member\'s branch is in the caller\'s resolved branch scope', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: 'branch-a', assignedDepartmentRecordId: null, userCategory: null });
+      mockPrisma.branch.findFirst.mockResolvedValue({ id: 'branch-a', parentBranchId: null });
+      mockPrisma.resourceAssignment.findMany.mockImplementation(async ({ where }: any) => {
+        if (where.scopeEntityType === 'member') {
+          return [{ id: 'ra-member-1', resourceType: 'dynamic_module_definition', resourceKey: 'form-1', scopeEntityType: 'member', scopeEntityId: 'member-1' }];
+        }
+        return [];
+      });
+      mockPrisma.member.findMany.mockResolvedValue([{ id: 'member-1' }]);
+
+      const results = await service.resolveResourcesFor(TENANT_ID, USER_ID, 'dynamic_module_definition');
+
+      expect(mockPrisma.member.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['member-1'] }, tenantId: TENANT_ID, branchId: { in: ['branch-a'] } } }),
+      );
+      expect(results).toEqual([{ id: 'ra-member-1', resourceType: 'dynamic_module_definition', resourceKey: 'form-1', scopeEntityType: 'member', scopeEntityId: 'member-1' }]);
+    });
+
+    it('excludes a member-scoped assignment when the member\'s branch is NOT in the caller\'s resolved branch scope', async () => {
+      mockPrisma.user.findFirst.mockResolvedValue({ assignedBranchId: 'branch-a', assignedDepartmentRecordId: null, userCategory: null });
+      mockPrisma.branch.findFirst.mockResolvedValue({ id: 'branch-a', parentBranchId: null });
+      mockPrisma.resourceAssignment.findMany.mockImplementation(async ({ where }: any) => {
+        if (where.scopeEntityType === 'member') {
+          return [{ id: 'ra-member-1', resourceType: 'dynamic_module_definition', resourceKey: 'form-1', scopeEntityType: 'member', scopeEntityId: 'member-1' }];
+        }
+        return [];
+      });
+      mockPrisma.member.findMany.mockResolvedValue([]); // member-1's branch isn't branch-a
+
+      const results = await service.resolveResourcesFor(TENANT_ID, USER_ID, 'dynamic_module_definition');
+
+      expect(results).toEqual([]);
+    });
   });
 
   describe('resolveUsersEligibleForScope', () => {
+    it('for a user scope, returns just that one user', async () => {
+      const userIds = await service.resolveUsersEligibleForScope(TENANT_ID, 'user', 'user-1');
+      expect(userIds).toEqual(['user-1']);
+    });
+
+    it('for a visitor scope, returns that visitor\'s assignedToUserId', async () => {
+      mockPrisma.visitor.findFirst.mockResolvedValue({ assignedToUserId: 'user-1' });
+
+      const userIds = await service.resolveUsersEligibleForScope(TENANT_ID, 'visitor', 'visitor-1');
+
+      expect(userIds).toEqual(['user-1']);
+    });
+
+    it('for a visitor scope with no assignee, returns nobody', async () => {
+      mockPrisma.visitor.findFirst.mockResolvedValue({ assignedToUserId: null });
+
+      const userIds = await service.resolveUsersEligibleForScope(TENANT_ID, 'visitor', 'visitor-1');
+
+      expect(userIds).toEqual([]);
+    });
+
+    it('for a member scope, includes users assigned to that member\'s branch or any of its descendants', async () => {
+      mockPrisma.member.findFirst.mockResolvedValue({ branchId: 'branch-a' });
+      mockPrisma.branch.findMany.mockResolvedValue([{ id: 'branch-b', parentBranchId: 'branch-a' }]);
+      mockPrisma.user.findMany.mockResolvedValue([{ id: 'user-1' }]);
+
+      const userIds = await service.resolveUsersEligibleForScope(TENANT_ID, 'member', 'member-1');
+
+      expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { tenantId: TENANT_ID, assignedBranchId: { in: ['branch-a', 'branch-b'] } } }),
+      );
+      expect(userIds).toEqual(['user-1']);
+    });
+
     it('for a branch scope, includes users assigned to it or any of its descendants', async () => {
       mockPrisma.branch.findMany.mockResolvedValue([
         { id: 'branch-b', parentBranchId: 'branch-a' },

@@ -182,6 +182,8 @@ export interface AuthUser {
   permissions: string[];
   mfaEnabled: boolean;
   emailVerifiedAt: string | null;
+  branchName: string | null;
+  branchType: string | null;
 }
 
 export interface AuthTenant {
@@ -1987,6 +1989,9 @@ export interface MyFormAssignment {
   description: string | null;
   statuses: string[];
   dueAt: string | null;
+  attachedToEntityType: string | null;
+  attachedToEntityId: string | null;
+  attachedToEntityLabel: string | null;
   myRecords: Array<{ id: string; status: string; createdAt: string; updatedAt: string }>;
 }
 

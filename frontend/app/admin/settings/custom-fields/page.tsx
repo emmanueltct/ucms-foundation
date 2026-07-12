@@ -8,10 +8,11 @@
 // docs/custom-fields/business-analysis.md.
 
 import { useEffect, useState } from 'react';
-import { customFieldDefinitionsApi, configApi, rolesApi, dynamicModuleDefinitionsApi, CustomFieldDefinition, CustomFieldOption, CustomFieldType, Role } from '../../../../lib/api';
+import { customFieldDefinitionsApi, configApi, rolesApi, dynamicModuleDefinitionsApi, isAccessDeniedResponse, CustomFieldDefinition, CustomFieldOption, CustomFieldType, Role } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
+import { AccessDenied } from '../../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -63,6 +64,7 @@ export default function CustomFieldsSettingsPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [label, setLabel] = useState('');
   const [fieldKey, setFieldKey] = useState('');
@@ -101,6 +103,10 @@ export default function CustomFieldsSettingsPage() {
     setError(null);
     try {
       const res = await customFieldDefinitionsApi.list(TENANT_SLUG, { entityType, includeInactive: true });
+      if (isAccessDeniedResponse(res)) {
+        setAccessDenied(true);
+        return;
+      }
       if (res.success && res.data) setDefinitions(res.data);
       else setError(res.error?.message ?? 'Could not load custom fields.');
     } catch {
@@ -216,6 +222,8 @@ export default function CustomFieldsSettingsPage() {
   const needsLookupEntityType = fieldType === 'lookup';
   const supportsStringRules = ['text', 'richtext', 'phone', 'address'].includes(fieldType);
   const supportsNumberRules = fieldType === 'number';
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="max-w-4xl mx-auto px-8 py-10">

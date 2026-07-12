@@ -12,6 +12,7 @@ import {
   branchesApi,
   membersApi,
   configApi,
+  isAccessDeniedResponse,
   SmallGroup,
   SmallGroupMembership,
   Branch,
@@ -20,6 +21,7 @@ import {
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 const ROLES = ['leader', 'co_leader', 'member'];
@@ -32,6 +34,7 @@ export default function SmallGroupsAdminPage() {
   const [groupTypes, setGroupTypes] = useState<{ key: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [name, setName] = useState('');
   const [groupType, setGroupType] = useState('');
@@ -59,6 +62,10 @@ export default function SmallGroupsAdminPage() {
         membersApi.list(TENANT_SLUG, {}),
         configApi.listByNamespace(TENANT_SLUG, 'small_group_type'),
       ]);
+      if (isAccessDeniedResponse(groupsRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (groupsRes.success && groupsRes.data) setGroups(groupsRes.data);
       else setError(groupsRes.error?.message ?? 'Could not load small groups.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
@@ -192,6 +199,8 @@ export default function SmallGroupsAdminPage() {
 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) ?? null;
   const activeRosterCount = roster.filter((r) => r.isActive).length;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

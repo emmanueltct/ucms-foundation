@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import {
   hierarchyRequirementsApi,
   branchesApi,
+  isAccessDeniedResponse,
   HierarchyRequirement,
   HierarchyRequirementSubmission,
   Branch,
@@ -17,6 +18,7 @@ import {
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 const KINDS = ['report', 'document', 'form', 'activity', 'compliance'];
@@ -27,6 +29,7 @@ export default function HierarchyRequirementsAdminPage() {
   const [branchTypes, setBranchTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [parentBranchType, setParentBranchType] = useState('');
   const [childBranchType, setChildBranchType] = useState('');
@@ -49,6 +52,10 @@ export default function HierarchyRequirementsAdminPage() {
         hierarchyRequirementsApi.list(TENANT_SLUG),
         branchesApi.list(TENANT_SLUG, true),
       ]);
+      if (isAccessDeniedResponse(reqRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (reqRes.success && reqRes.data) setRequirements(reqRes.data);
       else setError(reqRes.error?.message ?? 'Could not load hierarchy requirements.');
       if (branchRes.success && branchRes.data) {
@@ -152,6 +159,8 @@ export default function HierarchyRequirementsAdminPage() {
   }
 
   const selectedRequirement = requirements.find((r) => r.id === selectedId) ?? null;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

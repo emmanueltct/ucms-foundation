@@ -6,10 +6,11 @@
 // head-count — against a Branch, and review totals by service type.
 
 import { useEffect, useState } from 'react';
-import { attendanceApi, branchesApi, membersApi, configApi, AttendanceRecord, AttendanceSummary, Branch, Member } from '../../../lib/api';
+import { attendanceApi, branchesApi, membersApi, configApi, isAccessDeniedResponse, AttendanceRecord, AttendanceSummary, Branch, Member } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church'; // in production this comes from the resolved workspace/domain
 
@@ -22,6 +23,7 @@ export default function AttendanceAdminPage() {
   const [attendanceMethods, setAttendanceMethods] = useState<{ key: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [mode, setMode] = useState<'individual' | 'headcount'>('individual');
   const [branchId, setBranchId] = useState('');
@@ -43,6 +45,10 @@ export default function AttendanceAdminPage() {
         configApi.listByNamespace(TENANT_SLUG, 'service_type'),
         configApi.listByNamespace(TENANT_SLUG, 'attendance_method'),
       ]);
+      if (isAccessDeniedResponse(recordsRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (recordsRes.success && recordsRes.data) setRecords(recordsRes.data);
       else setError(recordsRes.error?.message ?? 'Could not load attendance records.');
       if (summaryRes.success && summaryRes.data) setSummary(summaryRes.data);
@@ -111,6 +117,8 @@ export default function AttendanceAdminPage() {
     const m = members.find((mm) => mm.id === id);
     return m ? `${m.firstName} ${m.lastName}` : '—';
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

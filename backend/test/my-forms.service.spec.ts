@@ -12,12 +12,16 @@ describe('MyFormsService', () => {
   const mockPrisma = {
     dynamicModuleDefinition: { findFirst: jest.fn() },
     dynamicModuleRecord: { findMany: jest.fn() },
+    visitor: { findMany: jest.fn() },
+    member: { findMany: jest.fn() },
   };
   const mockEligibilityResolver = { resolveResourcesFor: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     mockPrisma.dynamicModuleRecord.findMany.mockResolvedValue([]);
+    mockPrisma.visitor.findMany.mockResolvedValue([]);
+    mockPrisma.member.findMany.mockResolvedValue([]);
     const moduleRef = await Test.createTestingModule({
       providers: [
         MyFormsService,
@@ -84,5 +88,60 @@ describe('MyFormsService', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0].dueAt).toEqual(new Date('2026-08-01T00:00:00.000Z'));
+  });
+
+  it('keeps a visitor-attached request as its own entry, separate from a generic assignment of the same form', async () => {
+    mockEligibilityResolver.resolveResourcesFor.mockResolvedValue([
+      { id: 'ra-1', resourceKey: 'form-1', dueAt: null, scopeEntityType: 'branch', scopeEntityId: 'branch-1' },
+      { id: 'ra-2', resourceKey: 'form-1', dueAt: null, scopeEntityType: 'visitor', scopeEntityId: 'visitor-1' },
+    ]);
+    mockPrisma.dynamicModuleDefinition.findFirst.mockResolvedValue({ id: 'form-1', key: 'follow-up', label: 'Follow-up', description: null, statuses: ['draft'] });
+    mockPrisma.visitor.findMany.mockResolvedValue([{ id: 'visitor-1', firstName: 'Jane', lastName: 'Doe' }]);
+
+    const result = await service.list(TENANT_ID, USER_ID);
+
+    expect(result).toHaveLength(2);
+    const generic = result.find((r) => r.attachedToEntityType === null);
+    const attached = result.find((r) => r.attachedToEntityType === 'visitor');
+    expect(generic).toBeDefined();
+    expect(attached).toEqual(
+      expect.objectContaining({ attachedToEntityType: 'visitor', attachedToEntityId: 'visitor-1', attachedToEntityLabel: 'Jane Doe' }),
+    );
+  });
+
+  it('keeps two different visitors\' requests for the same form as two separate entries', async () => {
+    mockEligibilityResolver.resolveResourcesFor.mockResolvedValue([
+      { id: 'ra-1', resourceKey: 'form-1', dueAt: null, scopeEntityType: 'visitor', scopeEntityId: 'visitor-1' },
+      { id: 'ra-2', resourceKey: 'form-1', dueAt: null, scopeEntityType: 'visitor', scopeEntityId: 'visitor-2' },
+    ]);
+    mockPrisma.dynamicModuleDefinition.findFirst.mockResolvedValue({ id: 'form-1', key: 'follow-up', label: 'Follow-up', description: null, statuses: ['draft'] });
+    mockPrisma.visitor.findMany.mockResolvedValue([
+      { id: 'visitor-1', firstName: 'Jane', lastName: 'Doe' },
+      { id: 'visitor-2', firstName: 'John', lastName: 'Smith' },
+    ]);
+
+    const result = await service.list(TENANT_ID, USER_ID);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.attachedToEntityLabel).sort()).toEqual(['Jane Doe', 'John Smith']);
+  });
+
+  it('matches completion for an entity-attached request by attachment, not by creator', async () => {
+    mockEligibilityResolver.resolveResourcesFor.mockResolvedValue([
+      { id: 'ra-1', resourceKey: 'form-1', dueAt: null, scopeEntityType: 'member', scopeEntityId: 'member-1' },
+    ]);
+    mockPrisma.dynamicModuleDefinition.findFirst.mockResolvedValue({ id: 'form-1', key: 'pastoral-care', label: 'Pastoral Care', description: null, statuses: ['draft'] });
+    mockPrisma.member.findMany.mockResolvedValue([{ id: 'member-1', firstName: 'Alice', lastName: 'Uwase' }]);
+    mockPrisma.dynamicModuleRecord.findMany.mockResolvedValue([{ id: 'rec-1', status: 'submitted', createdAt: new Date(), updatedAt: new Date() }]);
+
+    const result = await service.list(TENANT_ID, USER_ID);
+
+    expect(mockPrisma.dynamicModuleRecord.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tenantId: TENANT_ID, moduleDefinitionId: 'form-1', attachedToEntityType: 'member', attachedToEntityId: 'member-1', deletedAt: null },
+      }),
+    );
+    expect(result[0].attachedToEntityLabel).toBe('Alice Uwase');
+    expect(result[0].myRecords).toHaveLength(1);
   });
 });

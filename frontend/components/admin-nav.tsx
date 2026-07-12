@@ -32,7 +32,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { authApi, getCurrentTenant, setSession, WorkspaceOption, dynamicModuleDefinitionsApi, menuItemsApi, MenuItem } from '@/lib/api';
+import { authApi, getCurrentTenant, getCurrentUser, setSession, WorkspaceOption, dynamicModuleDefinitionsApi, menuItemsApi, MenuItem } from '@/lib/api';
 
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -59,6 +59,7 @@ export function AdminNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [tenant, setTenant] = useState(getCurrentTenant());
+  const [user, setUser] = useState(getCurrentUser());
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
@@ -68,6 +69,7 @@ export function AdminNav() {
   useEffect(() => {
     const current = getCurrentTenant();
     setTenant(current);
+    setUser(getCurrentUser());
     if (!current) return;
     authApi.listWorkspaces(current.slug).then((res) => {
       if (res.success && res.data) setWorkspaces(res.data);
@@ -196,6 +198,18 @@ export function AdminNav() {
       </nav>
 
       <div className="px-5 py-4 border-t border-slate-200/70 space-y-2">
+        {user && (
+          <div className="pb-3 mb-1 border-b border-slate-100">
+            <p className="text-sm font-medium text-[#1E2A44] truncate">
+              {user.firstName} {user.lastName}
+            </p>
+            <p className="text-xs text-slate-400 truncate">{user.roles.length > 0 ? user.roles.join(', ') : 'No role assigned'}</p>
+            <p className="text-xs text-slate-400 truncate">
+              {user.branchName ? `${user.branchName}${user.branchType ? ` · ${user.branchType}` : ''}` : 'Church-wide'}
+              {tenant?.name ? ` · ${tenant.name}` : ''}
+            </p>
+          </div>
+        )}
         {/* Personal MFA/devices/login-history — every user's own, not a Configuration Center (admin-only) surface, so it lives here instead of in NAV_ITEMS/SECTIONS. */}
         <Link
           href="/admin/settings/security"

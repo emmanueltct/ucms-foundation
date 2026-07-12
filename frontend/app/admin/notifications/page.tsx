@@ -7,10 +7,11 @@
 // exercises the real queue -> status-update pipeline end to end.
 
 import { useEffect, useState } from 'react';
-import { notificationsApi, membersApi, Notification, Member } from '../../../lib/api';
+import { notificationsApi, membersApi, isAccessDeniedResponse, Notification, Member } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church'; // in production this comes from the resolved workspace/domain
 const CHANNELS = ['email', 'sms', 'push'] as const;
@@ -20,6 +21,7 @@ export default function NotificationsAdminPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [channel, setChannel] = useState<(typeof CHANNELS)[number]>('sms');
   const [mode, setMode] = useState<'member' | 'explicit'>('member');
@@ -36,6 +38,10 @@ export default function NotificationsAdminPage() {
         notificationsApi.list(TENANT_SLUG),
         membersApi.list(TENANT_SLUG, {}),
       ]);
+      if (isAccessDeniedResponse(notifRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (notifRes.success && notifRes.data) setNotifications(notifRes.data);
       else setError(notifRes.error?.message ?? 'Could not load notification history.');
       if (membersRes.success && membersRes.data) setMembers(membersRes.data);
@@ -90,6 +96,8 @@ export default function NotificationsAdminPage() {
       <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${styles[status]}`}>{status}</span>
     );
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

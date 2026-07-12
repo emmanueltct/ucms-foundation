@@ -8,10 +8,11 @@
 // keeps the superseded file as a downloadable version instead of discarding it.
 
 import { useEffect, useRef, useState } from 'react';
-import { documentsApi, branchesApi, configApi, ChurchDocument, DocumentVersion, Branch } from '../../../lib/api';
+import { documentsApi, branchesApi, configApi, isAccessDeniedResponse, ChurchDocument, DocumentVersion, Branch } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -125,6 +126,7 @@ export default function DocumentsAdminPage() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [categoryFilter, setCategoryFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -151,6 +153,10 @@ export default function DocumentsAdminPage() {
         branchesApi.list(TENANT_SLUG),
         configApi.listByNamespace(TENANT_SLUG, 'document_category'),
       ]);
+      if (isAccessDeniedResponse(docsRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (docsRes.success && docsRes.data) setDocuments(docsRes.data);
       else setError(docsRes.error?.message ?? 'Could not load documents.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
@@ -277,6 +283,8 @@ export default function DocumentsAdminPage() {
     if (!id) return 'Church-wide';
     return branches.find((b) => b.id === id)?.name ?? 'Church-wide';
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

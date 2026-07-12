@@ -563,7 +563,10 @@ export class AuthService {
     });
 
     const [user, tenant] = await Promise.all([
-      this.prisma.user.findUnique({ where: { id: userId, tenantId } }),
+      this.prisma.user.findUnique({
+        where: { id: userId, tenantId },
+        include: { assignedBranch: { select: { name: true, branchType: true } } },
+      }),
       this.prisma.tenant.findUnique({ where: { id: tenantId } }),
     ]);
 
@@ -577,6 +580,8 @@ export class AuthService {
         permissions,
         mfaEnabled: user?.mfaEnabled ?? false,
         emailVerifiedAt: user?.emailVerifiedAt?.toISOString() ?? null,
+        branchName: user?.assignedBranch?.name ?? null,
+        branchType: user?.assignedBranch?.branchType ?? null,
       },
       tokens: {
         accessToken,

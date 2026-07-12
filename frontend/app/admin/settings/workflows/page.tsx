@@ -8,7 +8,8 @@
 // backend's own documented design decision.
 
 import { useEffect, useState } from 'react';
-import { approvalWorkflowsApi, ApprovalWorkflow, getCurrentTenant, permissionsApi, Permission, rolesApi, Role } from '../../../../lib/api';
+import { approvalWorkflowsApi, ApprovalWorkflow, getCurrentTenant, permissionsApi, Permission, rolesApi, Role, isAccessDeniedResponse } from '../../../../lib/api';
+import { AccessDenied } from '../../../../components/access-denied';
 
 interface StepDraft {
   label: string;
@@ -30,6 +31,7 @@ export default function WorkflowsAdminPage() {
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [entityType, setEntityType] = useState('');
   const [name, setName] = useState('');
@@ -44,6 +46,11 @@ export default function WorkflowsAdminPage() {
       rolesApi.list(tenantSlug),
       permissionsApi.list(tenantSlug),
     ]);
+    if (isAccessDeniedResponse(wfRes)) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     if (wfRes.success && wfRes.data) setWorkflows(wfRes.data);
     else setError(wfRes.error?.message ?? 'Could not load workflows.');
     if (rolesRes.success && rolesRes.data) setRoles(rolesRes.data);
@@ -107,6 +114,8 @@ export default function WorkflowsAdminPage() {
     if (res.success) load();
     else setError(res.error?.message ?? 'Could not delete workflow.');
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-12">
