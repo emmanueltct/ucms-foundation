@@ -8,6 +8,7 @@ import { CustomFieldsService } from '../src/custom-fields/custom-fields.service'
 import { DynamicModuleDefinitionsService } from '../src/dynamic-modules/dynamic-module-definitions.service';
 import { ConfigService } from '../src/config-engine/config.service';
 import { EligibilityResolverService } from '../src/common/eligibility/eligibility-resolver.service';
+import { StorageService } from '../src/storage/storage.service';
 
 describe('DynamicModuleRecordsService', () => {
   let service: DynamicModuleRecordsService;
@@ -42,10 +43,17 @@ describe('DynamicModuleRecordsService', () => {
 
   const mockAudit = { record: jest.fn() };
   const mockApprovalWorkflows = { startRequest: jest.fn(), decide: jest.fn() };
-  const mockCustomFields = { assertRequiredFieldsProvided: jest.fn(), setValues: jest.fn(), getValues: jest.fn().mockResolvedValue({}), getValuesForMany: jest.fn().mockResolvedValue({}) };
+  const mockCustomFields = {
+    assertRequiredFieldsProvided: jest.fn(),
+    setValues: jest.fn(),
+    getValues: jest.fn().mockResolvedValue({}),
+    getValuesForMany: jest.fn().mockResolvedValue({}),
+    getDefinitions: jest.fn().mockResolvedValue([]),
+  };
   const mockDefinitions = { findOne: jest.fn(), findByKey: jest.fn() };
   const mockConfig = { isFeatureEnabled: jest.fn() };
   const mockEligibilityResolver = { resolveResourcesFor: jest.fn(), resolveScopesFor: jest.fn() };
+  const mockStorage = { uploadObject: jest.fn(), getSignedDownloadUrl: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -57,6 +65,7 @@ describe('DynamicModuleRecordsService', () => {
     mockPrisma.leadershipAppointment.findMany.mockResolvedValue([]);
     mockEligibilityResolver.resolveResourcesFor.mockResolvedValue([]);
     mockEligibilityResolver.resolveScopesFor.mockResolvedValue([]);
+    mockCustomFields.getDefinitions.mockResolvedValue([]);
     const moduleRef = await Test.createTestingModule({
       providers: [
         DynamicModuleRecordsService,
@@ -67,6 +76,7 @@ describe('DynamicModuleRecordsService', () => {
         { provide: DynamicModuleDefinitionsService, useValue: mockDefinitions },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EligibilityResolverService, useValue: mockEligibilityResolver },
+        { provide: StorageService, useValue: mockStorage },
       ],
     }).compile();
     service = moduleRef.get(DynamicModuleRecordsService);
@@ -344,6 +354,77 @@ describe('DynamicModuleRecordsService', () => {
       });
 
       await expect(service.findOne(TENANT_ID, MODULE_ID, 'rec-1', userWithNone)).resolves.toBeDefined();
+    });
+  });
+
+  describe('uploadCustomFieldFile', () => {
+    const validFile = { buffer: Buffer.from('x'), originalname: 'photo.png', mimetype: 'image/png', size: 4 };
+
+    beforeEach(() => {
+      mockPrisma.dynamicModuleRecord.findFirst.mockResolvedValue({ id: 'rec-1' });
+    });
+
+    it('rejects a caller without the update permission', async () => {
+      await expect(
+        service.uploadCustomFieldFile(TENANT_ID, MODULE_ID, 'rec-1', 'photo', validFile, userWithNone),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects when no file is provided', async () => {
+      await expect(
+        service.uploadCustomFieldFile(TENANT_ID, MODULE_ID, 'rec-1', 'photo', undefined, userWithAll),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects an unsupported mime type', async () => {
+      mockCustomFields.getDefinitions.mockResolvedValue([{ fieldKey: 'photo', fieldType: 'image' }]);
+      await expect(
+        service.uploadCustomFieldFile(TENANT_ID, MODULE_ID, 'rec-1', 'photo', { ...validFile, mimetype: 'application/x-msdownload' }, userWithAll),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects when fieldKey does not match a file-like field definition on this module', async () => {
+      mockCustomFields.getDefinitions.mockResolvedValue([{ fieldKey: 'photo', fieldType: 'text' }]);
+      await expect(
+        service.uploadCustomFieldFile(TENANT_ID, MODULE_ID, 'rec-1', 'photo', validFile, userWithAll),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('uploads to storage and persists the value against the correct entityType/fieldKey on a valid image field', async () => {
+      mockCustomFields.getDefinitions.mockResolvedValue([{ fieldKey: 'photo', fieldType: 'image' }]);
+
+      const result = await service.uploadCustomFieldFile(TENANT_ID, MODULE_ID, 'rec-1', 'photo', validFile, userWithAll);
+
+      expect(mockStorage.uploadObject).toHaveBeenCalledWith(expect.stringContaining(`dynamic-modules/${MODULE_ID}/records/rec-1/photo/`), validFile.buffer, 'image/png');
+      expect(mockCustomFields.setValues).toHaveBeenCalledWith(TENANT_ID, `dynamicmodule:${MODULE_ID}`, 'rec-1', {
+        photo: expect.objectContaining({ filename: 'photo.png', size: 4, contentType: 'image/png' }),
+      });
+      expect(result.filename).toBe('photo.png');
+    });
+  });
+
+  describe('getCustomFieldFileDownloadUrl', () => {
+    beforeEach(() => {
+      mockPrisma.dynamicModuleRecord.findFirst.mockResolvedValue({ id: 'rec-1' });
+    });
+
+    it('rejects a caller without the read permission', async () => {
+      await expect(service.getCustomFieldFileDownloadUrl(TENANT_ID, MODULE_ID, 'rec-1', 'photo', userWithNone)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('404s when no file has been uploaded for this field', async () => {
+      mockCustomFields.getValues.mockResolvedValue({});
+      await expect(service.getCustomFieldFileDownloadUrl(TENANT_ID, MODULE_ID, 'rec-1', 'photo', userWithAll)).rejects.toThrow(NotFoundException);
+    });
+
+    it('returns a signed URL for a previously uploaded file', async () => {
+      mockCustomFields.getValues.mockResolvedValue({ photo: { key: 'the-key', filename: 'photo.png', size: 4, contentType: 'image/png' } });
+      mockStorage.getSignedDownloadUrl.mockResolvedValue('https://signed.example/photo.png');
+
+      const result = await service.getCustomFieldFileDownloadUrl(TENANT_ID, MODULE_ID, 'rec-1', 'photo', userWithAll);
+
+      expect(mockStorage.getSignedDownloadUrl).toHaveBeenCalledWith('the-key');
+      expect(result).toEqual({ url: 'https://signed.example/photo.png', filename: 'photo.png' });
     });
   });
 });

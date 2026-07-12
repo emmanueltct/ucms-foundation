@@ -124,6 +124,18 @@ export async function apiRequest<T>(path: string, opts: RequestOptions): Promise
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
 
+  // A 401 on an authenticated call means the access/refresh token is
+  // missing, invalid, or expired — there's no silent-refresh flow today, so
+  // the session is unrecoverable at this point. Clear it and send the user
+  // back to sign in, rather than leaving every page on screen quietly
+  // failing every subsequent request. Guarded to fire once (not already on
+  // /login) so a wrong-password attempt on the login form itself — which
+  // never sets `auth: true` — can never trigger this loop.
+  if (opts.auth && res.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    clearSession();
+    window.location.href = '/login';
+  }
+
   const json = (await res.json()) as ApiEnvelope<T>;
   json.status = res.status;
   return json;
@@ -138,6 +150,12 @@ export async function multipartRequest<T>(
   if (inMemoryAccessToken) headers.Authorization = `Bearer ${inMemoryAccessToken}`;
 
   const res = await fetch(`${API_BASE}${path}`, { method: opts.method ?? 'POST', headers, body: opts.form });
+
+  if (res.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    clearSession();
+    window.location.href = '/login';
+  }
+
   return (await res.json()) as ApiEnvelope<T>;
 }
 
@@ -1782,6 +1800,19 @@ export const dynamicModuleRecordsApi = {
     apiRequest<DynamicModuleRecord[]>(`/dynamic-modules/${moduleDefinitionId}/records/${id}/descendants`, { tenantSlug, auth: true }),
   remove: (tenantSlug: string, moduleDefinitionId: string, id: string) =>
     apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records/${id}`, { method: 'DELETE', tenantSlug, auth: true }),
+  uploadFile: (tenantSlug: string, moduleDefinitionId: string, id: string, fieldKey: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return multipartRequest<UploadedFileValue>(`/dynamic-modules/${moduleDefinitionId}/records/${id}/files?fieldKey=${encodeURIComponent(fieldKey)}`, {
+      tenantSlug,
+      form,
+    });
+  },
+  getFileDownloadUrl: (tenantSlug: string, moduleDefinitionId: string, id: string, fieldKey: string) =>
+    apiRequest<{ url: string; filename: string }>(`/dynamic-modules/${moduleDefinitionId}/records/${id}/files/${fieldKey}/download`, {
+      tenantSlug,
+      auth: true,
+    }),
   changeStatus: (tenantSlug: string, moduleDefinitionId: string, id: string, toStatus: string, reason: string) =>
     apiRequest<DynamicModuleRecord>(`/dynamic-modules/${moduleDefinitionId}/records/${id}/status`, {
       method: 'PATCH',
@@ -2168,6 +2199,13 @@ async function platformApiRequest<T>(
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+
+  // Mirrors apiRequest's tenant-side handling — a 401 on an authenticated
+  // platform-admin call means that session is no longer valid.
+  if (opts.auth !== false && res.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/platform/login')) {
+    clearPlatformSession();
+    window.location.href = '/platform/login';
+  }
 
   return (await res.json()) as ApiEnvelope<T>;
 }

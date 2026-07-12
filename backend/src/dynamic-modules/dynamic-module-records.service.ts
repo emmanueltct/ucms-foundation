@@ -6,6 +6,8 @@ import { ApprovalWorkflowsService } from '../approval-workflows/approval-workflo
 import { CustomFieldsService } from '../custom-fields/custom-fields.service';
 import { ConfigService } from '../config-engine/config.service';
 import { EligibilityResolverService } from '../common/eligibility/eligibility-resolver.service';
+import { StorageService } from '../storage/storage.service';
+import { ALLOWED_DOCUMENT_MIME_TYPES } from '../common/constants/file-upload.constants';
 import { DynamicModuleDefinitionsService } from './dynamic-module-definitions.service';
 import { CreateDynamicModuleRecordDto } from './dto/create-dynamic-module-record.dto';
 import { CreateDynamicModuleRecordPublicDto } from './dto/create-dynamic-module-record-public.dto';
@@ -43,6 +45,15 @@ export interface CreatorContext {
 
 export type DynamicModuleRecordWithFields = DynamicModuleRecord & { customFields: Record<string, unknown>; creatorContext: CreatorContext | null };
 
+export interface UploadedFileValue {
+  key: string;
+  filename: string;
+  size: number;
+  contentType: string;
+}
+
+const FILE_LIKE_FIELD_TYPES = new Set(['file', 'image', 'video', 'audio', 'signature']);
+
 /**
  * A module's records — permission-checked dynamically against
  * `dynamicmodule.{moduleDefinitionId}.{action}` codes (generated at
@@ -62,6 +73,7 @@ export class DynamicModuleRecordsService {
     private readonly definitions: DynamicModuleDefinitionsService,
     private readonly config: ConfigService,
     private readonly eligibilityResolver: EligibilityResolverService,
+    private readonly storage: StorageService,
   ) {}
 
   async create(tenantId: string, moduleDefinitionId: string, dto: CreateDynamicModuleRecordDto, user: AuthenticatedUser): Promise<DynamicModuleRecordWithFields> {
@@ -202,6 +214,67 @@ export class DynamicModuleRecordsService {
     if (dto.customFields) await this.customFields.setValues(tenantId, entityType, id, dto.customFields);
 
     return this.withCustomFields(tenantId, entityType, record);
+  }
+
+  /** Mirrors `AssetsService.uploadDocument` — same storage/custom-fields mechanism, just without the per-category entityType variation Assets needs (every record of a given module shares one fixed entityType). Accepts any file-like field type, not just "file", since a module's admin-defined fields can be image/video/audio/signature too. */
+  async uploadCustomFieldFile(
+    tenantId: string,
+    moduleDefinitionId: string,
+    id: string,
+    fieldKey: string,
+    file: { buffer: Buffer; originalname: string; mimetype: string; size: number } | undefined,
+    user: AuthenticatedUser,
+  ): Promise<UploadedFileValue> {
+    this.assertPermission(user, moduleDefinitionId, 'update');
+    await this.findRecordRaw(tenantId, moduleDefinitionId, id);
+
+    if (!file) {
+      throw new BadRequestException({ code: 'DYNAMIC_MODULE_RECORD_FILE_REQUIRED', message: 'A file is required.' });
+    }
+    if (!ALLOWED_DOCUMENT_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException({
+        code: 'DYNAMIC_MODULE_RECORD_FILE_TYPE_UNSUPPORTED',
+        message: 'Only PDF, JPEG, PNG, GIF, WebP, DOC, DOCX, XLS, XLSX, TXT, MP4, WebM, MOV, MP3, WAV, or OGG files are accepted.',
+      });
+    }
+
+    const entityType = this.fieldsEntityType(moduleDefinitionId);
+    const definitions = await this.customFields.getDefinitions(tenantId, entityType);
+    const definition = definitions.find((d) => d.fieldKey === fieldKey);
+    if (!definition || !FILE_LIKE_FIELD_TYPES.has(definition.fieldType)) {
+      throw new BadRequestException({
+        code: 'DYNAMIC_MODULE_RECORD_FILE_FIELD_INVALID',
+        message: `"${fieldKey}" is not a file/image/video/audio/signature field defined for this module.`,
+      });
+    }
+
+    const key = `tenants/${tenantId}/dynamic-modules/${moduleDefinitionId}/records/${id}/${fieldKey}/${Date.now()}-${file.originalname}`;
+    await this.storage.uploadObject(key, file.buffer, file.mimetype);
+
+    const value: UploadedFileValue = { key, filename: file.originalname, size: file.size, contentType: file.mimetype };
+    await this.customFields.setValues(tenantId, entityType, id, { [fieldKey]: value });
+    return value;
+  }
+
+  /** Mirrors `AssetsService.getDocumentDownloadUrl` — see `uploadCustomFieldFile`'s comment. */
+  async getCustomFieldFileDownloadUrl(
+    tenantId: string,
+    moduleDefinitionId: string,
+    id: string,
+    fieldKey: string,
+    user: AuthenticatedUser,
+  ): Promise<{ url: string; filename: string }> {
+    this.assertPermission(user, moduleDefinitionId, 'read');
+    await this.findRecordRaw(tenantId, moduleDefinitionId, id);
+
+    const entityType = this.fieldsEntityType(moduleDefinitionId);
+    const values = await this.customFields.getValues(tenantId, entityType, id);
+    const value = values[fieldKey] as UploadedFileValue | undefined;
+    if (!value?.key) {
+      throw new NotFoundException({ code: 'DYNAMIC_MODULE_RECORD_FILE_NOT_FOUND', message: 'No file has been uploaded for this field.' });
+    }
+    const url = await this.storage.getSignedDownloadUrl(value.key);
+    return { url, filename: value.filename };
   }
 
   /** Every descendant of a record within the same module — mirrors `BranchesService.findDescendants`, used for cycle prevention and (frontend) tree rendering. */

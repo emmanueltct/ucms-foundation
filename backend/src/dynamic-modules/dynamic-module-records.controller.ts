@@ -1,5 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiQuery, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { MAX_DOCUMENT_SIZE_BYTES } from '../common/constants/file-upload.constants';
 import { DynamicModuleRecordsService } from './dynamic-module-records.service';
 import { CreateDynamicModuleRecordDto } from './dto/create-dynamic-module-record.dto';
 import { UpdateDynamicModuleRecordDto } from './dto/update-dynamic-module-record.dto';
@@ -116,5 +119,33 @@ export class DynamicModuleRecordsController {
   @Patch(':id/restore')
   async restore(@CurrentTenantId() tenantId: string, @CurrentUser() user: AuthenticatedUser, @Param('moduleDefinitionId') moduleDefinitionId: string, @Param('id') id: string) {
     return ok(await this.service.restore(tenantId, moduleDefinitionId, id, user));
+  }
+
+  @ApiOperation({ summary: 'Upload a file against a file/image/video/audio/signature custom field on this record' })
+  @ApiConsumes('multipart/form-data')
+  @ApiQuery({ name: 'fieldKey', required: true })
+  @Post(':id/files')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_DOCUMENT_SIZE_BYTES } }))
+  async uploadFile(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('moduleDefinitionId') moduleDefinitionId: string,
+    @Param('id') id: string,
+    @Query('fieldKey') fieldKey: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return ok(await this.service.uploadCustomFieldFile(tenantId, moduleDefinitionId, id, fieldKey, file, user));
+  }
+
+  @ApiOperation({ summary: 'Get a time-limited download URL for a previously uploaded file' })
+  @Get(':id/files/:fieldKey/download')
+  async downloadFile(
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('moduleDefinitionId') moduleDefinitionId: string,
+    @Param('id') id: string,
+    @Param('fieldKey') fieldKey: string,
+  ) {
+    return ok(await this.service.getCustomFieldFileDownloadUrl(tenantId, moduleDefinitionId, id, fieldKey, user));
   }
 }

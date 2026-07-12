@@ -9,6 +9,7 @@ import { ApprovalWorkflowsModule } from '../approval-workflows/approval-workflow
 import { CustomFieldsModule } from '../custom-fields/custom-fields.module';
 import { ConfigEngineModule } from '../config-engine/config.module';
 import { EligibilityResolverModule } from '../common/eligibility/eligibility-resolver.module';
+import { StorageModule } from '../storage/storage.module';
 
 /**
  * Imports `EligibilityResolverModule` for row-level record visibility
@@ -22,7 +23,7 @@ import { EligibilityResolverModule } from '../common/eligibility/eligibility-res
  * comments.
  */
 @Module({
-  imports: [AuditModule, ApprovalWorkflowsModule, CustomFieldsModule, ConfigEngineModule, EligibilityResolverModule],
+  imports: [AuditModule, ApprovalWorkflowsModule, CustomFieldsModule, ConfigEngineModule, EligibilityResolverModule, StorageModule],
   controllers: [DynamicModuleDefinitionsController, DynamicModuleRecordsController, PublicSubmissionController],
   providers: [DynamicModuleDefinitionsService, DynamicModuleRecordsService],
   exports: [DynamicModuleDefinitionsService, DynamicModuleRecordsService],

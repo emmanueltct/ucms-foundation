@@ -96,6 +96,60 @@ export default function DynamicModulesAdminPage() {
   const [allowPublicSubmission, setAllowPublicSubmission] = useState(false);
   const [allowMemberAttachment, setAllowMemberAttachment] = useState(false);
 
+  // A module can't be created with zero attachments — every form must be
+  // deliberately given to someone/somewhere (a branch, department/group, a
+  // specific staff member, visitor, or member) at creation time, not left
+  // floating and reachable by nobody. The existing "Assign to…" panel below
+  // stays available afterward for adding more.
+  const [createScopeKind, setCreateScopeKind] = useState<ScopeKind>('branch');
+  const [createSelectedIds, setCreateSelectedIds] = useState<Set<string>>(new Set());
+  const [createAllSelected, setCreateAllSelected] = useState(false);
+  const [createUsers, setCreateUsers] = useState<AppUser[]>([]);
+  const [createVisitors, setCreateVisitors] = useState<Visitor[]>([]);
+  const [createMembers, setCreateMembers] = useState<Member[]>([]);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    if (createScopeKind === 'user' && createUsers.length === 0) {
+      usersApi.list(TENANT_SLUG).then((res) => {
+        if (res.success && res.data) setCreateUsers(res.data);
+      });
+    } else if (createScopeKind === 'visitor' && createVisitors.length === 0) {
+      visitorsApi.list(TENANT_SLUG).then((res) => {
+        if (res.success && res.data) setCreateVisitors(res.data);
+      });
+    } else if (createScopeKind === 'member' && createMembers.length === 0) {
+      membersApi.list(TENANT_SLUG).then((res) => {
+        if (res.success && res.data) setCreateMembers(res.data);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createScopeKind]);
+
+  const createSingleEntityKind = createScopeKind === 'user' || createScopeKind === 'visitor' || createScopeKind === 'member';
+
+  function createOptionsFor(kind: ScopeKind): { id: string; label: string }[] {
+    if (kind === 'branch') return branches.map((b) => ({ id: b.id, label: b.name }));
+    if (kind === 'ministry') return ministries.map((m) => ({ id: m.id, label: m.name }));
+    if (kind === 'small_group') return smallGroups.map((g) => ({ id: g.id, label: g.name }));
+    if (kind === 'user_category') return userCategories.map((c) => ({ id: c.id, label: c.label }));
+    if (kind === 'user') return createUsers.map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName}` }));
+    if (kind === 'visitor') return createVisitors.map((v) => ({ id: v.id, label: `${v.firstName} ${v.lastName}` }));
+    return createMembers.map((m) => ({ id: m.id, label: `${m.firstName} ${m.lastName}` }));
+  }
+
+  function toggleCreateId(id: string) {
+    setCreateSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const createOptions = createOptionsFor(createScopeKind);
+  const hasAttachTarget = createAllSelected ? createOptions.length > 0 : createSelectedIds.size > 0;
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -137,7 +191,8 @@ export default function DynamicModulesAdminPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!label.trim() || !key.trim()) return;
+    if (!label.trim() || !key.trim() || !hasAttachTarget) return;
+    setCreating(true);
     try {
       const res = await dynamicModuleDefinitionsApi.create(TENANT_SLUG, {
         key: key.trim(),
@@ -151,7 +206,22 @@ export default function DynamicModulesAdminPage() {
         allowPublicSubmission,
         allowMemberAttachment,
       });
-      if (res.success) {
+      if (res.success && res.data) {
+        const targetIds = createAllSelected ? createOptions.map((o) => o.id) : Array.from(createSelectedIds);
+        const attachResults = await Promise.all(
+          targetIds.map((id) =>
+            resourceAssignmentsApi.create(TENANT_SLUG, {
+              scopeEntityType: createScopeKind,
+              scopeEntityId: id,
+              resourceType: FORM_RESOURCE_TYPE,
+              resourceKey: res.data!.id,
+            }),
+          ),
+        );
+        const failedAttach = attachResults.find((r) => !r.success);
+        if (failedAttach) {
+          setError(`Module created, but some attachments could not be saved: ${failedAttach.error?.message ?? 'unknown error'}`);
+        }
         setLabel('');
         setKey('');
         setKeyEdited(false);
@@ -163,12 +233,17 @@ export default function DynamicModulesAdminPage() {
         setShowInNav(false);
         setAllowPublicSubmission(false);
         setAllowMemberAttachment(false);
+        setCreateScopeKind('branch');
+        setCreateSelectedIds(new Set());
+        setCreateAllSelected(false);
         load();
       } else {
         setError(res.error?.message ?? 'Could not create the module.');
       }
     } catch {
       setError('Could not reach the server. Check the API is running.');
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -316,7 +391,90 @@ export default function DynamicModulesAdminPage() {
               </Label>
             </div>
           </div>
-          <Button type="submit" style={{ backgroundColor: '#1E2A44' }}>Create module</Button>
+
+          <div className="pt-3 border-t border-slate-100">
+            <Label className="mb-1 text-slate-600">Attach to (required)</Label>
+            <p className="text-xs text-slate-400 mb-2">Who should this form reach? Add more later from "Assign to…" below.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+              <select
+                value={createScopeKind}
+                onChange={(e) => {
+                  setCreateScopeKind(e.target.value as ScopeKind);
+                  setCreateSelectedIds(new Set());
+                  setCreateAllSelected(false);
+                }}
+                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-sm text-slate-700"
+              >
+                {SCOPE_KINDS.map((k) => (
+                  <option key={k.value} value={k.value}>{k.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {createSingleEntityKind ? (
+              <>
+                {createScopeKind === 'user' && (
+                  <UserSearchPicker
+                    users={createUsers}
+                    value={Array.from(createSelectedIds)[0] ?? ''}
+                    onChange={(id) => setCreateSelectedIds(id ? new Set([id]) : new Set())}
+                  />
+                )}
+                {createScopeKind === 'visitor' && (
+                  <VisitorSearchPicker
+                    visitors={createVisitors}
+                    value={Array.from(createSelectedIds)[0] ?? ''}
+                    onChange={(id) => setCreateSelectedIds(id ? new Set([id]) : new Set())}
+                  />
+                )}
+                {createScopeKind === 'member' && (
+                  <MemberSearchPicker
+                    members={createMembers}
+                    value={Array.from(createSelectedIds)[0] ?? ''}
+                    onChange={(id) => setCreateSelectedIds(id ? new Set([id]) : new Set())}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                <label className="flex items-center gap-2 text-xs text-slate-600 mb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={createAllSelected}
+                    onChange={(e) => {
+                      setCreateAllSelected(e.target.checked);
+                      setCreateSelectedIds(new Set());
+                    }}
+                  />
+                  All {SCOPE_KINDS.find((k) => k.value === createScopeKind)?.plural} currently in this church
+                </label>
+                {!createAllSelected && (
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                    {createOptions.length === 0 ? (
+                      <p className="text-xs text-slate-400">None defined yet.</p>
+                    ) : (
+                      createOptions.map((o) => (
+                        <button
+                          key={o.id}
+                          type="button"
+                          onClick={() => toggleCreateId(o.id)}
+                          className={`text-xs font-medium px-2.5 py-1 rounded-full border ${
+                            createSelectedIds.has(o.id) ? 'border-[#1E2A44] bg-[#1E2A44]/5 text-[#1E2A44]' : 'border-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {o.label}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <Button type="submit" disabled={creating || !hasAttachTarget} style={{ backgroundColor: '#1E2A44' }}>
+            {creating ? 'Creating…' : 'Create module'}
+          </Button>
         </form>
 
         {error && (

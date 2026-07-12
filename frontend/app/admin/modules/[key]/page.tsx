@@ -13,6 +13,11 @@
 // (branch/department/ministry) resolved live from its creator's own current
 // assignment (`DynamicModuleRecord.creatorContext`, backed by
 // `DynamicModuleRecordsService.resolveCreatorContextsFor`).
+//
+// The table renders full-width; clicking a row opens its full detail (edit
+// fields incl. file uploads, change status, attach members) in a popup
+// modal rather than a permanent side panel, so the table itself always has
+// room to show every column without a cramped half-width scroll.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -32,6 +37,7 @@ import {
 } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
+import { Modal } from '../../../../components/ui/modal';
 import { DynamicCustomFields } from '../../../../components/dynamic-custom-fields';
 import { MemberSearchPicker } from '../../../../components/member-search-picker';
 import { AccessDenied } from '../../../../components/access-denied';
@@ -211,6 +217,39 @@ export default function DynamicModuleRecordsPage() {
     }
   }
 
+  async function handleFieldChange(fieldKey: string, value: unknown) {
+    if (!definition || !selectedRecord) return;
+    try {
+      const res = await dynamicModuleRecordsApi.update(TENANT_SLUG, definition.id, selectedRecord.id, { customFields: { [fieldKey]: value } });
+      if (res.success) load();
+      else setError(res.error?.message ?? 'Could not save that field.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function handleUploadFile(fieldKey: string, file: File) {
+    if (!definition || !selectedRecord) return;
+    try {
+      const res = await dynamicModuleRecordsApi.uploadFile(TENANT_SLUG, definition.id, selectedRecord.id, fieldKey, file);
+      if (res.success) load();
+      else setError(res.error?.message ?? 'Could not upload the file.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
+  async function handleDownloadFile(fieldKey: string) {
+    if (!definition || !selectedRecord) return;
+    try {
+      const res = await dynamicModuleRecordsApi.getFileDownloadUrl(TENANT_SLUG, definition.id, selectedRecord.id, fieldKey);
+      if (res.success && res.data) window.open(res.data.url, '_blank');
+      else setError(res.error?.message ?? 'Could not get a download link.');
+    } catch {
+      setError('Could not reach the server. Check the API is running.');
+    }
+  }
+
   async function handleRemove(id: string) {
     if (!definition) return;
     try {
@@ -234,7 +273,7 @@ export default function DynamicModuleRecordsPage() {
     return parts.length > 0 ? parts.join(' · ') : 'Church-wide';
   }
 
-  /** No generic "title" is collected anymore (the create form only asks for admin-defined fields), so identify a record by the actual values filled in — in the order the admin defined those fields — rather than a meaningless id fragment. Used only for the detail panel's single-line heading; the table itself gives every field its own column (see fieldDisplayValue). */
+  /** No generic "title" is collected anymore (the create form only asks for admin-defined fields), so identify a record by the actual values filled in — in the order the admin defined those fields — rather than a meaningless id fragment. Used only for the modal's heading; the table itself gives every field its own column (see fieldDisplayValue). */
   function recordLabel(record: DynamicModuleRecord): string {
     if (record.title) return record.title;
     const parts = sortedFieldDefinitions
@@ -295,7 +334,7 @@ export default function DynamicModuleRecordsPage() {
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">
-      <div className="max-w-5xl mx-auto px-6 py-12">
+      <div className="max-w-7xl mx-auto px-6 py-12">
         <header className="mb-8">
           <p className="text-xs uppercase tracking-wide text-[#C9A24B] font-medium mb-1">Dynamic Module</p>
           <h1 className="font-serif text-3xl text-[#1E2A44]">{definition?.label ?? '…'}</h1>
@@ -308,7 +347,7 @@ export default function DynamicModuleRecordsPage() {
           </div>
         )}
 
-        <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-4 mb-6 space-y-3">
+        <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-4 mb-6 space-y-3 max-w-3xl">
           <DynamicCustomFields definitions={fieldDefinitions} values={customFieldValues} onChange={(k, v) => setCustomFieldValues((prev) => ({ ...prev, [k]: v }))} />
           <Button type="submit" style={{ backgroundColor: '#1E2A44' }}>Create record</Button>
         </form>
@@ -318,7 +357,6 @@ export default function DynamicModuleRecordsPage() {
         )}
 
         {!isTargetedRequest && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             {loading ? (
               <div className="px-4 py-8 text-center text-sm text-slate-400">Loading…</div>
@@ -343,9 +381,7 @@ export default function DynamicModuleRecordsPage() {
                       <tr
                         key={r.id}
                         onClick={() => selectRecord(r)}
-                        className={`cursor-pointer border-b border-slate-50 last:border-0 ${
-                          selectedId === r.id ? 'bg-[#1E2A44]/5' : 'hover:bg-slate-50'
-                        }`}
+                        className="cursor-pointer border-b border-slate-50 last:border-0 hover:bg-slate-50"
                       >
                         {sortedFieldDefinitions.map((def) => (
                           <td key={def.id} className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">
@@ -373,70 +409,77 @@ export default function DynamicModuleRecordsPage() {
               </div>
             )}
           </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-4">
-            {!selectedRecord || !definition ? (
-              <div className="py-8 text-center text-sm text-slate-400">Select a record to change its status.</div>
-            ) : (
-              <>
-                <h2 className="font-serif text-lg text-[#1E2A44] mb-1">{recordLabel(selectedRecord)}</h2>
-                <p className="text-xs text-slate-400 mb-3">Current status: {selectedRecord.status}</p>
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {definition.statuses
-                    .filter((s) => s !== selectedRecord.status)
-                    .map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => handleChangeStatus(selectedRecord, s)}
-                        className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
-                      >
-                        Move to {s}
-                      </button>
-                    ))}
-                </div>
-
-                {definition.allowMemberAttachment && (
-                  <>
-                    <h3 className="text-sm font-medium text-slate-700 mb-2">Members</h3>
-                    <form onSubmit={handleAddMember} className="space-y-2 mb-3">
-                      <MemberSearchPicker members={members} value={newMemberId} onChange={setNewMemberId} />
-                      <div className="flex gap-2">
-                        <Input value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} placeholder="role (e.g. leader, member)" className="flex-1" />
-                        <Button type="submit" size="sm" style={{ backgroundColor: '#1E2A44' }} disabled={!newMemberId}>
-                          Add
-                        </Button>
-                      </div>
-                    </form>
-
-                    {membershipsLoading ? (
-                      <div className="py-4 text-center text-sm text-slate-400">Loading…</div>
-                    ) : recordMemberships.length === 0 ? (
-                      <div className="py-4 text-center text-sm text-slate-400">No members yet.</div>
-                    ) : (
-                      <div className="divide-y divide-slate-50">
-                        {recordMemberships.map((m) => (
-                          <div key={m.id} className="flex items-center justify-between py-2">
-                            <div>
-                              <p className={`text-sm font-medium ${m.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{memberName(m.memberId)}</p>
-                              <p className="text-xs text-slate-400">{m.role.replace(/_/g, ' ')}</p>
-                            </div>
-                            <button
-                              onClick={() => handleRemoveMember(m.id)}
-                              className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </div>
         )}
+
+        <Modal open={!!selectedRecord} onClose={() => setSelectedId(null)} title={selectedRecord ? recordLabel(selectedRecord) : undefined}>
+          {selectedRecord && definition && (
+            <>
+              <p className="text-xs text-slate-400 mb-4">Current status: {selectedRecord.status}</p>
+              <div className="flex flex-wrap gap-2 mb-6">
+                {definition.statuses
+                  .filter((s) => s !== selectedRecord.status)
+                  .map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => handleChangeStatus(selectedRecord, s)}
+                      className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-slate-300"
+                    >
+                      Move to {s}
+                    </button>
+                  ))}
+              </div>
+
+              <div className="mb-6 pb-6 border-b border-slate-100">
+                <DynamicCustomFields
+                  definitions={fieldDefinitions}
+                  values={selectedRecord.customFields}
+                  onChange={handleFieldChange}
+                  entityId={selectedRecord.id}
+                  onUploadFile={handleUploadFile}
+                  onDownloadFile={handleDownloadFile}
+                />
+              </div>
+
+              {definition.allowMemberAttachment && (
+                <>
+                  <h3 className="text-sm font-medium text-slate-700 mb-2">Members</h3>
+                  <form onSubmit={handleAddMember} className="space-y-2 mb-3">
+                    <MemberSearchPicker members={members} value={newMemberId} onChange={setNewMemberId} />
+                    <div className="flex gap-2">
+                      <Input value={newMemberRole} onChange={(e) => setNewMemberRole(e.target.value)} placeholder="role (e.g. leader, member)" className="flex-1" />
+                      <Button type="submit" size="sm" style={{ backgroundColor: '#1E2A44' }} disabled={!newMemberId}>
+                        Add
+                      </Button>
+                    </div>
+                  </form>
+
+                  {membershipsLoading ? (
+                    <div className="py-4 text-center text-sm text-slate-400">Loading…</div>
+                  ) : recordMemberships.length === 0 ? (
+                    <div className="py-4 text-center text-sm text-slate-400">No members yet.</div>
+                  ) : (
+                    <div className="divide-y divide-slate-50">
+                      {recordMemberships.map((m) => (
+                        <div key={m.id} className="flex items-center justify-between py-2">
+                          <div>
+                            <p className={`text-sm font-medium ${m.isActive ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{memberName(m.memberId)}</p>
+                            <p className="text-xs text-slate-400">{m.role.replace(/_/g, ' ')}</p>
+                          </div>
+                          <button
+                            onClick={() => handleRemoveMember(m.id)}
+                            className="text-xs font-medium px-3 py-1 rounded-full border border-slate-200 text-slate-600 hover:border-red-300 hover:text-red-600"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </Modal>
       </div>
     </div>
   );
