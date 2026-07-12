@@ -20,9 +20,17 @@ export interface EligibilityScope {
  * DOWN to descendants — note this is the OPPOSITE roll-up direction from
  * `BranchScopeService`'s descendant-based visibility, easy to mix up),
  * their department + its ancestors, every `LeadershipAppointment` target,
- * and their `userCategory`. Members/Visitors/Guests are deliberately out of
- * scope here — they aren't `User` rows and are already served by the
- * existing public/guest-submission mechanism (Phase 8).
+ * their `userCategory`, themselves directly (`'user'` scope — a request can
+ * be aimed at one specific staff member), and every Visitor they're the
+ * follow-up assignee for (`'visitor'` scope, via `Visitor.assignedToUserId`
+ * — a request to collect data about that one visitor). `'member'` requests
+ * are deliberately NOT resolved as a per-user scope here: a form attached to
+ * a Member falls back to "whoever has branch access to that member," which
+ * is a join against the caller's already-resolved branch scopes rather than
+ * a direct personal assignment — see `resolveResourcesFor`. Members/Visitors/
+ * Guests are still never themselves eligibility *subjects* here — they
+ * aren't `User` rows and can't log in to see a "My Forms" list; they are
+ * only ever request *targets*, surfaced to the staff responsible for them.
  */
 @Injectable()
 export class EligibilityResolverService {
@@ -38,6 +46,17 @@ export class EligibilityResolverService {
       select: { assignedBranchId: true, assignedDepartmentRecordId: true, userCategory: true },
     });
     if (!user) return scopes;
+
+    // Every user is always "scoped to themselves" — lets an admin request a
+    // form directly from one specific staff member, reusing the same
+    // ResourceAssignment/eligibility mechanism as every other scope kind.
+    scopes.push({ scopeEntityType: 'user', scopeEntityId: userId });
+
+    const assignedVisitors = await this.prisma.visitor.findMany({
+      where: { tenantId, assignedToUserId: userId, deletedAt: null },
+      select: { id: true },
+    });
+    for (const v of assignedVisitors) scopes.push({ scopeEntityType: 'visitor', scopeEntityId: v.id });
 
     if (user.assignedBranchId) {
       scopes.push({ scopeEntityType: 'branch', scopeEntityId: user.assignedBranchId });
@@ -93,6 +112,34 @@ export class EligibilityResolverService {
         }
       }
     }
+
+    // "Attached to a Member" requests don't fall to one direct assignee —
+    // they fall back to whoever has branch access to that member, so this
+    // can't be expressed as a plain scope the caller "belongs to" the way
+    // every other scope kind above is. Join instead: every member-scoped
+    // assignment of this resourceType, kept only if the member's branch is
+    // one the caller is already scoped to.
+    const branchIds = scopes.filter((s) => s.scopeEntityType === 'branch').map((s) => s.scopeEntityId);
+    if (branchIds.length > 0) {
+      const memberAssignments = await this.prisma.resourceAssignment.findMany({
+        where: { tenantId, scopeEntityType: 'member', resourceType },
+      });
+      if (memberAssignments.length > 0) {
+        const memberIds = memberAssignments.map((a) => a.scopeEntityId);
+        const membersInScope = await this.prisma.member.findMany({
+          where: { id: { in: memberIds }, tenantId, branchId: { in: branchIds } },
+          select: { id: true },
+        });
+        const memberIdsInScope = new Set(membersInScope.map((m) => m.id));
+        for (const assignment of memberAssignments) {
+          if (memberIdsInScope.has(assignment.scopeEntityId) && !seen.has(assignment.id)) {
+            seen.add(assignment.id);
+            results.push(assignment);
+          }
+        }
+      }
+    }
+
     return results;
   }
 
@@ -110,7 +157,20 @@ export class EligibilityResolverService {
   async resolveUsersEligibleForScope(tenantId: string, scopeEntityType: string, scopeEntityId: string): Promise<string[]> {
     const userIds = new Set<string>();
 
-    if (scopeEntityType === 'branch') {
+    if (scopeEntityType === 'user') {
+      userIds.add(scopeEntityId);
+    } else if (scopeEntityType === 'visitor') {
+      const visitor = await this.prisma.visitor.findFirst({ where: { id: scopeEntityId, tenantId }, select: { assignedToUserId: true } });
+      if (visitor?.assignedToUserId) userIds.add(visitor.assignedToUserId);
+    } else if (scopeEntityType === 'member') {
+      const member = await this.prisma.member.findFirst({ where: { id: scopeEntityId, tenantId }, select: { branchId: true } });
+      if (member) {
+        const descendants = await this.branchDescendants(tenantId, member.branchId);
+        const branchIds = [member.branchId, ...descendants.map((d) => d.id)];
+        const users = await this.prisma.user.findMany({ where: { tenantId, assignedBranchId: { in: branchIds } }, select: { id: true } });
+        users.forEach((u) => userIds.add(u.id));
+      }
+    } else if (scopeEntityType === 'branch') {
       const descendants = await this.branchDescendants(tenantId, scopeEntityId);
       const branchIds = [scopeEntityId, ...descendants.map((d) => d.id)];
       const users = await this.prisma.user.findMany({ where: { tenantId, assignedBranchId: { in: branchIds } }, select: { id: true } });

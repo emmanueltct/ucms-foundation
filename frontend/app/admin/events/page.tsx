@@ -11,6 +11,7 @@ import {
   branchesApi,
   membersApi,
   configApi,
+  isAccessDeniedResponse,
   Event,
   EventRegistration,
   Branch,
@@ -19,6 +20,7 @@ import {
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -29,6 +31,7 @@ export default function EventsAdminPage() {
   const [eventTypes, setEventTypes] = useState<{ key: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [name, setName] = useState('');
   const [eventType, setEventType] = useState('');
@@ -55,6 +58,10 @@ export default function EventsAdminPage() {
         membersApi.list(TENANT_SLUG, {}),
         configApi.listByNamespace(TENANT_SLUG, 'event_type'),
       ]);
+      if (isAccessDeniedResponse(eventsRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (eventsRes.success && eventsRes.data) setEvents(eventsRes.data);
       else setError(eventsRes.error?.message ?? 'Could not load events.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
@@ -183,6 +190,8 @@ export default function EventsAdminPage() {
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null;
   const activeRosterCount = roster.filter((r) => r.status !== 'cancelled').length;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

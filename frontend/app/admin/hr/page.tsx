@@ -6,10 +6,11 @@
 // reason, never edited once paid.
 
 import { useEffect, useState } from 'react';
-import { staffApi, payrollApi, branchesApi, membersApi, configApi, Staff, PayrollPayment, Branch, Member } from '../../../lib/api';
+import { staffApi, payrollApi, branchesApi, membersApi, configApi, isAccessDeniedResponse, Staff, PayrollPayment, Branch, Member } from '../../../lib/api';
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church';
 const EMPLOYMENT_TYPES = ['full_time', 'part_time', 'contract', 'volunteer_stipend'];
@@ -22,6 +23,7 @@ export default function HrAdminPage() {
   const [departments, setDepartments] = useState<{ key: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -51,6 +53,10 @@ export default function HrAdminPage() {
         configApi.listByNamespace(TENANT_SLUG, 'staff_position'),
         configApi.listByNamespace(TENANT_SLUG, 'department'),
       ]);
+      if (isAccessDeniedResponse(staffRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (staffRes.success && staffRes.data) setStaff(staffRes.data);
       else setError(staffRes.error?.message ?? 'Could not load staff.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
@@ -193,6 +199,8 @@ export default function HrAdminPage() {
   }
 
   const selectedStaff = staff.find((s) => s.id === selectedStaffId) ?? null;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

@@ -6,7 +6,8 @@
 // through the generic Configuration Engine — no code change required.
 
 import { useEffect, useState } from 'react';
-import { configApi } from '../../../lib/api';
+import { configApi, isAccessDeniedResponse } from '../../../lib/api';
+import { AccessDenied } from '../../../components/access-denied';
 
 const NAMESPACES = [
   { value: 'branch_type', label: 'Branch Types' },
@@ -46,11 +47,17 @@ export default function ConfigAdminPage() {
   const [loading, setLoading] = useState(false);
   const [newLabel, setNewLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   async function load() {
     setLoading(true);
     setError(null);
     const res = await configApi.listByNamespace(TENANT_SLUG, namespace);
+    if (isAccessDeniedResponse(res)) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     if (res.success && res.data) {
       setItems(res.data as ConfigItem[]);
     } else {
@@ -85,6 +92,8 @@ export default function ConfigAdminPage() {
   }
 
   const currentLabel = NAMESPACES.find((n) => n.value === namespace)?.label ?? namespace;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

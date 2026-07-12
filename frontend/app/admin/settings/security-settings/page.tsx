@@ -9,11 +9,12 @@
 // sessions behave exactly as before until an admin opts in.
 
 import { useEffect, useState } from 'react';
-import { getCurrentTenant, securitySettingsApi, SecuritySettings } from '../../../../lib/api';
+import { getCurrentTenant, securitySettingsApi, isAccessDeniedResponse, SecuritySettings } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
 import { Lock } from 'lucide-react';
+import { AccessDenied } from '../../../../components/access-denied';
 
 type FormState = { [K in keyof SecuritySettings]: string };
 
@@ -60,12 +61,18 @@ export default function SecuritySettingsAdminPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     if (!tenantSlug) return;
     (async () => {
       setLoading(true);
       const res = await securitySettingsApi.get(tenantSlug);
+      if (isAccessDeniedResponse(res)) {
+        setAccessDenied(true);
+        setLoading(false);
+        return;
+      }
       if (res.success) {
         const s = res.data;
         setForm({
@@ -98,6 +105,8 @@ export default function SecuritySettingsAdminPage() {
     else setError(res.error?.message ?? 'Could not save security settings.');
     setSaving(false);
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="max-w-2xl mx-auto px-8 py-10">

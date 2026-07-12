@@ -6,10 +6,11 @@
 // at tenant creation time, and are now editable here too.
 
 import { useEffect, useState } from 'react';
-import { tenantApi, getCurrentTenant, TenantProfile } from '../../../../lib/api';
+import { tenantApi, getCurrentTenant, isAccessDeniedResponse, TenantProfile } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
+import { AccessDenied } from '../../../../components/access-denied';
 
 export default function SystemSettingsPage() {
   const tenant = getCurrentTenant();
@@ -21,11 +22,17 @@ export default function SystemSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     if (!tenant) return;
     setLoading(true);
     tenantApi.getProfile(tenant.slug).then((res) => {
+      if (isAccessDeniedResponse(res)) {
+        setAccessDenied(true);
+        setLoading(false);
+        return;
+      }
       if (res.success && res.data) {
         setProfile(res.data);
         setCurrency(res.data.currency);
@@ -53,6 +60,8 @@ export default function SystemSettingsPage() {
     }
     setSaving(false);
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

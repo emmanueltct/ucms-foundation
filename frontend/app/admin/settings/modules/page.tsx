@@ -8,23 +8,32 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { dynamicModuleDefinitionsApi, getCurrentTenant, DynamicModuleDefinition } from '../../../../lib/api';
+import { dynamicModuleDefinitionsApi, getCurrentTenant, isAccessDeniedResponse, DynamicModuleDefinition } from '../../../../lib/api';
+import { AccessDenied } from '../../../../components/access-denied';
 
 export default function ModulesCatalogPage() {
   const tenant = getCurrentTenant();
   const [modules, setModules] = useState<DynamicModuleDefinition[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     if (!tenant) return;
     setLoading(true);
     dynamicModuleDefinitionsApi.list(tenant.slug, undefined, true).then((res) => {
+      if (isAccessDeniedResponse(res)) {
+        setAccessDenied(true);
+        setLoading(false);
+        return;
+      }
       if (res.success && res.data) setModules(res.data);
       else setError(res.error?.message ?? 'Could not load modules.');
       setLoading(false);
     });
   }, [tenant?.slug]);
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

@@ -11,6 +11,7 @@ import {
   branchesApi,
   membersApi,
   configApi,
+  isAccessDeniedResponse,
   Ministry,
   MinistryMembership,
   Branch,
@@ -19,6 +20,7 @@ import {
 import { Button } from '../../../components/ui/button';
 import { Input } from '../../../components/ui/input';
 import { Label } from '../../../components/ui/label';
+import { AccessDenied } from '../../../components/access-denied';
 
 const TENANT_SLUG = 'demo-church'; // in production this comes from the resolved workspace/domain
 const ROLES = ['leader', 'volunteer', 'member'];
@@ -30,6 +32,7 @@ export default function MinistriesAdminPage() {
   const [ministryTypes, setMinistryTypes] = useState<{ key: string; label: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [name, setName] = useState('');
   const [ministryType, setMinistryType] = useState('');
@@ -51,6 +54,10 @@ export default function MinistriesAdminPage() {
         membersApi.list(TENANT_SLUG, {}),
         configApi.listByNamespace(TENANT_SLUG, 'ministry_type'),
       ]);
+      if (isAccessDeniedResponse(ministriesRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (ministriesRes.success && ministriesRes.data) setMinistries(ministriesRes.data);
       else setError(ministriesRes.error?.message ?? 'Could not load ministries.');
       if (branchesRes.success && branchesRes.data) setBranches(branchesRes.data);
@@ -163,6 +170,8 @@ export default function MinistriesAdminPage() {
   }
 
   const selectedMinistry = ministries.find((m) => m.id === selectedMinistryId) ?? null;
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">

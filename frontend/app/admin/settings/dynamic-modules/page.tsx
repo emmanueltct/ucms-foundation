@@ -18,17 +18,28 @@ import {
   ministriesApi,
   smallGroupsApi,
   configApi,
+  usersApi,
+  visitorsApi,
+  membersApi,
+  isAccessDeniedResponse,
   DynamicModuleDefinition,
   ApprovalWorkflow,
   ResourceAssignment,
   Branch,
   Ministry,
   SmallGroup,
+  AppUser,
+  Visitor,
+  Member,
 } from '../../../../lib/api';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
 import { IconPicker } from '../../../../components/icon-picker';
+import { AccessDenied } from '../../../../components/access-denied';
+import { UserSearchPicker } from '../../../../components/user-search-picker';
+import { VisitorSearchPicker } from '../../../../components/visitor-search-picker';
+import { MemberSearchPicker } from '../../../../components/member-search-picker';
 
 const TENANT_SLUG = 'demo-church';
 
@@ -40,13 +51,17 @@ interface UserCategoryOption {
   label: string;
 }
 
-type ScopeKind = 'branch' | 'ministry' | 'small_group' | 'user_category';
+type ScopeKind = 'branch' | 'ministry' | 'small_group' | 'user_category' | 'user' | 'visitor' | 'member';
 
+/** 'user'/'visitor'/'member' target one specific person/record via a search-picker (see ModuleAssignmentPanel) — "assign to all" isn't a meaningful action for them the way it is for the other four, so `plural` goes unused for those three. */
 const SCOPE_KINDS: { value: ScopeKind; label: string; plural: string }[] = [
   { value: 'branch', label: 'Branch', plural: 'branches' },
   { value: 'ministry', label: 'Ministry (e.g. Choir)', plural: 'ministries' },
   { value: 'small_group', label: 'Small Group (e.g. Family Group)', plural: 'small groups' },
   { value: 'user_category', label: 'User Category', plural: 'user categories' },
+  { value: 'user', label: 'Staff member', plural: 'staff members' },
+  { value: 'visitor', label: 'Visitor', plural: 'visitors' },
+  { value: 'member', label: 'Member', plural: 'members' },
 ];
 
 function slugify(label: string): string {
@@ -67,6 +82,7 @@ export default function DynamicModulesAdminPage() {
   const [expandedAssignId, setExpandedAssignId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [label, setLabel] = useState('');
   const [key, setKey] = useState('');
@@ -92,6 +108,10 @@ export default function DynamicModulesAdminPage() {
         smallGroupsApi.list(TENANT_SLUG),
         configApi.listByNamespace(TENANT_SLUG, 'user_category'),
       ]);
+      if (isAccessDeniedResponse(modulesRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (modulesRes.success && modulesRes.data) setModules(modulesRes.data);
       else setError(modulesRes.error?.message ?? 'Could not load modules.');
       if (workflowsRes.success && workflowsRes.data) setWorkflows(workflowsRes.data);
@@ -201,6 +221,8 @@ export default function DynamicModulesAdminPage() {
       setError('Could not reach the server. Check the API is running.');
     }
   }
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="min-h-screen bg-[#F7F6F2]">
@@ -426,11 +448,41 @@ function ModuleAssignmentPanel({
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Lazily loaded — only fetched the first time an admin actually picks
+  // "Staff member"/"Visitor"/"Member" as the assign-to kind, since these
+  // lists can be much larger than the branch/ministry/small-group/category
+  // lists already loaded up front by the parent page.
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [entityMembers, setEntityMembers] = useState<Member[]>([]);
+
+  useEffect(() => {
+    if (scopeKind === 'user' && users.length === 0) {
+      usersApi.list(TENANT_SLUG).then((res) => {
+        if (res.success && res.data) setUsers(res.data);
+      });
+    } else if (scopeKind === 'visitor' && visitors.length === 0) {
+      visitorsApi.list(TENANT_SLUG).then((res) => {
+        if (res.success && res.data) setVisitors(res.data);
+      });
+    } else if (scopeKind === 'member' && entityMembers.length === 0) {
+      membersApi.list(TENANT_SLUG).then((res) => {
+        if (res.success && res.data) setEntityMembers(res.data);
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKind]);
+
+  const singleEntityKind = scopeKind === 'user' || scopeKind === 'visitor' || scopeKind === 'member';
+
   function optionsFor(kind: ScopeKind): { id: string; label: string }[] {
     if (kind === 'branch') return branches.map((b) => ({ id: b.id, label: b.name }));
     if (kind === 'ministry') return ministries.map((m) => ({ id: m.id, label: m.name }));
     if (kind === 'small_group') return smallGroups.map((g) => ({ id: g.id, label: g.name }));
-    return userCategories.map((c) => ({ id: c.id, label: c.label }));
+    if (kind === 'user_category') return userCategories.map((c) => ({ id: c.id, label: c.label }));
+    if (kind === 'user') return users.map((u) => ({ id: u.id, label: `${u.firstName} ${u.lastName}` }));
+    if (kind === 'visitor') return visitors.map((v) => ({ id: v.id, label: `${v.firstName} ${v.lastName}` }));
+    return entityMembers.map((m) => ({ id: m.id, label: `${m.firstName} ${m.lastName}` }));
   }
 
   async function loadAssignments() {
@@ -495,7 +547,7 @@ function ModuleAssignmentPanel({
 
   function assignmentLabel(a: ResourceAssignment): string {
     const kind = a.scopeEntityType as ScopeKind;
-    const options = ['branch', 'ministry', 'small_group', 'user_category'].includes(kind) ? optionsFor(kind) : [];
+    const options = SCOPE_KINDS.some((k) => k.value === kind) ? optionsFor(kind) : [];
     const name = options.find((o) => o.id === a.scopeEntityId)?.label ?? a.scopeEntityId;
     const kindLabel = SCOPE_KINDS.find((k) => k.value === kind)?.label ?? kind;
     return `${kindLabel}: ${name}`;
@@ -538,19 +590,48 @@ function ModuleAssignmentPanel({
           </div>
 
           <div>
-            <label className="flex items-center gap-2 text-xs text-slate-600 mb-1.5">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={(e) => {
-                  setAllSelected(e.target.checked);
-                  setSelectedIds(new Set());
-                }}
-              />
-              All {SCOPE_KINDS.find((k) => k.value === scopeKind)?.plural} currently in this church
-              {scopeKind !== 'branch' && ' (reaches each one\'s assigned leader)'}
-            </label>
-            {!allSelected && (
+            {singleEntityKind ? (
+              <>
+                <Label className="mb-1 text-slate-600">
+                  {scopeKind === 'user' ? 'Which staff member' : scopeKind === 'visitor' ? 'Which visitor' : 'Which member'}
+                </Label>
+                {scopeKind === 'user' && (
+                  <UserSearchPicker
+                    users={users}
+                    value={Array.from(selectedIds)[0] ?? ''}
+                    onChange={(id) => setSelectedIds(id ? new Set([id]) : new Set())}
+                  />
+                )}
+                {scopeKind === 'visitor' && (
+                  <VisitorSearchPicker
+                    visitors={visitors}
+                    value={Array.from(selectedIds)[0] ?? ''}
+                    onChange={(id) => setSelectedIds(id ? new Set([id]) : new Set())}
+                  />
+                )}
+                {scopeKind === 'member' && (
+                  <MemberSearchPicker
+                    members={entityMembers}
+                    value={Array.from(selectedIds)[0] ?? ''}
+                    onChange={(id) => setSelectedIds(id ? new Set([id]) : new Set())}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                <label className="flex items-center gap-2 text-xs text-slate-600 mb-1.5">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={(e) => {
+                      setAllSelected(e.target.checked);
+                      setSelectedIds(new Set());
+                    }}
+                  />
+                  All {SCOPE_KINDS.find((k) => k.value === scopeKind)?.plural} currently in this church
+                  {scopeKind !== 'branch' && ' (reaches each one\'s assigned leader)'}
+                </label>
+                {!allSelected && (
               <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                 {currentOptions.length === 0 ? (
                   <p className="text-xs text-slate-400">None defined yet.</p>
@@ -569,6 +650,8 @@ function ModuleAssignmentPanel({
                   ))
                 )}
               </div>
+                )}
+              </>
             )}
           </div>
         </form>

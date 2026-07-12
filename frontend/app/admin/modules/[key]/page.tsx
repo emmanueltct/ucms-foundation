@@ -15,7 +15,8 @@
 // `DynamicModuleRecordsService.resolveCreatorContextsFor`).
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import Link from 'next/link';
+import { useParams, useSearchParams } from 'next/navigation';
 import {
   dynamicModuleDefinitionsApi,
   dynamicModuleRecordsApi,
@@ -39,7 +40,19 @@ const TENANT_SLUG = 'demo-church';
 
 export default function DynamicModuleRecordsPage() {
   const params = useParams<{ key: string }>();
+  const searchParams = useSearchParams();
   const moduleKey = params.key;
+
+  // Present when this page was opened from a request directly attached to
+  // one Visitor/Member (My Forms / the notification bell) — the created
+  // record auto-attaches to that entity instead of being a standalone
+  // submission, and the create form is replaced by a targeted "fill this
+  // for X" flow instead of the generic module page.
+  const targetEntityType = searchParams.get('attachedToEntityType');
+  const targetEntityId = searchParams.get('attachedToEntityId');
+  const targetEntityLabel = searchParams.get('label');
+  const isTargetedRequest = Boolean(targetEntityType && targetEntityId);
+  const [submitted, setSubmitted] = useState(false);
 
   const [definition, setDefinition] = useState<DynamicModuleDefinition | null>(null);
   const [records, setRecords] = useState<DynamicModuleRecord[]>([]);
@@ -65,6 +78,10 @@ export default function DynamicModuleRecordsPage() {
     setAccessDenied(false);
     try {
       const defRes = await dynamicModuleDefinitionsApi.getByKey(TENANT_SLUG, moduleKey);
+      if (isAccessDeniedResponse(defRes)) {
+        setAccessDenied(true);
+        return;
+      }
       if (!defRes.success || !defRes.data) {
         setNotFound(true);
         return;
@@ -161,10 +178,15 @@ export default function DynamicModuleRecordsPage() {
     try {
       const res = await dynamicModuleRecordsApi.create(TENANT_SLUG, definition.id, {
         customFields: customFieldValues,
+        ...(isTargetedRequest ? { attachedToEntityType: targetEntityType!, attachedToEntityId: targetEntityId! } : {}),
       });
       if (res.success) {
         setCustomFieldValues({});
-        load();
+        if (isTargetedRequest) {
+          setSubmitted(true);
+        } else {
+          load();
+        }
       } else {
         setError(res.error?.message ?? 'Could not create the record.');
       }
@@ -253,6 +275,22 @@ export default function DynamicModuleRecordsPage() {
     );
   }
 
+  if (isTargetedRequest && submitted) {
+    return (
+      <div className="min-h-screen bg-[#F7F6F2] flex items-center justify-center">
+        <div className="max-w-sm text-center px-6">
+          <p className="font-serif text-xl text-[#1E2A44] mb-1">Submitted — thanks</p>
+          <p className="text-sm text-slate-500 mb-4">
+            &quot;{definition?.label}&quot;{targetEntityLabel ? ` for ${targetEntityLabel}` : ''} has been recorded.
+          </p>
+          <Link href="/admin/my-forms" className="text-sm font-medium text-[#1E2A44] underline underline-offset-2">
+            Back to My Forms →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const selectedRecord = records.find((r) => r.id === selectedId) ?? null;
 
   return (
@@ -264,6 +302,12 @@ export default function DynamicModuleRecordsPage() {
           {definition?.description && <p className="text-sm text-slate-500 mt-2 max-w-xl">{definition.description}</p>}
         </header>
 
+        {isTargetedRequest && (
+          <div className="rounded-lg border border-[#C9A24B]/30 bg-[#C9A24B]/5 px-3 py-2 text-sm text-[#1E2A44] mb-4">
+            Filling this for: <span className="font-medium">{targetEntityLabel ?? targetEntityId}</span>
+          </div>
+        )}
+
         <form onSubmit={handleCreate} className="rounded-xl border border-slate-200 bg-white p-4 mb-6 space-y-3">
           <DynamicCustomFields definitions={fieldDefinitions} values={customFieldValues} onChange={(k, v) => setCustomFieldValues((prev) => ({ ...prev, [k]: v }))} />
           <Button type="submit" style={{ backgroundColor: '#1E2A44' }}>Create record</Button>
@@ -273,6 +317,7 @@ export default function DynamicModuleRecordsPage() {
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 mb-4">{error}</div>
         )}
 
+        {!isTargetedRequest && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
             {loading ? (
@@ -391,6 +436,7 @@ export default function DynamicModuleRecordsPage() {
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

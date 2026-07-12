@@ -17,8 +17,10 @@ import {
   menuItemsApi,
   rolesApi,
   Role,
+  isAccessDeniedResponse,
 } from '../../../../lib/api';
 import { IconPicker } from '../../../../components/icon-picker';
+import { AccessDenied } from '../../../../components/access-denied';
 
 const TARGET_TYPES: { value: MenuItemTargetType; label: string }[] = [
   { value: 'module', label: 'Built-in module' },
@@ -38,6 +40,7 @@ export default function MenusAdminPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [label, setLabel] = useState('');
   const [icon, setIcon] = useState('');
@@ -56,6 +59,11 @@ export default function MenusAdminPage() {
       rolesApi.list(tenantSlug),
       branchesApi.list(tenantSlug),
     ]);
+    if (isAccessDeniedResponse(itemsRes)) {
+      setAccessDenied(true);
+      setLoading(false);
+      return;
+    }
     if (itemsRes.success && itemsRes.data) setItems(itemsRes.data);
     else setError(itemsRes.error?.message ?? 'Could not load menu items.');
     if (rolesRes.success && rolesRes.data) setRoles(rolesRes.data);
@@ -122,6 +130,8 @@ export default function MenusAdminPage() {
 
   const topLevel = items.filter((i) => !i.parentMenuItemId);
   const childrenOf = (id: string) => items.filter((i) => i.parentMenuItemId === id);
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-12">
